@@ -3,7 +3,7 @@
            :author "Nathan Weir"
            :license "MIT"
            :version "0.0.1"
-           :depends-on ("jsonrpc")
+           :depends-on ("jsonrpc" "serapeum")
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")

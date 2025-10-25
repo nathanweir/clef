@@ -10,5 +10,5 @@
     `(jsonrpc:expose *server* ,endpoint-name
                      (lambda (args)
                          ;; From src/lsp/server.lisp
-                         (before-handle-request args)
+                         (before-handle-request ,endpoint-name args)
                          (funcall ,handler-lambda args))))

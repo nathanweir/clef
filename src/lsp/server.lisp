@@ -14,9 +14,13 @@
               "Whether the client has responded with initialized. The server only responds
 with ServerNotInitialized = -32002 before this occurs.")
 
-(defun before-handle-request (args)
+(defun before-handle-request (endpoint-name args)
+    (declare (ignore args))
     "Hook to run before handling any request."
-    (when (not *initialized*)
+    ;; Error if server not initialized, unless these are requests to the endpoints that handle initialization
+    (when (and (not (string= endpoint-name "initialize"))
+               (not (string= endpoint-name "initialized"))
+               (not *initialized*))
           (format t "Server not initialized yet.~%")
           ;; TODO: Seemingly this does in fact serface the correct kind of error response to the client, even
           ;; though I've done no managing of the result vs error prop in ResponseMessage
@@ -30,24 +34,8 @@ with ServerNotInitialized = -32002 before this occurs.")
 
 (defun start ()
     "Starts the CLEF LSP server."
+    ;; TODO: Spawn the server in a new thread, watch for crashes, and restart if that occurs.
+    ;; Also listen for & handle LSP messages to shut down / restart the server
     (format t "Starting CLEF LSP server on ~A:~A...~%" *lsp-host* *lsp-port*)
     (jsonrpc:server-listen *server* :port *lsp-port* :mode :tcp)
     (format t "Shutting down CLEF LSP server.~%"))
-;; (format t "CLEF LSP server is now listening on ~A:~A.~%" *lsp-host* *lsp-port*)
-;; Placeholder for server initialization logic
-
-;; The below is not necessary as server-listen does itself take over the
-;; main thread.
-
-;; Create a position just to verify it's possible
-;;    (let ((pos (make-instance 'clef-lsp/types/basic:position :line 10 :character 5)))
-;;        (format t "Created position: line=~A, character=~A~%"
-;;            (clef-lsp/types/basic:position-line pos)
-;;            (clef-lsp/types/basic:position-character pos)))
-;;    (format t "CLEF LSP server started successfully.~%")
-;;    (format t "Press ESC > Enter to stop the server...~%")
-;;    (loop
-;; for ch = (read-char)
-;; until (char= ch #\Esc)
-;; do (sleep 0.1))
-;;    (format t "ESC pressed. Shutting down server.~%"))
