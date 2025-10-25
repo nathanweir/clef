@@ -5,16 +5,7 @@
 ;; Defined by JSON-RPC
 ;; TODO: Not sure these are valuable to have here as the :jsonrpc lib
 ;; *should* handle these
-(defconstant +parse-error+ -32700
-             "Parse error (JSON-RPC).")
-(defconstant +invalid-request+ -32600
-             "Invalid request (JSON-RPC).")
-(defconstant +method-not-found+ -32601
-             "Method not found (JSON-RPC).")
-(defconstant +invalid-params+ -32602
-             "Invalid params (JSON-RPC).")
-(defconstant +internal-error+ -32603
-             "Internal error (JSON-RPC).")
+
 
 (defconstant +jsonrpc-reserved-error-range-start+ -32099
              "Start of JSON-RPC reserved error codes. Not a real error code. No LSP error codes should be defined between the start and end range. For backwards compatibility, +server-not-initialized+ and +unknown-error-code+ are left in the range. (since 3.16.0)")
