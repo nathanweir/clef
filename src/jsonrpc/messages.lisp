@@ -34,7 +34,7 @@
                             (setf content-length (parse-integer value :junk-allowed t))))))
         (unless content-length
             (error "Missing Content-Length header in LSP message"))
-        (format t "Read content-length header: ~A~%" content-length)
+        (slog :debug "Read content-length header: ~A" content-length)
         ;; Read content
         (let* ((buffer (make-array content-length :element-type '(unsigned-byte 8)))
                (nread (read-sequence buffer stream)))
@@ -45,23 +45,39 @@
                                 :id (gethash "id" message-hash)
                                 :method (gethash "method" message-hash)
                                 :params (gethash "params" message-hash))))
-                (format t "Read LSP message: ~A~%" message)
+                (slog :debug "Read LSP message: ~A" message)
                 message))))
 
-(defun write-lsp-message (id message stream)
+;; (defun write-lsp-message (id message stream)
+;;     "Write an LSP message to a binary stream according to LSP spec."
+;;     (let* ((json (com.inuoe.jzon:stringify
+;;                   (make-instance 'jsonrpc-response
+;;                       :result message
+;;                       :id id)
+;;                   :stream nil))
+;;            (bytes (babel:string-to-octets json :encoding :utf-8))
+;;            (length (length bytes))
+;;            (header (format nil "Content-Length: ~D~C~C~C~C"
+;;                        length #\Return #\Newline #\Return #\Newline))
+;;            (header-bytes (babel:string-to-octets header :encoding :utf-8)))
+;;         (format t "Writing LSP message with content-length: ~A~%" length)
+;;         (format t "LSP message content: ~A~%" json)
+;;         (write-sequence header-bytes stream)
+;;         (write-sequence bytes stream)
+;;         (force-output stream)))
+
+
+(defun write-lsp-message (response stream)
     "Write an LSP message to a binary stream according to LSP spec."
-    (let* ((json (com.inuoe.jzon:stringify
-                  (make-instance 'jsonrpc-response
-                      :result "test-result"
-                      :id id)
-                  :stream nil))
+    ;; Response is either a jsonrpc-response or a jsonrpc-error
+    (let* ((json (com.inuoe.jzon:stringify response :stream nil))
            (bytes (babel:string-to-octets json :encoding :utf-8))
            (length (length bytes))
            (header (format nil "Content-Length: ~D~C~C~C~C"
                        length #\Return #\Newline #\Return #\Newline))
            (header-bytes (babel:string-to-octets header :encoding :utf-8)))
-        (format t "Writing LSP message with content-length: ~A~%" length)
-        (format t "LSP message content: ~A~%" json)
+        (slog :debug "Writing LSP message with content-length: ~A" length)
+        (slog :debug "LSP message content: ~A" json)
         (write-sequence header-bytes stream)
         (write-sequence bytes stream)
         (force-output stream)))

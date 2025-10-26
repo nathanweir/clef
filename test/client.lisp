@@ -42,22 +42,22 @@
                 ;; Start the server in a thread
                 (bordeaux-threads:make-thread
                     (lambda ()
-                        (clef-lsp/server:start :input server-input :output server-output)))
+                        (clef-lsp/server:start :input server-input :output server-output :log-mode :console)))
                 ;; Connect the client
                 (jsonrpc:client-connect *client*
                                         :mode :stdio
                                         :input client-input
                                         :output client-output))))
-    (format t "Client connected to server.~%")
+    (format t "[Client] Client connected to server.~%")
     (handler-case
             (let ((resp (jsonrpc:call *client* "initialize" '(10 20) :timeout 1.0)))
-                (format t "Hello world ~A~%"
+                (format t "[Client] Response from server: ~A~%"
                     (if (hash-table-p resp)
                         (serapeum:pretty-print-hash-table resp)
                         resp)))
         (error (e)
             ;; Upon timeout this prints 'Timeout occurred while waiting for response: JSONRPC/BASE::JSONRPC-TIMEOUT does not designate a condition class.'
             ;; Not worth fixing right now
-            (format t "Error occurred while waiting for response: ~A~%" e))))
+            (format t "[Client] Error occurred while waiting for response: ~A~%" e))))
 
 (main)

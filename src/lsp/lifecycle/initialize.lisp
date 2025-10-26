@@ -1,5 +1,4 @@
 (in-package :clef-lsp/lifecycle)
 
-(defhandler "initialize"
-            (lambda (args)
-                (format nil "in initialize ~A" (serapeum:pretty-print-hash-table args))))
+(defun handle-initialize (request)
+    (format nil "in handle-initialize ~A" (serapeum:pretty-print-hash-table request)))

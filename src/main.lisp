@@ -1,5 +1,5 @@
 (in-package :clef-root)
 
 (defun start-server ()
-    (format t "Starting CLEF...~%")
+    (slog :info "Starting CLEF...")
     (clef-lsp/server:start))

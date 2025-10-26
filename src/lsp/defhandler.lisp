@@ -1,13 +1,18 @@
-(in-package :clef-lsp/defhandler)
+;; (in-package :clef-lsp/defhandler)
 
 ;; (defmacro while (condition &body body)
 ;;   `(loop while ,condition do (progn ,@body)))
 
 ;; (jsonrpc:expose *server* "sum" (lambda (args) (reduce #'+ args)))
 
-(defmacro defhandler (endpoint-name handler-lambda)
-    "Defines an LSP handler for the given endpoint name."
-    (format t "Defining LSP handler for endpoint: ~A~%" endpoint-name))
+;; (defmacro defhandler (endpoint-name handler-lambda)
+;;     "Defines an LSP handler for the given endpoint name."
+;;     (format t "Defining LSP handler for endpoint: ~A~%" endpoint-name)
+;;     (setf (gethash endpoint-name *handlers*)
+;;         (lambda (args)
+;;             ;; From src/lsp/server.lisp
+;;             (before-handle-request endpoint-name args)
+;;             (funcall handler-lambda args))))
 ;; `(jsonrpc:expose *server* ,endpoint-name
 ;;                  (lambda (args)
 ;;                      ;; From src/lsp/server.lisp

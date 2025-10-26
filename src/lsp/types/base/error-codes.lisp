@@ -42,3 +42,33 @@
 
 (defconstant +lsp-reserved-error-range-end+ -32800
              "End of LSP reserved error codes. Not a real error code. (since 3.16.0)")
+
+;; TODO: Learn more about Common Lisp error conds and consider exposing these instead of the
+;; constants or rename this file
+(define-condition lsp-error (error)
+        ((code :initarg :code
+               :accessor lsp-error-code
+               :type integer
+               :documentation "The LSP error code.")
+         (message :initarg :message
+                  :accessor lsp-error-message
+                  :type string
+                  :documentation "A human-readable error message.")
+         (data :initarg :data
+               :accessor lsp-error-data
+               :initform nil
+               :type t
+               :documentation "Additional data about the error (optional).")))
+
+(define-condition server-not-initialized-error (lsp-error)
+        ((code :initform +server-not-initialized+)
+         (message :initform "The LSP has not yet been initialized.")))
+
+(define-condition method-not-found-error (lsp-error)
+        ((code :initform 32601)
+         (endpoint :initarg :endpoint :reader method-not-found-endpoint)
+         (message :initform "Method not found."))
+    ;; TODO: How to handle :message and give it the param / custom message instead?
+    (:report (lambda (c s)
+                 (format s "The requested endpoint ~A does not exist"
+                     (method-not-found-endpoint c)))))
