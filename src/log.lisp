@@ -2,12 +2,12 @@
 
 ;; TODO: Actually observe this
 (defparameter +log-level+ :debug
-              "The current log level. Possible values are :debug, :info, :warn, :error.")
+              "The current log level. Possible values are :debug, :warn, :error, and :info.")
 (defparameter *log-levels*
               '(:debug 0
-                       :info 1
-                       :warn 2
-                       :error 3)
+                       :warn 1
+                       :error 2
+                       :info 3)
               "Mapping of log levels to their severity.")
 
 (defparameter +log-mode+ :console
@@ -33,9 +33,7 @@
     "Logs a MESSAGE at the given LEVEL with optional ARGS for formatting."
     (let* ((level-severity (getf *log-levels* level))
            (current-severity (getf *log-levels* +log-level+)))
-        (when (and level-severity
-                   current-severity
-                   (<= level-severity current-severity))
+        (when (<= current-severity level-severity)
               (let ((formatted-message (if args
                                            (apply #'format nil message args)
                                            message))

@@ -7,12 +7,14 @@
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")
+                                              (:file "util")
                                               (:file "log")
                                               (:file "jsonrpc/types")
                                               (:file "jsonrpc/messages")
                                               (:file "lsp/types/base/types")
                                               (:file "lsp/types/base/error-codes")
                                               (:file "lsp/types/basic/position")
+                                              (:file "lsp/types/lifecycle/initialize-params")
                                               (:file "lsp/server")
                                               ;; (:file "lsp/defhandler")
                                               (:file "lsp/lifecycle/initialize")

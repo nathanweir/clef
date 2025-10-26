@@ -9,6 +9,7 @@
 (ql:quickload :jsonrpc)
 (ql:quickload :serapeum)
 (ql:quickload :bordeaux-threads)
+(ql:quickload :com.inuoe.jzon)
 (require 'sb-posix)
 
 (asdf:load-asd #P"/home/nathan/dev/clef/clef.asd")
@@ -50,11 +51,17 @@
                                         :output client-output))))
     (format t "[Client] Client connected to server.~%")
     (handler-case
-            (let ((resp (jsonrpc:call *client* "initialize" '(10 20) :timeout 1.0)))
-                (format t "[Client] Response from server: ~A~%"
-                    (if (hash-table-p resp)
-                        (serapeum:pretty-print-hash-table resp)
-                        resp)))
+            (with-open-file (in "test/helix-initialize.json" :direction :input)
+                (let* ((initialize-msg-text (let ((s (make-string (file-length in))))
+                                                (read-sequence s in)
+                                                s))
+                       (initialize-msg-hash (com.inuoe.jzon:parse initialize-msg-text))
+                       (initialize-params (gethash "params" initialize-msg-hash))
+                       (resp (jsonrpc:call *client* "initialize" initialize-params :timeout 1.0)))
+                    (format t "[Client] Response from server: ~A~%"
+                        (if (hash-table-p resp)
+                            (serapeum:pretty-print-hash-table resp)
+                            resp))))
         (error (e)
             ;; Upon timeout this prints 'Timeout occurred while waiting for response: JSONRPC/BASE::JSONRPC-TIMEOUT does not designate a condition class.'
             ;; Not worth fixing right now

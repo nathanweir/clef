@@ -1,3 +1,7 @@
+(defpackage :clef-util
+    (:use :cl)
+    (:export :hash-table-to-instance))
+
 (defpackage :clef-log
     (:use :cl)
     (:export :slog
@@ -23,8 +27,10 @@
              jsonrpc-data
              jsonrpc-error
              jsonrpc-request
+             hash-table-to-request
              request-id
              request-method
+             request-params
              jsonrpc-response
              jsonrpc-error-response
              valid-request-p
@@ -52,6 +58,7 @@
 (defpackage :clef-lsp/types/base
     (:use :cl :clef-log)
     (:export :uinteger
+             :document-uri
              +server-not-initialized+
              server-not-initialized-error
              method-not-found-error
@@ -68,6 +75,14 @@
     (:export :position
              :position-line
              :position-character))
+
+(defpackage :clef-lsp/types/lifecycle
+    (:use :cl :clef-lsp/types/base)
+    (:export :initialize-params
+             :initialize-params-process-id
+             :initialize-params-root-uri
+             :initialize-params-capabilities
+             :client-capabilities))
 
 (defpackage :clef-lsp/lifecycle
     (:use :cl :clef-log)

@@ -33,3 +33,7 @@
 (deftype lsparray ()
     "An LSP array: a vector of LSPAny."
     '(vector lspany))
+
+(deftype document-uri ()
+    "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#uri"
+    'string)

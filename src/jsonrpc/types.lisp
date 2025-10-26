@@ -71,6 +71,14 @@
           :documentation "Client-established identifier (optional for notifications)."))
     (:documentation "JSON-RPC 2.0 Request object."))
 
+(defun hash-table-to-request (hash-table params-class)
+    "Creates an instance of jsonrpc-request where PARAMS is an instance of REQUEST-PARAMS"
+    (make-instance 'jsonrpc-request
+        :jsonrpc (gethash "jsonrpc" hash-table)
+        :method (gethash "method" hash-table)
+        :params (clef-util:hash-table-to-instance (gethash "params" hash-table) params-class)
+        :id (gethash "id" hash-table)))
+
 ;; TODO: if good, move to a util
 ;; This is 100%, pure LLM slop. Need to look at common util libraries for more appopriate solutions
 ;; (defun pprint-dict (obj stream &optional (indent 0))
@@ -146,7 +154,6 @@
                            (format stream ",~%"))))) ; newline after last element
          (format stream "~A]" (pprint-indented level)))))
 
-
 (defun pprint-dict (dict stream level)
     "Pretty-print a hash table as a dictionary with proper indentation."
     (format stream "{~%")
@@ -179,16 +186,16 @@
                            (format stream "~%")))))
          (format stream "~A]" (pprint-indented level)))))
 
-(defmethod print-object ((obj jsonrpc-request) stream)
-    (format stream "#<jsonrpc-request jsonrpc=~A method=~A id=~A>~%"
-        (request-jsonrpc obj)
-        (request-method obj)
-        (request-id obj))
-    (let ((params (request-params obj)))
-        (format stream "params=")
-        (pprint-value params stream 0))
-    (format stream "~%"))
-
+;; Enable this only when you need deep printing of the request object
+;; (defmethod print-object ((obj jsonrpc-request) stream)
+;;     (format stream "#<jsonrpc-request jsonrpc=~A method=~A id=~A>~%"
+;;         (request-jsonrpc obj)
+;;         (request-method obj)
+;;         (request-id obj))
+;;     (let ((params (request-params obj)))
+;;         (format stream "params=")
+;;         (pprint-value params stream 0))
+;;     (format stream "~%"))
 
 ;; (defmethod print-object ((obj jsonrpc-request) stream)
 ;;     (format stream "#<jsonrpc-request jsonrpc=~A method=~A id=~A>~%"

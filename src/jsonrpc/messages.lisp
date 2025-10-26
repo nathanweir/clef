@@ -45,27 +45,13 @@
                                 :id (gethash "id" message-hash)
                                 :method (gethash "method" message-hash)
                                 :params (gethash "params" message-hash))))
-                (slog :debug "Read LSP message: ~A" message)
+                ;; (slog :debug ">>>>>>> Read LSP message-hash: ~A" message-hash)
+                ;; (format t "Keys: ~A~%" (loop for k being the hash-keys of message-hash collect k))
+                ;; (format t "gethash :params: ~A~%" (gethash :params message-hash))
+                ;; (format t "gethash \"params\": ~A~%" (gethash "params" message-hash))
+                ;; (slog :debug ">>>>>>> Read LSP message-hash: ~A" message-hash)
+                ;; (slog :debug ">>>>>>> Read LSP params: ~A" (gethash "params" message-hash))
                 message))))
-
-;; (defun write-lsp-message (id message stream)
-;;     "Write an LSP message to a binary stream according to LSP spec."
-;;     (let* ((json (com.inuoe.jzon:stringify
-;;                   (make-instance 'jsonrpc-response
-;;                       :result message
-;;                       :id id)
-;;                   :stream nil))
-;;            (bytes (babel:string-to-octets json :encoding :utf-8))
-;;            (length (length bytes))
-;;            (header (format nil "Content-Length: ~D~C~C~C~C"
-;;                        length #\Return #\Newline #\Return #\Newline))
-;;            (header-bytes (babel:string-to-octets header :encoding :utf-8)))
-;;         (format t "Writing LSP message with content-length: ~A~%" length)
-;;         (format t "LSP message content: ~A~%" json)
-;;         (write-sequence header-bytes stream)
-;;         (write-sequence bytes stream)
-;;         (force-output stream)))
-
 
 (defun write-lsp-message (response stream)
     "Write an LSP message to a binary stream according to LSP spec."
