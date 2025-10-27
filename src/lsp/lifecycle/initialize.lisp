@@ -14,39 +14,59 @@
             :root-uri root-uri
             :capabilities capabilities)))
 
-(deftype test-document-uri ()
-    "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#uri"
-    'string)
-
-(defschema test-workspace-folder
-           (object "test-workspace-folder"
-                   ((uri test-document-uri
-                         :accessor workspace-folder-uri
-                         :documentation "The associated URI for this workspace folder.")
-                    (name string
-                          :accessor workspace-folder-name
-                          :documentation "The name of the workspace folder. Used to refer to this workspace folder in the user interface."))))
-
+;; AI-slop; I haven't even read this
 (defun hash-table-to-alist (hash)
     (let (alist)
         (maphash (lambda (k v)
-                     (push (cons k v) alist))
+                     (push (cons k
+                                 (cond
+                                  ((hash-table-p v) (hash-table-to-alist v))
+                                  ((and (listp v) (not (stringp v)))
+                                      (mapcar (lambda (item)
+                                                  (if (hash-table-p item)
+                                                      (hash-table-to-alist item)
+                                                      item))
+                                              v))
+                                  ((and (vectorp v) (not (stringp v)))
+                                      (map 'vector (lambda (item)
+                                                       (if (hash-table-p item)
+                                                           (hash-table-to-alist item)
+                                                           item))
+                                          v))
+                                  (t v)))
+                           alist))
                  hash)
         (nreverse alist)))
 
 (defun handle-initialize (request)
-    (format t "schema is ~A~%" (find-schema 'test-workspace-folder))
-    ;; (format t "parsed is: ~A~%" (com.inuoe.jzon:parse "{ \"uri\": 123, \"name\": \"folder-name\" }"))
-    (let* ((data (com.inuoe.jzon:parse "{ \"uri\": \"abc\", \"name\": \"folder-name\" }"))
-           (is-valid (validate-with-schema (find-schema 'test-workspace-folder) (hash-table-to-alist data)))
-           (workspace-folder (unserialize-with-schema
-                              (find-schema 'test-workspace-folder)
-                              "{ \"uri\": 123, \"name\": \"folder-name\" }"
-                              :json)))
-        (slog :debug "is-valid: ~A" is-valid)
-        (slog :debug "Loaded workspace-folder: ~A" workspace-folder))
 
-    "hello world")
+    (let* ((params-hash (clef-jsonrpc/types:request-params request)))
+
+        ;; (slog :debug "client-info: ~A~%" (serapeum:pretty-print-hash-table (gethash "client-info" params-hash)))
+        ;; (slog :debug "type of client-info.version: ~A ~A"
+        ;;       (type-of (gethash "client-info" params-hash))
+        ;;       (type-of (gethash "version" (gethash "client-info" params-hash))))
+
+        ;; This automatically throws an error (and seemingly returns nothing, so errors must be)
+        ;; propagated this way)
+        (validate-with-schema
+         (find-schema 'clef-lsp/types/lifecycle:initialize-params)
+         (hash-table-to-alist params-hash))
+
+        "hello world"))
+
+;; (format t "schema is ~A~%" (find-schema 'test-workspace-folder))
+;; ;; (format t "parsed is: ~A~%" (com.inuoe.jzon:parse "{ \"uri\": 123, \"name\": \"folder-name\" }"))
+;; (let* ((data (com.inuoe.jzon:parse "{ \"uri\": \"abc\", \"name\": \"folder-name\" }"))
+;;        (is-valid (validate-with-schema (find-schema 'test-workspace-folder) (hash-table-to-alist data)))
+;;        (workspace-folder (unserialize-with-schema
+;;                           (find-schema 'test-workspace-folder)
+;;                           "{ \"uri\": 123, \"name\": \"folder-name\" }"
+;;                           :json)))
+;;     (slog :debug "is-valid: ~A" is-valid)
+;;     (slog :debug "Loaded workspace-folder: ~A" workspace-folder))
+
+;; "hello world")
 ;; (let* ((params (get-initialize-params request))
 ;;        (process-id (clef-lsp/types/lifecycle:initialize-params-process-id params)))
 ;;     (slog :info "Handling 'initialize' with process-id: ~A" process-id)

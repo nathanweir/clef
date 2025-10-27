@@ -15,14 +15,14 @@
 
 (deftype lspany ()
     "An LSP value: object, array, string, integer, uinteger, decimal, boolean, or null."
-    '(or lspobject
-         lsparray
-         string
-         integer
-         uinteger
-         float
-         boolean
-         null))
+    '(member lspobject
+             lsparray
+             string
+             integer
+             uinteger
+             float
+             boolean
+             null))
 
 ;; LSPObject: { [key: string]: LSPAny }
 (deftype lspobject ()

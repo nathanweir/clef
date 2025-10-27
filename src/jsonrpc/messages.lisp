@@ -19,6 +19,22 @@
             )
          (t (push byte line-bytes))))))
 
+(defun make-hash-table-hyphen-case (value)
+    "Recursively convert hash table keys from camelCase to hyphen-case.
+            Handles nested hash tables and lists."
+    (cond
+     ((hash-table-p value)
+         (let ((new-table (make-hash-table :test (hash-table-test value))))
+             (maphash (lambda (key val)
+                          (let ((new-key (change-case:param-case (string key))))
+                              (setf (gethash new-key new-table)
+                                  (make-hash-table-hyphen-case val))))
+                      value)
+             new-table))
+     ((listp value)
+         (mapcar #'make-hash-table-hyphen-case value))
+     (t value)))
+
 (defun read-lsp-message (stream)
     "Read an LSP message from a binary stream according to LSP spec."
     (let ((headers (make-hash-table :test 'equal))
@@ -40,7 +56,9 @@
                (nread (read-sequence buffer stream)))
             (unless (= nread content-length)
                 (error "Failed to read full LSP message body"))
-            (let* ((message-hash (com.inuoe.jzon:parse (babel:octets-to-string buffer :encoding :utf-8)))
+            (let* ((message-hash (make-hash-table-hyphen-case
+                                  (com.inuoe.jzon:parse
+                                   (babel:octets-to-string buffer :encoding :utf-8))))
                    (message (make-instance 'jsonrpc-request
                                 :id (gethash "id" message-hash)
                                 :method (gethash "method" message-hash)

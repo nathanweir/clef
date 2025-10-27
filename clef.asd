@@ -8,6 +8,7 @@
             "babel"
             "com.inuoe.jzon"
             "serapeum"
+            "cl-change-case"
             "schemata"
             "generic-serializer"
             "schemata.serializers")
