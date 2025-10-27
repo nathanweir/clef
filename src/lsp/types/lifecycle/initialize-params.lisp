@@ -1,5 +1,7 @@
-(in-package :clef-lsp/types/lifecycle)
+;; (in-package :clef-lsp/types/lifecycle)
 
+;; Update to the update: Nope, Schemata is unusable. Punting for now
+;;
 ;; Update: Trying Schemata for now. Far from perfect, but does well enough with validation. Still means I'm using
 ;; hashtables though, as bizzarely unserialize-with-schema does not actually seem to instantiate an object
 ;;
@@ -36,8 +38,17 @@
 (deftype resource-operation-kind ()
     '(member "create" "rename" "delete"))
 
-(deftype failure-handling-kind ()
-    '(member "abort" "transactional" "undo" "textOnlyTransactional"))
+(defun nullable-p (value schema &rest args)
+    (format t "value is ~A~%" value)
+    ;; Return T or NIL for validity
+    (when (null value)
+          T)
+    (schemata:validate-with-schema schema value))
+
+(defun failure-handling-kind-p (value schema &rest args)
+    (format t "ARGS: ~A~%" (list* value schema args))
+    ;; Return T or NIL for validity
+    (not (null (member value '("abort" "transactional" "undo" "textOnlyTransactional") :test #'string=))))
 
 (defschema workspace-folder
            (object "workspace-folder"
@@ -53,44 +64,52 @@
                    ((name string
                           :accessor client-info-name
                           :documentation "The name of the client as defined by the client.")
-                    (version (or string null)
+                    (version string
+                             :required nil
                              :accessor client-info-version
                              :documentation "The client's version as defined by the client."))))
 
 
 (defschema client-capabilities-file-operations
            (object "client-capabilities-file-operations"
-                   ((dynamic-registration (or null boolean)
+                   ((dynamic-registration boolean
+                                          :required nil
                                           :accessor client-capabilities-file-operations-dynamic-registration
                                           :documentation "Whether the client supports dynamic registration for file requests/notifications.")
-                    (did-create (or null boolean)
+                    (did-create boolean
+                                :required nil
                                 :accessor client-capabilities-file-operations-did-create
                                 :documentation "The client has support for sending didCreateFiles notifications.")
-                    (will-create (or null boolean)
+                    (will-create boolean
+                                 :required nil
                                  :accessor client-capabilities-file-operations-will-create
                                  :documentation "The client has support for sending willCreateFiles requests.")
-                    (did-rename (or null boolean)
+                    (did-rename boolean
+                                :required nil
                                 :accessor client-capabilities-file-operations-did-rename
                                 :documentation "The client has support for sending didRenameFiles notifications.")
-                    (will-rename (or null boolean)
+                    (will-rename boolean
+                                 :required nil
                                  :accessor client-capabilities-file-operations-will-rename
                                  :documentation "The client has support for sending willRenameFiles requests.")
-                    (did-delete (or null boolean)
+                    (did-delete boolean
+                                :required nil
                                 :accessor client-capabilities-file-operations-did-delete
                                 :documentation "The client has support for sending didDeleteFiles notifications.")
-                    (will-delete (or null boolean)
+                    (will-delete boolean
+                                 :required nil
                                  :accessor client-capabilities-file-operations-will-delete
                                  :documentation "The client has support for sending willDeleteFiles requests."))))
 
 (defschema show-message-request-client-capabilities
            (object "show-message-request-client-capabilities"
                    ((message-action-item
-                     (or
-                      (object "message-action-item"
-                              ((additional-properties-support (or boolean null)
-                                                              :accessor message-action-item-additional-properties-support
-                                                              :documentation "Whether the client supports additional attributes which are preserved and sent back to the server in the request's response.")))
-                      null)
+                     (object "message-action-item"
+                             ((additional-properties-support boolean
+                                                             :required nil
+                                                             :accessor message-action-item-additional-properties-support
+                                                             :documentation "Whether the client supports additional attributes which are preserved and sent back to the server in the request's response.")))
+                     :required nil
                      :accessor show-message-request-client-capabilities-message-action-item
                      :documentation "Capabilities specific to the `MessageActionItem` type."))))
 
@@ -102,13 +121,16 @@
 
 (defschema client-capabilities-window
            (object "client-capabilities-window"
-                   ((work-done-progress (or null boolean)
+                   ((work-done-progress boolean
+                                        :required nil
                                         :accessor client-capabilities-window-work-done-progress
                                         :documentation "Whether the client supports server initiated progress using the `window/workDoneProgress/create` request. (since 3.15.0)")
-                    (show-message (or null show-message-request-client-capabilities)
+                    (show-message show-message-request-client-capabilities
+                                  :required nil
                                   :accessor client-capabilities-window-show-message
                                   :documentation "Capabilities specific to the showMessage request. (since 3.16.0)")
-                    (show-document (or null show-document-client-capabilities)
+                    (show-document show-document-client-capabilities
+                                   :required nil
                                    :accessor client-capabilities-window-show-document
                                    :documentation "Client capabilities for the show document request. (since 3.16.0)"))))
 
@@ -124,28 +146,33 @@
 
 (defschema workspace-edit-client-capabilities-change-annotation-support
            (object "workspace-edit-client-capabilities-change-annotation-support"
-                   ((groups-on-label (or boolean null)
+                   ((groups-on-label boolean
+                                     :required nil
                                      :accessor workspace-edit-client-capabilities-change-annotation-support-groups-on-label
                                      :documentation "Whether the client groups edits with equal labels into tree nodes, for instance all edits labelled with \"Changes in Strings\" would be a tree node."))))
 
 (defschema did-change-configuration-client-capabilities
            (object "did-change-configuration-client-capabilities"
-                   ((dynamic-registration (or boolean null)
+                   ((dynamic-registration boolean
+                                          :required nil
                                           :accessor did-change-configuration-client-capabilities-dynamic-registration
                                           :documentation "Did change configuration notification supports dynamic registration. (since 3.6.0 to support the new pull model.)"))))
 
 (defschema did-change-watched-files-client-capabilities
            (object "did-change-watched-files-client-capabilities"
-                   ((dynamic-registration (or boolean null)
+                   ((dynamic-registration boolean
+                                          :required nil
                                           :accessor did-change-watched-files-client-capabilities-dynamic-registration
                                           :documentation "Did change watched files notification supports dynamic registration. Please note that the current protocol doesn't support static configuration for file changes from the server side.")
-                    (relative-pattern-support (or boolean null)
+                    (relative-pattern-support boolean
+                                              :required nil
                                               :accessor did-change-watched-files-client-capabilities-relative-pattern-support
                                               :documentation "Whether the client has support for relative patterns or not. (since 3.17.0)"))))
 
 (defschema workspace-symbol-client-capabilities-symbol-kind
            (object "workspace-symbol-client-capabilities-symbol-kind"
-                   ((value-set (or (vector symbol-kind) null)
+                   ((value-set (vector symbol-kind)
+                               :required nil
                                :accessor workspace-symbol-client-capabilities-symbol-kind-value-set
                                :documentation "The symbol kind values the client supports. When this property exists the client also guarantees that it will handle values outside its set gracefully and falls back to a default value when unknown. If this property is not present the client only supports the symbol kinds from `File` to `Array` as defined in the initial version of the protocol."))))
 
@@ -163,37 +190,43 @@
 
 (defschema execute-command-client-capabilities
            (object "execute-command-client-capabilities"
-                   ((dynamic-registration (or boolean null)
+                   ((dynamic-registration boolean
+                                          :required nil
                                           :accessor execute-command-client-capabilities-dynamic-registration
                                           :documentation "Execute command supports dynamic registration."))))
 
 (defschema semantic-tokens-workspace-client-capabilities
            (object "semantic-tokens-workspace-client-capabilities"
-                   ((refresh-support (or boolean null)
+                   ((refresh-support boolean
+                                     :required nil
                                      :accessor semantic-tokens-workspace-client-capabilities-refresh-support
                                      :documentation "Whether the client implementation supports a refresh request sent from the server to the client. Note that this event is global and will force the client to refresh all semantic tokens currently shown. It should be used with absolute care and is useful for situation where a server for example detect a project wide change that requires such a calculation."))))
 
 (defschema code-lens-workspace-client-capabilities
            (object "code-lens-workspace-client-capabilities"
-                   ((refresh-support (or boolean null)
+                   ((refresh-support boolean
+                                     :required nil
                                      :accessor code-lens-workspace-client-capabilities-refresh-support
                                      :documentation "Whether the client implementation supports a refresh request sent from the server to the client. Note that this event is global and will force the client to refresh all code lenses currently shown. It should be used with absolute care and is useful for situation where a server for example detect a project wide change that requires such a calculation."))))
 
 (defschema inline-value-workspace-client-capabilities
            (object "inline-value-workspace-client-capabilities"
-                   ((refresh-support (or boolean null)
+                   ((refresh-support boolean
+                                     :required nil
                                      :accessor inline-value-workspace-client-capabilities-refresh-support
                                      :documentation "Whether the client implementation supports a refresh request sent from the server to the client. Note that this event is global and will force the client to refresh all inline values currently shown. It should be used with absolute care and is useful for situation where a server for example detect a project wide change that requires such a calculation. (since 3.17.0)"))))
 
 (defschema inlay-hint-workspace-client-capabilities
            (object "inlay-hint-workspace-client-capabilities"
-                   ((refresh-support (or boolean null)
+                   ((refresh-support boolean
+                                     :required nil
                                      :accessor inlay-hint-workspace-client-capabilities-refresh-support
                                      :documentation "Whether the client implementation supports a refresh request sent from the server to the client. Note that this event is global and will force the client to refresh all inlay hints currently shown. It should be used with absolute care and is useful for situation where a server for example detects a project wide change that requires such a calculation. (since 3.17.0)"))))
 
 (defschema diagnostic-workspace-client-capabilities
            (object "diagnostic-workspace-client-capabilities"
-                   ((refresh-support (or boolean null)
+                   ((refresh-support boolean
+                                     :required nil
                                      :accessor diagnostic-workspace-client-capabilities-refresh-support
                                      :documentation "Whether the client implementation supports a refresh request sent from the server to the client. Note that this event is global and will force the client to refresh all pulled diagnostics currently shown. It should be used with absolute care and is useful for situation where a server for example detects a project wide change that requires such a calculation. (since 3.17.0)"))))
 
@@ -202,22 +235,27 @@
                    ((engine string
                             :accessor regular-expressions-client-capabilities-engine
                             :documentation "The engine's name.")
-                    (version (or string null)
+                    (version string
+                             :required nil
                              :accessor regular-expressions-client-capabilities-version
                              :documentation "The engine's version."))))
 
 (defschema workspace-symbol-client-capabilities
            (object "workspace-symbol-client-capabilities"
-                   ((dynamic-registration (or boolean null)
+                   ((dynamic-registration boolean
+                                          :required nil
                                           :accessor workspace-symbol-client-capabilities-dynamic-registration
                                           :documentation "Symbol request supports dynamic registration.")
-                    (symbol-kind (or workspace-symbol-client-capabilities-symbol-kind null)
+                    (symbol-kind workspace-symbol-client-capabilities-symbol-kind
+                                 :required nil
                                  :accessor workspace-symbol-client-capabilities-symbol-kind
                                  :documentation "Specific capabilities for the `SymbolKind` in the `workspace/symbol` request.")
-                    (tag-support (or workspace-symbol-client-capabilities-tag-support null)
+                    (tag-support workspace-symbol-client-capabilities-tag-support
+                                 :required nil
                                  :accessor workspace-symbol-client-capabilities-tag-support
                                  :documentation "The client supports tags on `SymbolInformation` and `WorkspaceSymbol`. Clients supporting tags have to handle unknown tags gracefully. (since 3.16.0)")
-                    (resolve-support (or workspace-symbol-client-capabilities-resolve-support null)
+                    (resolve-support workspace-symbol-client-capabilities-resolve-support
+                                     :required nil
                                      :accessor workspace-symbol-client-capabilities-resolve-support
                                      :documentation "The client support partial workspace symbols. The client will send the request `workspaceSymbol/resolve` to the server to resolve additional properties. (since 3.17.0 - proposedState)"))))
 
@@ -227,139 +265,178 @@
                    ((parser string
                             :accessor markdown-client-capabilities-parser
                             :documentation "The name of the parser.")
-                    (version (or string null)
+                    (version string
+                             :required nil
                              :accessor markdown-client-capabilities-version
                              :documentation "The version of the parser.")
-                    (allowed-tags (or (vector string) null)
+                    (allowed-tags (vector string)
+                                  :required nil
                                   :accessor markdown-client-capabilities-allowed-tags
                                   :documentation "A list of HTML tags that the client allows / supports in Markdown. (since 3.17.0)"))))
 
 (defschema client-capabilities-general
            (object "client-capabilities-general"
-                   ((stale-request-support (or null client-capabilities-stale-request-support)
+                   ((stale-request-support client-capabilities-stale-request-support
+                                           :required nil
                                            :accessor client-capabilities-general-stale-request-support
                                            :documentation "Client capability that signals how the client handles stale requests. (since 3.17.0)")
-                    (regular-expressions (or null regular-expressions-client-capabilities)
+                    (regular-expressions regular-expressions-client-capabilities
+                                         :required nil
                                          :accessor client-capabilities-general-regular-expressions
                                          :documentation "Client capabilities specific to regular expressions. (since 3.16.0)")
-                    (markdown (or null markdown-client-capabilities)
+                    (markdown markdown-client-capabilities
+                              :required nil
                               :accessor client-capabilities-general-markdown
                               :documentation "Client capabilities specific to the client's markdown parser. (since 3.16.0)")
-                    (position-encodings (or null (vector position-encoding-kind))
+                    (position-encodings (vector position-encoding-kind)
+                                        :required nil
                                         :accessor client-capabilities-general-position-encodings
                                         :documentation "The position encodings supported by the client. (since 3.17.0)"))))
 
 (defschema workspace-edit-client-capabilities
            (object "workspace-edit-client-capabilities"
-                   ((document-changes (or boolean null)
+                   ((document-changes boolean
+                                      :required nil
                                       :accessor workspace-edit-client-capabilities-document-changes
                                       :documentation "The client supports versioned document changes in `WorkspaceEdit`s")
-                    (resource-operations (or (vector resource-operation-kind) null)
+                    (resource-operations (vector resource-operation-kind)
+                                         :required nil
                                          :accessor workspace-edit-client-capabilities-resource-operations
                                          :documentation "The resource operations the client supports. Clients should at least support 'create', 'rename' and 'delete' files and folders. (since 3.13.0)")
-                    (failure-handling (or failure-handling-kind null)
+                    (failure-handling string
+                                      :required nil
+                                      :validator failure-handling-kind-p
                                       :accessor workspace-edit-client-capabilities-failure-handling
                                       :documentation "The failure handling strategy of a client if applying the workspace edit fails. (since 3.13.0)")
-                    (normalizes-line-endings (or boolean null)
+                    (normalizes-line-endings boolean
+                                             :validator nullable-p
                                              :accessor workspace-edit-client-capabilities-normalizes-line-endings
                                              :documentation "Whether the client normalizes line endings to the client specific setting. If set to `true` the client will normalize line ending characters in a workspace edit to the client specific new line character(s). (since 3.16.0)")
-                    (change-annotation-support (or workspace-edit-client-capabilities-change-annotation-support null)
+                    (change-annotation-support workspace-edit-client-capabilities-change-annotation-support
+                                               :required nil
                                                :accessor workspace-edit-client-capabilities-change-annotation-support
                                                :documentation "Whether the client in general supports change annotations on text edits, create file, rename file and delete file changes. (since 3.16.0)"))))
 
 
 (defschema client-capabilities-workspace
            (object "client-capabilities-workspace"
-                   ((apply-edit (or null boolean)
+                   ((apply-edit boolean
+                                :required nil
                                 :accessor client-capabilities-workspace-apply-edit
                                 :documentation "The client supports applying batch edits to the workspace by supporting the request 'workspace/applyEdit'.")
-                    (workspace-edit (or null workspace-edit-client-capabilities)
+                    (workspace-edit workspace-edit-client-capabilities
+                                    :required nil
                                     :accessor client-capabilities-workspace-workspace-edit
                                     :documentation "Capabilities specific to `WorkspaceEdit`s.")
-                    (did-change-configuration (or null did-change-configuration-client-capabilities)
+                    (did-change-configuration did-change-configuration-client-capabilities
+                                              :required nil
                                               :accessor client-capabilities-workspace-did-change-configuration
                                               :documentation "Capabilities specific to the `workspace/didChangeConfiguration` notification.")
-                    (did-change-watched-files (or null did-change-watched-files-client-capabilities)
+                    (did-change-watched-files did-change-watched-files-client-capabilities
+                                              :required nil
                                               :accessor client-capabilities-workspace-did-change-watched-files
                                               :documentation "Capabilities specific to the `workspace/didChangeWatchedFiles` notification.")
-                    (symbol (or null workspace-symbol-client-capabilities)
+                    (symbol workspace-symbol-client-capabilities
+                            :required nil
                             :accessor client-capabilities-workspace-symbol
                             :documentation "Capabilities specific to the `workspace/symbol` request.")
-                    (execute-command (or null execute-command-client-capabilities)
+                    (execute-command execute-command-client-capabilities
+                                     :required nil
                                      :accessor client-capabilities-workspace-execute-command
                                      :documentation "Capabilities specific to the `workspace/executeCommand` request.")
-                    (workspace-folders (or null boolean)
+                    (workspace-folders boolean
+                                       :required nil
                                        :accessor client-capabilities-workspace-workspace-folders
                                        :documentation "The client has support for workspace folders. (since 3.6.0)")
-                    (configuration (or null boolean)
+                    (configuration boolean
+                                   :required nil
                                    :accessor client-capabilities-workspace-configuration
                                    :documentation "The client supports `workspace/configuration` requests. (since 3.6.0)")
-                    (semantic-tokens (or null semantic-tokens-workspace-client-capabilities)
+                    (semantic-tokens semantic-tokens-workspace-client-capabilities
+                                     :required nil
                                      :accessor client-capabilities-workspace-semantic-tokens
                                      :documentation "Capabilities specific to the semantic token requests scoped to the workspace. (since 3.16.0)")
-                    (code-lens (or null code-lens-workspace-client-capabilities)
+                    (code-lens code-lens-workspace-client-capabilities
+                               :required nil
                                :accessor client-capabilities-workspace-code-lens
                                :documentation "Capabilities specific to the code lens requests scoped to the workspace. (since 3.16.0)")
-                    (file-operations (or null client-capabilities-file-operations)
+                    (file-operations client-capabilities-file-operations
+                                     :required nil
                                      :accessor client-capabilities-workspace-file-operations
                                      :documentation "The client has support for file requests/notifications. (since 3.16.0)")
-                    (inline-value (or null inline-value-workspace-client-capabilities)
+                    (inline-value inline-value-workspace-client-capabilities
+                                  :required nil
                                   :accessor client-capabilities-workspace-inline-value
                                   :documentation "Client workspace capabilities specific to inline values. (since 3.17.0)")
-                    (inlay-hint (or null inlay-hint-workspace-client-capabilities)
+                    (inlay-hint inlay-hint-workspace-client-capabilities
+                                :required nil
                                 :accessor client-capabilities-workspace-inlay-hint
                                 :documentation "Client workspace capabilities specific to inlay hints. (since 3.17.0)")
-                    (diagnostics (or null diagnostic-workspace-client-capabilities)
+                    (diagnostics diagnostic-workspace-client-capabilities
+                                 :required nil
                                  :accessor client-capabilities-workspace-diagnostics
                                  :documentation "Client workspace capabilities specific to diagnostics. (since 3.17.0)"))))
 
 
 (defschema client-capabilities
            (object "client-capabilities"
-                   ((workspace (or null client-capabilities-workspace)
+                   ((workspace client-capabilities-workspace
+                               :required nil
                                :accessor client-capabilities-workspace
                                :documentation "Workspace specific client capabilities.")
-                    ;; (text-document ...) -- omitted as in your original
+                    (text-document t
+                                   :required nil
+                                   :accessor client-capabilities-text-document
+                                   :documentation "Text document specific client capabilities.")
                     ;; (notebook-document ...) -- omitted as in your original
-                    (window (or null client-capabilities-window)
+                    (window client-capabilities-window
+                            :required nil
                             :accessor client-capabilities-window
                             :documentation "Window specific client capabilities.")
-                    (general (or null client-capabilities-general)
+                    (general client-capabilities-general
+                             :required nil
                              :accessor client-capabilities-general
                              :documentation "General client capabilities. (since 3.16.0)")
-                    (experimental (or null t) ;; Should be (or lspany null)
+                    (experimental t
+                                  :required nil
                                   :accessor client-capabilities-experimental
                                   :documentation "Experimental client capabilities."))))
 
 (defschema initialize-params
            (object "initialize-params"
-                   ((process-id (or integer null)
+                   ((process-id integer
+                                :required nil
                                 :accessor initialize-params-process-id
                                 :documentation "The process Id of the parent process that started the server. Is null if the process has not been started by another process. If the parent process is not alive then the server should exit its process.")
-                    (client-info (or client-info null)
+                    (client-info client-info
+                                 :required nil
                                  :accessor initialize-params-client-info
                                  :documentation "Information about the client. (since 3.15.0)")
                     (locale string
                             :required nil
                             :accessor initialize-params-locale
                             :documentation "The locale the client is currently showing the user interface in. Uses IETF language tags. (since 3.16.0)")
-                    (root-path (or string null)
+                    (root-path string
+                               :required nil
                                :accessor initialize-params-root-path
                                :documentation "The rootPath of the workspace. Is null if no folder is open. Deprecated in favour of rootUri.")
-                    (root-uri (or document-uri null)
+                    (root-uri document-uri
+                              :required nil
                               :accessor initialize-params-root-uri
                               :documentation "The rootUri of the workspace. Is null if no folder is open. If both rootPath and rootUri are set, rootUri wins. Deprecated in favour of workspaceFolders.")
                     ;; TODO: What is this?
-                    (initialization-options t ;; Should be (or lspany null)
+                    (initialization-options t
                                             :required nil
                                             :accessor initialize-params-initialization-options
                                             :documentation "User provided initialization options.")
                     (capabilities client-capabilities
                                   :accessor initialize-params-capabilities
                                   :documentation "The capabilities provided by the client (editor or tool).")
-                    (trace (or trace-value null)
+                    (trace trace-value
+                        :required nil
                         :accessor initialize-params-trace
                         :documentation "The initial trace setting. If omitted trace is disabled ('off').")
-                    (workspace-folders (or (list-of workspace-folder) null)
+                    (workspace-folders (list-of workspace-folder)
+                                       :required nil
                                        :accessor initialize-params-workspace-folders
                                        :documentation "The workspace folders configured in the client when the server starts. Only available if the client supports workspace folders. Can be null if none are configured. (since 3.6.0)"))))

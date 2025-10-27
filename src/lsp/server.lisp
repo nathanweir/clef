@@ -7,6 +7,10 @@ with ServerNotInitialized = -32002 before this occurs.")
 (defparameter *handlers* (make-hash-table :test 'equal)
               "A hash table mapping LSP endpoint names to their handler functions.")
 
+(defparameter *client-capabilities* nil
+              "Stores a hash table of the client's capabilities as reported during initialization.
+Seehttps://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#clientCapabilities ")
+
 (defun before-handle-request (request)
     "Hook to run before handling any request."
     (let ((endpoint-name (clef-jsonrpc/types:request-method request)))
@@ -27,9 +31,14 @@ with ServerNotInitialized = -32002 before this occurs.")
                 (if handler
                     (let ((message (funcall handler request)))
                         (slog :debug "LSP request handled successfully for endpoint: ~A" endpoint-name)
-                        (make-instance 'clef-jsonrpc/types:jsonrpc-response
-                            :result message
-                            :id id))
+                        ;; If message is 'nil', then we should return no response. Return nil here
+                        ;; TODO: This is my hacky support for notifications, but could probably define this
+                        ;; as a param or elsewhere
+                        (if (null message)
+                            nil
+                            (make-instance 'clef-jsonrpc/types:jsonrpc-response
+                                :result message
+                                :id id)))
                     (progn
                      (slog :error "No handler found for endpoint: ~A" endpoint-name)
                      (error 'clef-lsp/types/base:method-not-found-error :endpoint endpoint-name)))))
@@ -57,7 +66,9 @@ with ServerNotInitialized = -32002 before this occurs.")
          (when request
                (let* ((id (clef-jsonrpc/types:request-id request))
                       (response (handle-lsp-request id request)))
-                   (clef-jsonrpc/messages:write-lsp-message response output))))))
+                   ;; Skip sending the response if 'response' is nil, meaning this was a notification
+                   (when response
+                         (clef-jsonrpc/messages:write-lsp-message response output)))))))
 
 (defun sethandler (endpoint-name handler-lambda)
     "Defines an LSP handler for the given endpoint name."
@@ -74,7 +85,9 @@ with ServerNotInitialized = -32002 before this occurs.")
 (defun register-handlers ()
     "Registers all LSP handlers from *handlers*"
     ;; For now, just a bunch of manual sethandler calls. Need to reconsider this later
-    (sethandler "initialize" 'clef-lsp/lifecycle:handle-initialize))
+    (sethandler "initialize" 'clef-lsp/lifecycle:handle-initialize)
+    (sethandler "initialized" 'clef-lsp/lifecycle:handle-initialized)
+    (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open))
 
 (defun start (&key (input *standard-input*) (output *standard-output*) (log-mode :file))
     "Starts the CLEF LSP server."

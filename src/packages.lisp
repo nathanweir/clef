@@ -1,6 +1,7 @@
 (defpackage :clef-util
     (:use :cl)
-    (:export :hash-table-to-instance))
+    (:export :hash-table-to-instance
+             :static-hash))
 
 (defpackage :clef-log
     (:use :cl)
@@ -45,8 +46,11 @@
 
 (defpackage :clef-lsp/server
     (:use :cl :clef-log)
+    (:import-from :serapeum :dict)
     (:export :start
              *handlers*
+             *initialized*
+             *client-capabilities*
              :before-handle-request
              *server*))
 
@@ -76,15 +80,22 @@
              :position-line
              :position-character))
 
-(defpackage :clef-lsp/types/lifecycle
-    (:use :cl :clef-lsp/types/base :schemata)
-    (:export :initialize-params
-             :initialize-params-process-id
-             :initialize-params-root-uri
-             :initialize-params-capabilities
-             :workspace-folder
-             :client-capabilities))
+;; (defpackage :clef-lsp/types/lifecycle
+;;     (:use :cl :clef-lsp/types/base :schemata)
+;;     (:export :initialize-params
+;;              :initialize-params-process-id
+;;              :initialize-params-root-uri
+;;              :initialize-params-capabilities
+;;              :workspace-folder
+;;              :client-capabilities))
 
 (defpackage :clef-lsp/lifecycle
-    (:use :cl :clef-log :schemata)
-    (:export handle-initialize))
+    (:use :cl :clef-log)
+    (:import-from :serapeum :dict)
+    (:export handle-initialize
+             handle-initialized))
+
+(defpackage :clef-lsp/document
+    (:use :cl :clef-log)
+    (:import-from :serapeum :dict)
+    (:export handle-text-document-did-open))

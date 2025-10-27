@@ -39,3 +39,6 @@ local-projects/
 
 # Others
 .direnv
+
+metaModel.json
+metaModel.schema.json
