@@ -3,7 +3,14 @@
            :author "Nathan Weir"
            :license "MIT"
            :version "0.0.1"
-           :depends-on ("uiop" "babel" "com.inuoe.jzon" "serapeum")
+           :depends-on
+           ("uiop"
+            "babel"
+            "com.inuoe.jzon"
+            "serapeum"
+            "schemata"
+            "generic-serializer"
+            "schemata.serializers")
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")

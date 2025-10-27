@@ -77,13 +77,14 @@
              :position-character))
 
 (defpackage :clef-lsp/types/lifecycle
-    (:use :cl :clef-lsp/types/base)
+    (:use :cl :clef-lsp/types/base :schemata)
     (:export :initialize-params
              :initialize-params-process-id
              :initialize-params-root-uri
              :initialize-params-capabilities
+             :workspace-folder
              :client-capabilities))
 
 (defpackage :clef-lsp/lifecycle
-    (:use :cl :clef-log)
+    (:use :cl :clef-log :schemata)
     (:export handle-initialize))
