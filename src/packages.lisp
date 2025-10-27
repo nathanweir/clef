@@ -50,6 +50,7 @@
     (:export :start
              *handlers*
              *initialized*
+             *documents*
              *client-capabilities*
              :before-handle-request
              *server*))
@@ -97,5 +98,7 @@
 
 (defpackage :clef-lsp/document
     (:use :cl :clef-log)
-    (:import-from :serapeum :dict)
-    (:export handle-text-document-did-open))
+    (:import-from :serapeum :dict :href)
+    (:export handle-text-document-did-open
+             handle-text-document-did-change
+             handle-text-document-formatting))

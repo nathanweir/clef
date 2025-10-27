@@ -9,9 +9,7 @@
             "com.inuoe.jzon"
             "serapeum"
             "cl-change-case"
-            "schemata"
-            "generic-serializer"
-            "schemata.serializers")
+            "cl-indentify")
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")
@@ -29,4 +27,6 @@
                                               (:file "lsp/lifecycle/initialize")
                                               (:file "lsp/lifecycle/initialized")
                                               (:file "lsp/document/did-open")
+                                              (:file "lsp/document/did-change")
+                                              (:file "lsp/document/formatting")
                                               (:file "main")))))

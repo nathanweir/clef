@@ -10,6 +10,7 @@
 (ql:quickload :serapeum)
 (ql:quickload :bordeaux-threads)
 (ql:quickload :com.inuoe.jzon)
+(ql:quickload :cl-indentify)
 (require 'sb-posix)
 
 (asdf:load-asd #P"/home/nathan/dev/clef/clef.asd")
@@ -31,6 +32,15 @@
 
 ;; TODO: Try updating this to connect to the server in src/lsp/server
 (defun main ()
+    ;; (indentify:load-default-templates)
+    ;; cl-indentify can take an input and output stream, like
+    ;; (indentify:indentify *standard-input* output-stream)
+    ;; For testing, use it to format a string "(defun my-func () (+ 1 2))" and print
+    ;; the result to stdout. Do not open or write a file
+    ;; (indentify:indentify
+    ;;  (make-string-input-stream "(defun my-func () (+ 1 2))")
+    ;;  *standard-output*))
+
     ;; Create two pipes: one for each direction
     (multiple-value-bind (c2s-read c2s-write) (sb-posix:pipe)
         (multiple-value-bind (s2c-read s2c-write) (sb-posix:pipe)

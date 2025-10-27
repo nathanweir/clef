@@ -2,7 +2,9 @@
 
 (defun start-server ()
     (slog :info "Starting CLEF...")
-    (clef-lsp/server:start))
+        (clef-lsp/server:start))
 
+;(defun hi ()
+    ;(format t "asdfa"))
 
-;; test 123
+;; test 1234   

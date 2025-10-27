@@ -44,9 +44,10 @@
            (capabilities (gethash "capabilities" params-hash)))
         (setf clef-lsp/server:*client-capabilities* capabilities)
 
+        ;; TODO: use *server-capabilities*
         ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#initializeResult
         (dict "capabilities"
-              (dict "textDocumentSync" (dict "change" 1)
+              (dict "textDocumentSync" (dict "change" 2)
                     "documentFormattingProvider" t))))
 ;; (slog :debug "client-info: ~A~%" (serapeum:pretty-print-hash-table (gethash "client-info" params-hash)))
 ;; (slog :debug "type of client-info.version: ~A ~A"

@@ -11,6 +11,11 @@ with ServerNotInitialized = -32002 before this occurs.")
               "Stores a hash table of the client's capabilities as reported during initialization.
 Seehttps://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#clientCapabilities ")
 
+(defvar *documents* (make-hash-table :test 'equal)
+        "Document objects kept in memory and maintained by textDocument/didOpen, didChange, didClose requests.
+Top level keys are file paths/URIs, values are the full text of the documents as strings. Newline chars. are preserved with
+(currently) no consideration of cross-platform differences.")
+
 (defun before-handle-request (request)
     "Hook to run before handling any request."
     (let ((endpoint-name (clef-jsonrpc/types:request-method request)))
@@ -49,15 +54,15 @@ Seehttps://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/
                                                       :code (clef-lsp/types/base:lsp-error-code e)
                                                       :message (clef-lsp/types/base:lsp-error-message e)
                                                       :data (ignore-errors (clef-lsp/types/base:lsp-error-data e)))
-                                           :id id)
-                                       (error (e)
-                                           ;; TODO: Find a way to capture a backtrace here
-                                           (slog :error "Internal error handling request: ~A" e)
-                                           (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                                               :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
-                                                          :code clef-jsonrpc/types:+internal-error+
-                                                          :message (format nil "Internal server error: ~A" e))
-                                               :id id)))))
+                                           :id id))
+        (error (e)
+            ;; TODO: Find a way to capture a backtrace here
+            (slog :error "Internal error handling request: ~A" e)
+            (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
+                :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
+                           :code clef-jsonrpc/types:+internal-error+
+                           :message (format nil "Internal server error: ~A" e))
+                :id id))))
 
 (defun run-lsp-server-stdio (&key (input *standard-input*) (output *standard-output*))
     "Run LSP server over stdio"
@@ -87,7 +92,9 @@ Seehttps://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/
     ;; For now, just a bunch of manual sethandler calls. Need to reconsider this later
     (sethandler "initialize" 'clef-lsp/lifecycle:handle-initialize)
     (sethandler "initialized" 'clef-lsp/lifecycle:handle-initialized)
-    (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open))
+    (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open)
+    (sethandler "textDocument/didChange" 'clef-lsp/document:handle-text-document-did-change)
+    (sethandler "textDocument/formatting" 'clef-lsp/document:handle-text-document-formatting))
 
 (defun start (&key (input *standard-input*) (output *standard-output*) (log-mode :file))
     "Starts the CLEF LSP server."
