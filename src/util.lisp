@@ -10,3 +10,12 @@ HASH-TABLE should have keyword keys matching the class's initargs."
                      (push k initargs))
                  hash-table)
         (apply #'make-instance class (nreverse initargs))))
+
+;; AI-slop; I haven't even read this
+(defun hash-table-to-alist (hash)
+    "Convert HASH (a hash table) to an alist of (key . value) pairs."
+    (let (alist)
+        (maphash (lambda (k v)
+                     (push (cons k v) alist))
+                 hash)
+        (nreverse alist)))

@@ -1,7 +1,7 @@
 (defpackage :clef-util
     (:use :cl)
     (:export :hash-table-to-instance
-             :static-hash))
+             :hash-table-to-alist))
 
 (defpackage :clef-log
     (:use :cl)

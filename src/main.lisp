@@ -1,10 +1,10 @@
 (in-package :clef-root)
 
 (defun start-server ()
-    (slog :info "Starting CLEF...")
-        (clef-lsp/server:start))
+       (slog :info "Starting CLEF...")
+       (clef-lsp/server:start))
 
 ;(defun hi ()
-    ;(format t "asdfa"))
+;(format t "asdfa"))
 
-;; test 1234   
+;; test 1234

@@ -12,6 +12,7 @@
 (ql:quickload :com.inuoe.jzon)
 (ql:quickload :cl-indentify)
 (require 'sb-posix)
+(require 'sb-introspect)
 
 (asdf:load-asd #P"/home/nathan/dev/clef/clef.asd")
 (asdf:load-system :clef)
