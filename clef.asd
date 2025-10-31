@@ -29,23 +29,7 @@
                                               (:file "lsp/lifecycle/initialized")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
-
-                                              ;; Alive files, for formatting
-                                              ;; TODO: Extract this into a different system
-                                              (:file "alive/utils")
-                                              (:file "alive/types")
-                                              (:file "alive/errors")
-                                              (:file "alive/position")
-                                              (:file "alive/range")
-                                              (:file "alive/text-edit")
-                                              (:file "alive/parse/token")
-                                              (:file "alive/parse/tokenizer")
-                                              (:file "alive/parse/form")
-                                              (:file "alive/parse/forms")
-                                              (:file "alive/compat/sbcl/symbols")
-                                              (:file "alive/packages")
-                                              (:file "alive/symbols")
-                                              (:file "alive/format")
-
                                               (:file "lsp/document/formatting")
+                                              (:file "lsp/workspace/did-change-configuration")
+                                              (:file "lsp/misc/exit")
                                               (:file "main")))))
