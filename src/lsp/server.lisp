@@ -102,11 +102,11 @@ Top level keys are file paths/URIs, values are the full text of the documents as
        (sethandler "exit" 'clef-lsp/misc:handle-exit))
 
 (defun reset ()
-    "Resets all server state, to be called when the server is asked to shutdown or exit"
-    (setf *initialized* nil)
-    (setf *client-capabilities* nil)
-    (setf *documents* (make-hash-table :test 'equal))
-    (slog :info "CLEF LSP server state has been reset."))
+       "Resets all server state, to be called when the server is asked to shutdown or exit"
+       (setf *initialized* nil)
+       (setf *client-capabilities* nil)
+       (setf *documents* (make-hash-table :test 'equal))
+       (slog :info "CLEF LSP server state has been reset."))
 
 (defun start (&key (input *standard-input*) (output *standard-output*) (log-mode :file))
        "Starts the CLEF LSP server."

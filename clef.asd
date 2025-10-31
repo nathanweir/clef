@@ -21,6 +21,7 @@
                                               (:file "jsonrpc/types")
                                               (:file "jsonrpc/messages")
                                               (:file "parser/parser")
+                                              (:file "parser/utils")
                                               (:file "lsp/types/base/types")
                                               (:file "lsp/types/base/error-codes")
                                               (:file "lsp/types/basic/position")

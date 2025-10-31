@@ -19,4 +19,4 @@
 
 (defun handle-workspace-diagnostic (message)
        (declare (ignore message))
-       (dict "result" #()))
+       (dict "items" #()))

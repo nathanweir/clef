@@ -55,6 +55,12 @@
                      :node-end-point-column
                      :node-text))
 
+(defpackage :clef-parser/utils
+            (:use :cl :clef-log)
+            (:local-nicknames
+              (:ts :cl-tree-sitter/high-level))
+            (:export :find-package-declaration))
+
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
             (:import-from :serapeum :dict)
