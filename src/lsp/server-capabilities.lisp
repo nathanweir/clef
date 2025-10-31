@@ -23,6 +23,9 @@
 ;;https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverCapabilities
 
 (defvar *server-capabilities-json*
-        (dict "textDocumentSync" (dict "change" 1)
-              "documentFormattingProvider" t))
+        (dict "capabilities"
+              (dict "textDocumentSync" (dict "change" 1)
+                    "documentFormattingProvider" t
+                    "diagnosticProvider" (dict "interFileDependencies" nil
+                                               "workspaceDiagnostics" t))))
 ;; (format t "json version is: ~A" (com.inuoe.jzon:parse (com.inuoe.jzon:stringify *capabilities*)))

@@ -10,7 +10,9 @@
             "serapeum"
             "cl-change-case"
             "cl-indentify"
-            "cl-ppcre")
+            "cl-ppcre"
+            "bordeaux-threads"
+            "cl-tree-sitter")
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")
@@ -18,6 +20,7 @@
                                               (:file "log")
                                               (:file "jsonrpc/types")
                                               (:file "jsonrpc/messages")
+                                              (:file "parser/parser")
                                               (:file "lsp/types/base/types")
                                               (:file "lsp/types/base/error-codes")
                                               (:file "lsp/types/basic/position")
@@ -27,9 +30,12 @@
                                               ;; (:file "lsp/defhandler")
                                               (:file "lsp/lifecycle/initialize")
                                               (:file "lsp/lifecycle/initialized")
+                                              (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/formatting")
+                                              (:file "lsp/workspace/diagnostic")
                                               (:file "lsp/workspace/did-change-configuration")
+                                              (:file "lsp/misc/shutdown")
                                               (:file "lsp/misc/exit")
                                               (:file "main")))))

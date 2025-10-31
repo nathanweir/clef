@@ -19,3 +19,8 @@ HASH-TABLE should have keyword keys matching the class's initargs."
                      (push (cons k v) alist))
                  hash)
         (nreverse alist)))
+
+(defun shallow-hash-vals (hash-table)
+    (loop for key being the hash-keys of hash-table
+        using (hash-value value)
+        collect (list key value)))

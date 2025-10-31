@@ -13,6 +13,7 @@
 (ql:quickload :cl-indentify)
 (require 'sb-posix)
 (require 'sb-introspect)
+(require 'sb-concurrency)
 
 (asdf:load-asd #P"/home/nathan/dev/clef/clef.asd")
 (asdf:load-system :clef)

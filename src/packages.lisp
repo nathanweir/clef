@@ -1,7 +1,8 @@
 (defpackage :clef-util
             (:use :cl)
             (:export :hash-table-to-instance
-                     :hash-table-to-alist))
+                     :hash-table-to-alist
+                     :shallow-hash-vals))
 
 (defpackage :clef-log
             (:use :cl)
@@ -44,6 +45,16 @@
             (:export :read-lsp-message
                      :write-lsp-message))
 
+(defpackage :clef-parser/parser
+            (:use :cl :clef-log)
+            (:export :parse-file
+                     :parse-string
+                     :node-start-point-row
+                     :node-start-point-column
+                     :node-end-point-row
+                     :node-end-point-column
+                     :node-text))
+
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
             (:import-from :serapeum :dict)
@@ -52,8 +63,10 @@
                      *initialized*
                      *documents*
                      *client-capabilities*
+                     *server-capabilities-json*
                      :before-handle-request
-                     *server*))
+                     *server*
+                     :reset))
 
 ;; (defpackage :clef-lsp/defhandler
 ;;     (:use :cl :clef-log)
@@ -92,22 +105,28 @@
 
 (defpackage :clef-lsp/lifecycle
             (:use :cl :clef-log)
-            (:import-from :serapeum :dict)
+            (:import-from :serapeum :dict :href)
             (:export handle-initialize
                      handle-initialized))
 
 (defpackage :clef-lsp/document
             (:use :cl :clef-log)
             (:import-from :serapeum :dict :href)
-            (:export handle-text-document-did-open
+            (:local-nicknames
+              (:ts :cl-tree-sitter/high-level))
+            (:export handle-text-document-diagnostic
+                     handle-text-document-did-open
                      handle-text-document-did-change
                      handle-text-document-formatting))
 
 (defpackage :clef-lsp/workspace
             (:use :cl :clef-log)
             (:import-from :serapeum :dict :href)
-            (:export handle-workspace-did-change-configuration))
+            (:export handle-workspace-diagnostic
+                     handle-workspace-did-change-configuration))
 
 (defpackage :clef-lsp/misc
             (:use :cl :clef-log)
-            (:export handle-exit))
+            (:import-from :serapeum :dict)
+            (:export handle-shutdown
+                     handle-exit))

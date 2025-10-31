@@ -27,7 +27,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                   (error 'clef-lsp/types/base:server-not-initialized-error))))
 
 (defun handle-lsp-request (id request)
-       (slog :info "Received LSP request: ~A" request)
+       ;; (slog :info "Received LSP request: ~A" request)
        (handler-case
          ;; TODO: Actually create an appropriate response
          (let* ((endpoint-name (clef-jsonrpc/types:request-method request)))
@@ -35,7 +35,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                (let ((handler (gethash endpoint-name *handlers*)))
                     (if handler
                         (let ((message (funcall handler request)))
-                             (slog :debug "LSP request handled successfully for endpoint: ~A" endpoint-name)
+                             (slog :debug "[~A] ✓" endpoint-name)
                              ;; If message is 'nil', then we should return no response. Return nil here
                              ;; TODO: This is my hacky support for notifications, but could probably define this
                              ;; as a param or elsewhere
@@ -45,10 +45,10 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                                                 :result message
                                                 :id id)))
                         (progn
-                          (slog :error "No handler found for endpoint: ~A" endpoint-name)
+                          (slog :error "[~A] No handler found" endpoint-name)
                           (error 'clef-lsp/types/base:method-not-found-error :endpoint endpoint-name)))))
          (clef-lsp/types/base:lsp-error (e)
-                                        (slog :error "LSP error handling request: ~A" e)
+                                        ;; (slog :error "[LSP error handling request: ~A" e)
                                         (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
                                                        :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
                                                                              :code (clef-lsp/types/base:lsp-error-code e)
@@ -57,7 +57,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                                                        :id id))
          (error (e)
                 ;; TODO: Find a way to capture a backtrace here
-                (slog :error "Internal error handling request: ~A" e)
+                (slog :error "[~A] Internal error handling request: ~A" (clef-jsonrpc/types:request-method request) e)
                 (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
                                :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
                                                      :code clef-jsonrpc/types:+internal-error+
@@ -82,7 +82,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
              (lambda (request)
                      ;; From src/lsp/server.lisp
                      (before-handle-request request)
-                     (slog :debug "Handling LSP request for endpoint: ~A" endpoint-name)
+                     (slog :debug "[~A] →" endpoint-name)
                      (funcall handler-lambda request))))
 
 ;; TODO: It'd be cool to make a macro for registering handlers and not requiring exporting them + doing
@@ -95,8 +95,18 @@ Top level keys are file paths/URIs, values are the full text of the documents as
        (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open)
        (sethandler "textDocument/didChange" 'clef-lsp/document:handle-text-document-did-change)
        (sethandler "textDocument/formatting" 'clef-lsp/document:handle-text-document-formatting)
+       (sethandler "textDocument/diagnostic" 'clef-lsp/document:handle-text-document-diagnostic)
+       (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)
+       (sethandler "shutdown" 'clef-lsp/misc:handle-shutdown)
        (sethandler "exit" 'clef-lsp/misc:handle-exit))
+
+(defun reset ()
+    "Resets all server state, to be called when the server is asked to shutdown or exit"
+    (setf *initialized* nil)
+    (setf *client-capabilities* nil)
+    (setf *documents* (make-hash-table :test 'equal))
+    (slog :info "CLEF LSP server state has been reset."))
 
 (defun start (&key (input *standard-input*) (output *standard-output*) (log-mode :file))
        "Starts the CLEF LSP server."
