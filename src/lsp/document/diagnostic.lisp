@@ -24,9 +24,10 @@
               (errors (collect-error-nodes tree))
               (diagnostics '()))
              (dolist (err errors)
-                     (destructuring-bind ((start-line start-col) (end-line end-col)) (cdr err)
-
-                                         (push (dict "range" (make-range start-line start-col end-line end-col)
+                     (slog :debug "Err is ~A" err)
+                     (destructuring-bind ((start-col start-line) (end-col end-line)) (cdr err)
+                                         (slog :debug "[textDocument/diagnostic] Found syntax error from ~A:~A to ~A:~A" start-line start-col end-line end-col)
+                                         (push (dict "range" (make-range start-col start-line end-line end-col)
                                                      "severity" +diagnostic-severity-error+
                                                      "message" "Syntax error")
                                                diagnostics)))
@@ -52,4 +53,4 @@
               (document-text (gethash document-uri clef-lsp/server:*documents*))
               (items (get-syntax-errors document-text)))
              (dict "kind" "full"
-                   "items" items)))
+                   "items" (if items items #()))))
