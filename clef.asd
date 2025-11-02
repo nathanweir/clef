@@ -35,6 +35,7 @@
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/formatting")
+                                              (:file "lsp/document/hover")
                                               (:file "lsp/workspace/diagnostic")
                                               (:file "lsp/workspace/did-change-configuration")
                                               (:file "lsp/misc/shutdown")

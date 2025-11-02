@@ -53,7 +53,8 @@
                      :node-start-point-column
                      :node-end-point-row
                      :node-end-point-column
-                     :node-text))
+                     :node-text
+                     :node-range))
 
 (defpackage :clef-parser/utils
             (:use :cl :clef-log)
@@ -123,7 +124,8 @@
             (:export handle-text-document-diagnostic
                      handle-text-document-did-open
                      handle-text-document-did-change
-                     handle-text-document-formatting))
+                     handle-text-document-formatting
+                     handle-text-document-hover))
 
 (defpackage :clef-lsp/workspace
             (:use :cl :clef-log)

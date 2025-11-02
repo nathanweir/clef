@@ -20,6 +20,13 @@
 ;; These helper functions are just to bridge the gap of missing functions from Claude
 ;; They could have more ergonomic names and be placed along other tree sitter utils
 
+(defun node-range (node)
+       "Gets the start line, start char, end line, and end char for a node"
+       (values (node-start-point-row node)
+               (node-start-point-column node)
+               (node-end-point-row node)
+               (node-end-point-column node)))
+
 (defun node-start-point-column (node)
        (first (first (cl-tree-sitter:node-range node))))
 

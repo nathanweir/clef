@@ -76,6 +76,9 @@
              ;; (maphash (lambda (k v)
              ;;              (format t "symbol-map: ~A => ~A~%" k v))
              ;;          symbol-map)
+
+             ;; print all values of the symbol-map hash table
+             ;; (slog :debug "[textDocument/diagnostic] Built symbol map with ~A entries" (clef-util:shallow-hash-vals symbol-map))
              (compile-and-collect-diagnostics symbol-map input-text tree)))
 
 (defun compile-and-collect-diagnostics (symbol-map source-string tree)
@@ -153,6 +156,7 @@
                  (search "DEFMACRO" cond-text))))
 
 ;; TODO: This is highly suspect, I don't think it works well. Revisit
+;; Wait, am I just overwriting the entry with the most recent ocurrence of that symbol?
 (defun build-symbol-index (tree source)
        "Build a hash table mapping symbol names to their tree-sitter nodes."
        (let ((symbol-map (make-hash-table :test 'equal)))
@@ -173,6 +177,9 @@
 
 (defun extract-symbol-from-condition (condition)
        "Extract the problematic symbol name from SBCL condition."
+       ;; TODO: Many of these errors do contain line/char pos info of the form:
+       ;; Line: 60, Column: 78, File-Position: 4046 (etc)
+       ;; We should use that info instead of doing a symbol lookup after this
        (let ((message (princ-to-string condition)))
             ;; (format t "Message from condition is: ~A~%" message)
             (cond
@@ -201,6 +208,18 @@
                (let* ((matches (cl-ppcre:register-groups-bind (func-name)
                                                               ("The function ([\\w\\-]+) is called with" message)
                                                               func-name)))
+                     matches))
+              ;; Package <x> does not exist
+              ((cl-ppcre:scan-to-strings "Package ([\\w\\-]+) does not exist" message)
+               (let* ((matches (cl-ppcre:register-groups-bind (pkg-name)
+                                                              ("Package ([\\w\\-]+) does not exist" message)
+                                                              pkg-name)))
+                     matches))
+              ;; Symbol "SOURCES-BY-NAME" not found in the SB-INTROSPECT package
+              ((cl-ppcre:scan-to-strings "Symbol \"([\\w\\-]+)\" not found in the [\\w\\-]+ package" message)
+               (let* ((matches (cl-ppcre:register-groups-bind (sym-name)
+                                                              ("Symbol \"([\\w\\-]+)\" not found in the [\\w\\-]+ package" message)
+                                                              sym-name)))
                      matches))
               ;; Type error patterns
               ((search "type-error" (string-downcase message))
