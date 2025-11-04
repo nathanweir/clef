@@ -77,14 +77,12 @@
                                  (slog :debug "Warning: Could not load system ~A: ~A"
                                        system-name e)))))))
 
-(defun cleanup-path (root-uri)
-       (let ((without-file (cl-ppcre:regex-replace "^file://" root-uri "")))
-            (namestring (uiop:ensure-directory-pathname without-file))))
-
+;; TODO: This is currently exported and used in
+;; textDocument/didSave, which is weird organization
 (defun load-workspace-asd (root-uri)
        "Finds the first .asd file in the workspace root uri, and loads it"
        ;; TODO: Handle missing trailing slash
-       (let* ((path-root (cleanup-path root-uri))
+       (let* ((path-root (clef-util:cleanup-path root-uri))
               (wildcard-path (concatenate 'string path-root "*.asd"))
               (asd-files (uiop:directory* wildcard-path)))
              (if asd-files

@@ -94,6 +94,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
        (sethandler "initialized" 'clef-lsp/lifecycle:handle-initialized)
        (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open)
        (sethandler "textDocument/didChange" 'clef-lsp/document:handle-text-document-did-change)
+       (sethandler "textDocument/didSave" 'clef-lsp/document:handle-text-document-did-save)
        (sethandler "textDocument/formatting" 'clef-lsp/document:handle-text-document-formatting)
        (sethandler "textDocument/diagnostic" 'clef-lsp/document:handle-text-document-diagnostic)
        (sethandler "textDocument/hover" 'clef-lsp/document:handle-text-document-hover)

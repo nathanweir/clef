@@ -2,7 +2,8 @@
             (:use :cl)
             (:export :hash-table-to-instance
                      :hash-table-to-alist
-                     :shallow-hash-vals))
+                     :shallow-hash-vals
+                     :cleanup-path))
 
 (defpackage :clef-log
             (:use :cl)
@@ -62,6 +63,9 @@
               (:ts :cl-tree-sitter/high-level))
             (:export :find-package-declaration))
 
+(defpackage :clef-symbols/types
+            (:use :cl :clef-log))
+
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
             (:import-from :serapeum :dict)
@@ -114,7 +118,9 @@
             (:use :cl :clef-log)
             (:import-from :serapeum :dict :href)
             (:export handle-initialize
-                     handle-initialized))
+                     handle-initialized
+                     load-workspace-asd
+                     load-asd))
 
 (defpackage :clef-lsp/document
             (:use :cl :clef-log)
@@ -124,6 +130,7 @@
             (:export handle-text-document-diagnostic
                      handle-text-document-did-open
                      handle-text-document-did-change
+                     handle-text-document-did-save
                      handle-text-document-formatting
                      handle-text-document-hover))
 

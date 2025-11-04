@@ -49,12 +49,16 @@
                                (href clef-lsp/server:*documents* document-uri)
                                hover-line
                                hover-char))
+              (document-text (href clef-lsp/server:*documents* document-uri))
+              (tree (clef-parser/parser:parse-string document-text))
+              (symbol-pkg (or (clef-parser/utils:find-package-declaration tree document-text)
+                              *package*))
               ;; TODO: Get current package
               ;; TODO: Figure out why defun and some other symbols aren't being found
               ;; Or, is it actually necessary? It should work OK with no package name,
               ;; but some values don't show hover when removed. Not sure why
-              (doc (get-symbol-doc symbol-at-pos :clef-lsp/document)))
-             ;; (slog :debug "hover doc ~A" doc)
+              (doc (get-symbol-doc symbol-at-pos (package-name symbol-pkg))))
+             (slog :debug "hover doc ~A" doc)
              ;; (slog :debug "is stringp ~A" (stringp doc))
              (dict "contents"
                    (if (not (stringp doc))
@@ -190,7 +194,7 @@
        ;; (slog :debug "format-hover-text input: ~A" text)
        ;; Only support functions for now
        (when (eq (search "names a compiled function" text) nil)
-             (format t "no function found in hover text~%")
+             (slog :debug "no function found in hover text~%")
              (return-from format-hover-text nil))
 
        (destructuring-bind (full-name function-name params-text params-type-text ret-types description source-file)

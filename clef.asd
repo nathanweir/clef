@@ -34,6 +34,7 @@
                                               (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
+                                              (:file "lsp/document/did-save")
                                               (:file "lsp/document/formatting")
                                               (:file "lsp/document/hover")
                                               (:file "lsp/workspace/diagnostic")

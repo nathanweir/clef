@@ -24,7 +24,8 @@
 
 (defvar *server-capabilities-json*
         (dict "capabilities"
-              (dict "textDocumentSync" (dict "change" 1)
+              (dict "textDocumentSync" (dict "change" 1
+                                             "save" t)
                     "documentFormattingProvider" t
                     "diagnosticProvider" (dict "interFileDependencies" nil
                                                "workspaceDiagnostics" t)
