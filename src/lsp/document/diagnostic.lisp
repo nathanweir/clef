@@ -51,7 +51,7 @@
                                        (href (clef-jsonrpc/types:request-params message)
                                              "text-document"
                                              "uri"))
-             (slog :debug "[textDocument/diagnostic] Skipping diagnostics for .asd file")
+             ;; (slog :debug "[textDocument/diagnostic] Skipping diagnostics for .asd file")
              (return-from handle-text-document-diagnostic
                           (dict "kind" "full" "items" #())))
 
@@ -62,8 +62,8 @@
               (syntax-errors (get-syntax-errors document-text))
               (compile-errors (debounced-sb-collect-diagnostics document-text))
               (items (append syntax-errors compile-errors)))
-             (slog :debug "[textDocument/diagnostic] Reporting ~A diagnostics for ~A" (length items) document-uri)
-             (slog :debug "[textDocument/diagnostic] Items: ~A" items)
+             ;; (slog :debug "[textDocument/diagnostic] Reporting ~A diagnostics for ~A" (length items) document-uri)
+             ;; (slog :debug "[textDocument/diagnostic] Items: ~A" items)
              (dict "kind" "full"
                    "items" (if items items #()))))
 

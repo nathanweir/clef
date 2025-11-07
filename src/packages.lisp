@@ -3,7 +3,8 @@
             (:export :hash-table-to-instance
                      :hash-table-to-alist
                      :shallow-hash-vals
-                     :cleanup-path))
+                     :cleanup-path
+                     :read-file-text))
 
 (defpackage :clef-log
             (:use :cl)
@@ -63,8 +64,11 @@
               (:ts :cl-tree-sitter/high-level))
             (:export :find-package-declaration))
 
-(defpackage :clef-symbols/types
-            (:use :cl :clef-log))
+(defpackage :clef-symbols
+            (:use :cl :clef-log)
+            (:local-nicknames
+              (:ts :cl-tree-sitter/high-level))
+            (:export build-symbol-map))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)

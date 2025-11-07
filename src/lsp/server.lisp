@@ -35,7 +35,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                (let ((handler (gethash endpoint-name *handlers*)))
                     (if handler
                         (let ((message (funcall handler request)))
-                             (slog :debug "[~A] ✓" endpoint-name)
+                             ;; (slog :debug "[~A] ✓" endpoint-name)
                              ;; If message is 'nil', then we should return no response. Return nil here
                              ;; TODO: This is my hacky support for notifications, but could probably define this
                              ;; as a param or elsewhere
@@ -82,7 +82,7 @@ Top level keys are file paths/URIs, values are the full text of the documents as
              (lambda (request)
                      ;; From src/lsp/server.lisp
                      (before-handle-request request)
-                     (slog :debug "[~A] →" endpoint-name)
+                     ;; (slog :debug "[~A] →" endpoint-name)
                      (funcall handler-lambda request))))
 
 ;; TODO: It'd be cool to make a macro for registering handlers and not requiring exporting them + doing

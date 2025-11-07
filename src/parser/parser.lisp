@@ -1,5 +1,7 @@
 (in-package :clef-parser/parser)
 
+;; TODO: All of this src/parser code is old and messy; could do with a complete rewrite & restructuring
+
 ;; TODO: Make this path configurable / auto-discovered
 ;; I'm surprised I can use a path to the .so, here!
 (cl-tree-sitter:register-language :commonlisp "/home/nathan/dev/clef/src/parser/tree-sitter-commonlisp")
@@ -40,7 +42,7 @@
        (second (second (cl-tree-sitter:node-range node))))
 
 (defun node-text (node source)
-       " Return the text slice for NODE from SOURCE using character offsets."
+       "Return the text slice for NODE from SOURCE using character offsets."
        (let* ((start-row (node-start-point-row node))
               (start-col (node-start-point-column node))
               (end-row (node-end-point-row node))

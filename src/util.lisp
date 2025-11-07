@@ -11,6 +11,12 @@ HASH-TABLE should have keyword keys matching the class's initargs."
                      hash-table)
             (apply #'make-instance class (nreverse initargs))))
 
+;; TODO: For testing, remove
+(defparameter *my-cool-param* 123)
+
+(defmacro a-while-macro (condition &body body)
+          `(loop while ,condition do (progn ,@body)))
+
 ;; AI-slop; I haven't even read this
 (defun hash-table-to-alist (hash)
        "Convert HASH (a hash table) to an alist of (key . value) pairs."
@@ -30,3 +36,12 @@ HASH-TABLE should have keyword keys matching the class's initargs."
        (let* ((without-file (cl-ppcre:regex-replace "^file://" root-uri ""))
               (no-trailing-slash (cl-ppcre:regex-replace "/$" without-file "")))
              (namestring (uiop:parse-native-namestring no-trailing-slash))))
+
+(defun read-file-text (file-path)
+       "Read the entire contents of the file at FILE-PATH and return it as a string."
+       (with-open-file (in file-path
+                           :direction :input)
+                       (let ((contents (let ((str (make-string (file-length in))))
+                                            (read-sequence str in)
+                                            str)))
+                            contents)))

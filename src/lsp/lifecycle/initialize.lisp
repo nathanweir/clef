@@ -100,7 +100,8 @@
                ;; We currently assume one does exist and it's the first value
                (let ((workspace-root (href (aref (href params-hash "workspace-folders") 0) "uri")))
                     (slog :info "Client workspace root: ~A" workspace-root)
-                    (load-workspace-asd workspace-root))
+                    (load-workspace-asd workspace-root)
+                    (clef-symbols:build-symbol-map (clef-util:cleanup-path workspace-root)))
                (error (e)
                       ;; TODO: Propogate the error and return some specific code?
                       ;; Actually, we can continue initializing the server, but would need to disable some

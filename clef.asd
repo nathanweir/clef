@@ -26,6 +26,8 @@
                                               (:file "lsp/types/base/error-codes")
                                               (:file "lsp/types/basic/position")
                                               ;; (:file "lsp/types/lifecycle/initialize-params")
+                                              (:file "symbols/types")
+                                              (:file "symbols/init")
                                               (:file "lsp/server-capabilities")
                                               (:file "lsp/server")
                                               ;; (:file "lsp/defhandler")
