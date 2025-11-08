@@ -1,5 +1,17 @@
 (in-package :clef-symbols)
 
+;; Custom struct for adding data to the :cl-interval interval tree
+(defstruct (clef-interval (:include interval:interval))
+    data)
+
+;; ;; Define methods so cl-interval can access the interval data
+;; (defmethod interval:interval-start ((obj interval-data))
+;;            (interval:interval-start (interval-data-interval obj)))
+
+;; (defmethod interval:interval-end ((obj interval-data))
+;;            (interval:interval-end (interval-data-interval obj)))
+
+
 ;; TODO: No idea how much this will be used or what's appropriate
 (defparameter +symbol-kinds+ '(:variable :function :macro :class :package :constant :type)
               "Enumeration of possible kinds of symbols.")

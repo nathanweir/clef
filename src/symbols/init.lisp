@@ -1,5 +1,8 @@
 (in-package :clef-symbols)
 
+(defparameter *symbol-defs-by-file* (make-hash-table)
+              "A hash-table mapping file paths to interval trees of symbol-definitions")
+
 (defun filter-files (file-paths)
        "Filters out files from a list of paths to .lisp files that fit certain criteria"
        ;; Exclude any files under '.direnv'. Long-term we'd achieve this by processing the
@@ -32,10 +35,14 @@
        ;; Reset any previously found package names
        (setf *package-name* nil)
 
+       ;; Init the interval tree
+       (setf (gethash file-path *symbol-defs-by-file*)
+             (interval:make-tree))
+
        ;; Parse the file with tree-sitter and then walk the output tree to find
        ;; the current package, record symbol definitions, symbol references, and
        ;; lexical scopes
-       (let ((tree (clef-parser/parser:parse-string file-source)))
+       (let ((parse-tree (clef-parser/parser:parse-string file-source)))
             (labels ((walk (n)
                            (let ((type (ts:node-type n)))
                                 (when (or (eql type :error) (eql type :missing))
@@ -45,10 +52,10 @@
                                 (progn
                                   ;; (slog :debug "build-symbol-map> node-type is: ~A" type)
                                   (check-for-in-package n file-source)
-                                  (check-for-defun n file-source)
+                                  (check-for-defun n file-path file-source)
                                   (dolist (child (ts:node-children n))
                                           (walk child))))))
-                    (walk tree))
+                    (walk parse-tree))
             '())
        (slog :debug "package name found was: ~A" *package-name*))
 
@@ -77,7 +84,7 @@
 ;; Others to consider in the future (?): DEFTYPE, DEFSPECIAL, DEFSTRUCT, DEFMETHOD, DEFCLASS
 
 ;; 'defun', 'defmacro', 'defgeneric', 'defmethod'
-(defun check-for-defun (node source)
+(defun check-for-defun (node file-path source)
        "If a 'defun' node is found, unpack the specific type of node, name, and params into
 symbol-definitions"
        (when (eq (ts:node-type node) :defun)
@@ -88,5 +95,32 @@ symbol-definitions"
                    (if (string= defun-type "LAMBDA")
                        ;; TODO: handle lambdas separately as we have to process their params
                        (slog :debug "lambda definition")
-                       (slog :debug "Found ~A definition for symbol ~A with args ~A"
-                             defun-type symbol-text args)))))
+                       (let ((interval-tree (gethash file-path *symbol-defs-by-file*))
+                             (new-interval (make-clef-interval :start 1 :end 10)))
+                            (setf (clef-interval-data new-interval) "some-data")
+                            (interval:insert interval-tree new-interval)
+                            (slog :debug "interval at (3 . 5) ~A"
+                                  (interval:find-all interval-tree '(3 . 5))))))))
+;; (slog :debug "type-of interval-tree is ~A" (type-of interval-tree)))))))
+;; (interval:insert interval-tree new-interval)
+;; (slog :debug "interval at (3 . 5) ~A"
+;;       (interval:find *symbol-defs-by-file* '(3 . 5))))))))
+;; (slog :debug "Found ~A definition for symbol ~A with args ~A"
+;;       defun-type symbol-text args)))))
+
+;; (defun record-symbol-definition (file-path symbol-name kind location defining-scope)
+;;        "Records a symbol definition in the symbol map for the given file."
+;;        (let ((symbol-def (make-symbol-definition
+;;                            :symbol-name symbol-name
+;;                            :package-name *package-name*
+;;                            :kind kind
+;;                            :location location
+;;                            :defining-scope defining-scope)))
+;;             ;; Insert into interval tree for the file
+;;             (let ((tree (gethash file-path *symbol-defs-by-file*))
+;;                   (new-interval (make-clef-interval :start 1 :end 10)))
+;;                  (setf (clef-interval-data new-interval) "some-data")
+;;                  (interval:insert tree
+;;                                   (make-interval-data '((location-start location) .
+;;                                                         (location-end location))
+;;                                                       symbol-def)))))

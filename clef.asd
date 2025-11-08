@@ -12,7 +12,8 @@
             "cl-indentify"
             "cl-ppcre"
             "bordeaux-threads"
-            "cl-tree-sitter")
+            "cl-tree-sitter"
+            "cl-interval")
            :serial t
            :components ((:module "src"
                                  :components ((:file "packages")
