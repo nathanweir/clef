@@ -73,7 +73,7 @@
                                 (format t "[Client] Response from server: ~A~%"
                                         (if (hash-table-p resp)
                                             (serapeum:pretty-print-hash-table resp)
-                                            resp))))q
+                                            resp))))
           (error (e)
                  ;; Upon timeout this prints 'Timeout occurred while waiting for response: JSONRPC/BASE::JSONRPC-TIMEOUT does not designate a condition class.'
                  ;; Not worth fixing right now

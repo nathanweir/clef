@@ -194,7 +194,7 @@
        ;; (slog :debug "format-hover-text input: ~A" text)
        ;; Only support functions for now
        (when (eq (search "names a compiled function" text) nil)
-             (slog :debug "no function found in hover text~%")
+             (slog :debug "no function found in hover text")
              (return-from format-hover-text nil))
 
        (destructuring-bind (full-name function-name params-text params-type-text ret-types description source-file)

@@ -17,15 +17,6 @@ HASH-TABLE should have keyword keys matching the class's initargs."
 (defmacro a-while-macro (condition &body body)
           `(loop while ,condition do (progn ,@body)))
 
-;; AI-slop; I haven't even read this
-(defun hash-table-to-alist (hash)
-       "Convert HASH (a hash table) to an alist of (key . value) pairs."
-       (let (alist)
-            (maphash (lambda (k v)
-                             (push (cons k v) alist))
-                     hash)
-            (nreverse alist)))
-
 (defun shallow-hash-vals (hash-table)
        (loop for key being the hash-keys of hash-table
              using (hash-value value)

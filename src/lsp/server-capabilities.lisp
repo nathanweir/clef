@@ -29,5 +29,6 @@
                     "documentFormattingProvider" t
                     "diagnosticProvider" (dict "interFileDependencies" nil
                                                "workspaceDiagnostics" t)
+                    "definitionProvider" t
                     "hoverProvider" t)))
 ;; (format t "json version is: ~A" (com.inuoe.jzon:parse (com.inuoe.jzon:stringify *capabilities*)))

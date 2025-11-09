@@ -1,7 +1,6 @@
 (defpackage :clef-util
             (:use :cl)
             (:export :hash-table-to-instance
-                     :hash-table-to-alist
                      :shallow-hash-vals
                      :cleanup-path
                      :read-file-text))
@@ -69,7 +68,10 @@
             (:local-nicknames
               (:ts :cl-tree-sitter/high-level)
               (:ts-ll :cl-tree-sitter/low-level))
-            (:export build-symbol-map))
+            (:export build-symbol-map
+                     *lexical-scopes-by-file*
+                     *symbol-refs-by-file*
+                     get-scope-for-doc-pos))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
@@ -132,7 +134,8 @@
             (:import-from :serapeum :dict :href)
             (:local-nicknames
               (:ts :cl-tree-sitter/high-level))
-            (:export handle-text-document-diagnostic
+            (:export handle-text-document-definition
+                     handle-text-document-diagnostic
                      handle-text-document-did-open
                      handle-text-document-did-change
                      handle-text-document-did-save

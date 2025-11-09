@@ -18,6 +18,7 @@
            :components ((:module "src"
                                  :components ((:file "packages")
                                               (:file "util")
+                                              (:file "util-test")
                                               (:file "log")
                                               (:file "jsonrpc/types")
                                               (:file "jsonrpc/messages")
@@ -34,6 +35,7 @@
                                               ;; (:file "lsp/defhandler")
                                               (:file "lsp/lifecycle/initialize")
                                               (:file "lsp/lifecycle/initialized")
+                                              (:file "lsp/document/definition")
                                               (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
