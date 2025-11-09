@@ -21,9 +21,9 @@
 (defparameter *doc-regex* "Documentation:\\s+(.*?)\\s+Source")
 (defparameter *file-regex* "Source\\s+file:\\s+(.*)")
 
-(declaim (ftype (function (string) string) extract-doc-parts))
-(defun extract-doc-parts (text)
-       (second (cl-ppcre:scan-to-strings *parts-regex* text)))
+;; (declaim (ftype (function (string) string) extract-doc-parts))
+;; (defun extract-doc-parts (text)
+;;        (second (cl-ppcre:scan-to-strings *parts-regex* text)))
 
 ;; (defun get-desc-body (text)
 ;;        (let* ((lines (cl-ppcre:split #\Newline text))
@@ -72,7 +72,7 @@
 (defun format-hover-text (text)
        ;; Only support functions for now
        (when (eq (search "names a compiled function" text) nil)
-             (format t "no function found in hover text~%")
+             (format t "no function found in hover text")
              (return-from format-hover-text nil))
 
        (destructuring-bind (full-name function-name params-text params-type-text ret-types description source-file)

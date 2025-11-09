@@ -65,9 +65,10 @@
             (:export :find-package-declaration))
 
 (defpackage :clef-symbols
-            (:use :cl :clef-log)
+            (:use :cl :clef-log :clef-parser/parser)
             (:local-nicknames
-              (:ts :cl-tree-sitter/high-level))
+              (:ts :cl-tree-sitter/high-level)
+              (:ts-ll :cl-tree-sitter/low-level))
             (:export build-symbol-map))
 
 (defpackage :clef-lsp/server
