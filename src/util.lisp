@@ -36,3 +36,10 @@ HASH-TABLE should have keyword keys matching the class's initargs."
                                             (read-sequence str in)
                                             str)))
                             contents)))
+
+
+
+(format t "hello ~A" *my-cool-param*)
+
+(defun my-thing ()
+       (cleanup-path "test 123"))

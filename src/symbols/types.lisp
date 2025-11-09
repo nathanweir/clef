@@ -42,7 +42,9 @@
            (package-name nil :type symbol)
            (kind nil :type symbol-kind)
            (location nil :type location)
-           (defining-scope nil :type lexical-scope))
+           (defining-scope nil :type lexical-scope)
+           ;; The AST node. TODO: This might be an AWFUL idea
+           (node nil))
 
 (defstruct symbol-reference
            "A reference (usage) of a symbol in the workspace."
@@ -50,7 +52,8 @@
            ;; TODO: Is this necessary? I think it'd be the package that's current at time of use
            ;; (package-name nil :type string)
            (location nil :type location)
-           (usage-scope nil :type lexical-scope))
+           (usage-scope nil :type lexical-scope)
+           (node nil))
 ;; TODO: Could pre-compute this, for but now probably easier to just calculate by walking up the tree
 ;; at time of need.
 ;; nil if not resolvable
@@ -65,4 +68,5 @@
            (symbol-definitions nil :type list)
            (symbol-references nil :type hash-table)
            ;; Should be a list of lexical-scope's
-           (child-scopes nil :type list))
+           (child-scopes nil :type list)
+           (node nil))

@@ -68,10 +68,24 @@
             (:local-nicknames
               (:ts :cl-tree-sitter/high-level)
               (:ts-ll :cl-tree-sitter/low-level))
-            (:export build-symbol-map
+            (:export build-project-symbol-map
+                     build-file-symbol-map
                      *lexical-scopes-by-file*
                      *symbol-refs-by-file*
-                     get-scope-for-doc-pos))
+                     get-ref-for-doc-pos
+                     lexical-scope-kind
+                     lexical-scope-symbol-definitions
+                     lexical-scope-parent-scope
+                     lexical-scope-location
+                     symbol-definition-symbol-name
+                     symbol-definition-location
+                     symbol-definition-defining-scope
+                     location-file-path
+                     location-start
+                     location-end
+                     lexical-scope-node
+                     symbol-definition-node
+                     symbol-reference-node))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
@@ -130,7 +144,7 @@
                      load-asd))
 
 (defpackage :clef-lsp/document
-            (:use :cl :clef-log)
+            (:use :cl :clef-log :clef-symbols)
             (:import-from :serapeum :dict :href)
             (:local-nicknames
               (:ts :cl-tree-sitter/high-level))

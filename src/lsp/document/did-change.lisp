@@ -38,7 +38,13 @@
              (dotimes (i (length content-changes))
                       (let* ((content-change (aref content-changes i))
                              (new-document-text (href content-change "text")))
-                            (setf (gethash document-uri clef-lsp/server:*documents*) new-document-text)))))
+                            (setf (gethash document-uri clef-lsp/server:*documents*) new-document-text)))
+
+             ;; Reprocess the symbol-map. This is terribly jank and inefficient
+             (slog :debug "[textDocument/didChange] Rebuilding symbol map for document: ~A..." document-uri)
+             (clef-symbols:build-file-symbol-map
+               (clef-util:cleanup-path document-uri)
+               (gethash document-uri clef-lsp/server:*documents*))))
 
 
 
