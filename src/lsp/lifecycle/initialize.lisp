@@ -101,7 +101,11 @@
                (let ((workspace-root (href (aref (href params-hash "workspace-folders") 0) "uri")))
                     (slog :info "Client workspace root: ~A" workspace-root)
                     (load-workspace-asd workspace-root)
-                    (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root)))
+                    (let ((start-time (get-internal-real-time)))
+                         (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root))
+                         (slog :debug "Built project symbol map in ~A ms."
+                               (/ (* (- (get-internal-real-time) start-time) 1000.0)
+                                  internal-time-units-per-second))))
                (error (e)
                       ;; TODO: Propogate the error and return some specific code?
                       ;; Actually, we can continue initializing the server, but would need to disable some

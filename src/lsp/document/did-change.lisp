@@ -40,12 +40,14 @@
                              (new-document-text (href content-change "text")))
                             (setf (gethash document-uri clef-lsp/server:*documents*) new-document-text)))
 
-             ;; Reprocess the symbol-map. This is terribly jank and inefficient
+             ;; Reprocess the symbol-map. This is terribly jank and inefficient to do on every single change; needs debounced at the very least
              (slog :debug "[textDocument/didChange] Rebuilding symbol map for document: ~A..." document-uri)
-             (clef-symbols:build-file-symbol-map
-               (clef-util:cleanup-path document-uri)
-               (gethash document-uri clef-lsp/server:*documents*))))
-
+             (let ((start-time (get-internal-real-time)))
+                  (clef-symbols:build-file-symbol-map
+                    (clef-util:cleanup-path document-uri)
+                    (gethash document-uri clef-lsp/server:*documents*))
+                  (slog :debug "[textDocument/didChange] Rebuilt symbol map in ~A ms."
+                        (/ (- (get-internal-real-time) start-time) 1000.0)))))
 
 
 

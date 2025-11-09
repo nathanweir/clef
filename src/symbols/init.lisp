@@ -81,12 +81,12 @@
        "Filters out files from a list of paths to .lisp files that fit certain criteria"
        ;; Exclude any files under '.direnv'. Long-term we'd achieve this by processing the
        ;; .gitignore
-       (remove-if-not (lambda (path)
-                              ;; Re-enable for testing to Limit to only one file
-                              ;; (cl-ppcre:scan "/home/nathan/dev/clef/src/symbols/init\\.lisp" (namestring path)))
-                              (cl-ppcre:scan "/home/nathan/dev/clef/src/util\\.lisp" (namestring path)))
-                      ;; (cl-ppcre:scan "\\.direnv" (namestring path)))
-                      file-paths))
+       (remove-if (lambda (path)
+                          ;; Re-enable for testing to Limit to only one file
+                          ;; (cl-ppcre:scan "/home/nathan/dev/clef/src/symbols/init\\.lisp" (namestring path)))
+                          ;; (cl-ppcre:scan "/home/nathan/dev/clef/src/symbols/init\\.lisp" (namestring path)))
+                          (cl-ppcre:scan "\\.direnv" (namestring path)))
+                  file-paths))
 
 (defun build-project-symbol-map (project-root)
        (slog :debug "Building symbol map at ~A" project-root)
@@ -176,6 +176,8 @@
        ;; (multiple-value-bind (start end) (byte-offsets-for-node file-path node)
        ;;                      (slog :debug "node byte offsets: ~A ~A" start end))
        ;; (slog :debug "node byte offsets: ~A ~A" (byte-offsets-for-node file-path node))
+       (unless (eq (ts:node-type node) :list-lit)
+               (return-from check-for-in-package nil))
 
        (let ((text (node-text node source)))
             ;; (slog :debug "text is: ~A" text)
@@ -186,7 +188,9 @@
                     (let ((form (read-from-string text)))
                          (when (and (consp form)
                                     (eq (car form) 'in-package))
-                               (setf *current-package* (second form))))
+                               (progn
+                                 ;; (slog :debug "checked node for in-package: type ~A, node ~A" (ts:node-type node) node)
+                                 (setf *current-package* (second form)))))
                     (error () nil)))))
 
 ;; TODO: Check for the following types of definition nodes:
@@ -312,7 +316,15 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
             ;; TODO: I think there's a bug here as let can supposedly support a syntax like
             ;; 'let (alist)'
             (dolist (let-var-node let-var-nodes)
-                    (let* ((var-node (first (ts:node-children let-var-node)))
+                    ;; (slog :debug "var-children are: ~ A" (ts:node-children let-var-node))
+                    ;; (if (and (listp (ts:node-children let-var-node)) nil)
+                    ;;     (slog :debug "var-children are ~A" (ts:node-children let-var-node))
+                    ;;     (slog :debug "let-var-node is ~A" let-var-node))
+                    (let* ((var-children (ts:node-children let-var-node))
+                           ;; Note that (listp nil) is T in common lisp
+                           (var-node (if (and (listp var-children) nil)
+                                         (first var-children)
+                                         let-var-node))
                            (var-name (node-text
                                        var-node
                                        source))
@@ -367,8 +379,8 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
 (defun check-for-symbol-reference (node file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's
 interval tree if so."
-       (when (not (equal (ts:node-type node) '(:value :sym-lit)))
-             (return-from check-for-symbol-reference nil))
+       (unless (equal (ts:node-type node) '(:value :sym-lit))
+               (return-from check-for-symbol-reference nil))
        ;; (slog :debug "Found (:value :sym-lit) node: ~A" (node-text node source))
        (let ((symbol-reference (make-symbol-reference
                                  :symbol-name (node-text node source)
