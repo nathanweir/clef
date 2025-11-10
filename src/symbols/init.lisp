@@ -12,6 +12,8 @@
 ;; TODO: This should be universal to the LSP and not specific to this package
 (defparameter *document-line-lengths* (make-hash-table)
               "A hash-table mapping file paths to vectors of line lengths for that document.")
+(defparameter *document-line-offsets* (make-hash-table)
+              "A hash-table mapping file paths to vectors of line offsets (starting byte offset) for that document.")
 
 (defparameter *current-package* nil "The name of the current package encountered when processing the file")
 
@@ -37,19 +39,31 @@
 ;; the nodes the high-level API creates
 (defun line-char-to-byte-offset (file-path line char)
        "Converts a line and character position to a byte offset."
-       (let* ((line-lengths (gethash file-path *document-line-lengths*))
-              (line-index (1- line)) ;; Convert to 0-based
-              (char-index char)     ;; Already 0-based
-              (byte-offset 0))
-             ;; Sum up all prior line lengths + newlines
-             (dotimes (i line-index)
-                      (incf byte-offset (aref line-lengths i))
-                      (incf byte-offset 1)) ;; For newline
-             ;; Add the char offset on the target line
-             (incf byte-offset char-index)
-             byte-offset))
+       (let* ((line-offsets (gethash file-path *document-line-offsets*))
+              (line-index line) ;; Convert to 0-based
+              (char-index char))     ;; Already 0-based
+             ;; Add the char offset to the pre-calculated line offset
+             (+ (aref line-offsets line-index) char-index)))
 
-
+;; See above; becuase death/cl-tree-sitter doesn't expose byte offsets, clef-parser/parser was written incredibly
+;; naively in that it repeatedly recalculates line offsets which causes a massive amount of performance waste in this file
+;; when getting node text. This function here has been rewritten to use the pre-calculated file line offsets used for the symbol map
+;; Long-term we need to either utility-ize this kind of text seeking, or find a different way to use tree-sitter that actually exposes
+;; the byte offsets directly.
+(defun fast-node-text (node source file-path)
+       (let* ((line-offsets (gethash file-path *document-line-offsets*))
+              (start-row (node-start-point-row node))
+              (start-col (node-start-point-column node))
+              (end-row (node-end-point-row node))
+              (end-col (node-end-point-column node))
+              (start-abs (+ (aref line-offsets start-row) start-col))
+              (end-abs (+ (aref line-offsets end-row) end-col))
+              (len (length source)))
+             ;; (slog :debug "fast-node-text ~A: start-abs ~A, end-abs ~A, len ~A" file-path start-abs end-abs len)
+             ;; (slog :debug "result: ~A" (subseq source start-abs (min end-abs len)))
+             ;; (slog :debug "slow-node-text: ~A" (clef-parser/parser:node-text node source))
+             ;; (slog :debug "---")
+             (subseq source start-abs (min end-abs len))))
 
 (defun byte-offsets-for-node (file-path node)
        "Gets the start and end byte offsets for a node in a file."
@@ -69,13 +83,23 @@
                               :start start
                               :end end)))
 
-(defun calculate-line-lengths (file-source)
-       "Calculates the lengths of each line in the given file source."
-       (let ((lines (cl-ppcre:split #\Newline file-source))
-             (lengths '()))
-            (dolist (line lines)
-                    (push (length line) lengths))
-            (concatenate 'vector (nreverse lengths))))
+;; (defun calculate-line-lengths (file-source)
+;;        "Calculates the lengths of each line in the given file source."
+;;        (let ((lines (cl-ppcre:split #\Newline file-source))
+;;              (lengths '()))
+;;             (dolist (line lines)
+;;                     (push (length line) lengths))
+;;             (concatenate 'vector (nreverse lengths))))
+
+(defun calculate-line-offsets (file-source)
+       "Calculates the byte offsets relative file start of each line in the given file source."
+       (let ((byte-offset 0))
+            (let ((lines (cl-ppcre:split #\Newline file-source))
+                  (lengths '()))
+                 (dolist (line lines)
+                         (push byte-offset lengths)
+                         (incf byte-offset (+ (length line) 1)))
+                 (concatenate 'vector (nreverse lengths)))))
 
 (defun filter-files (file-paths)
        "Filters out files from a list of paths to .lisp files that fit certain criteria"
@@ -109,8 +133,8 @@
        (setf *current-package* nil)
 
        ;; Calculate and store line lengths for this document
-       (setf (gethash file-path *document-line-lengths*)
-             (calculate-line-lengths file-source))
+       (setf (gethash file-path *document-line-offsets*)
+             (calculate-line-offsets file-source))
 
        ;; Init the interval trees
        (setf (gethash file-path *symbol-refs-by-file*)
@@ -137,23 +161,23 @@
                     :node parse-tree))
             (labels ((walk (n)
                            (let ((previous-scope *current-scope*)
-                                 (type (ts:node-type n)))
-                                (when (or (eql type :error) (eql type :missing))
+                                 (node-type (ts:node-type n)))
+                                (when (or (eql node-type :error) (eql node-type :missing))
                                       ;; TODO: What to do on syntax errors? Just abort?
                                       '())
                                 ;; (push (cons type (ts:node-range n)) results))
                                 (progn
                                   ;; (slog :debug "build-symbol-map> node-type is: ~A" type)
                                   ;; Update current tracked package by looking for (in-package package-name)
-                                  (check-for-in-package n file-source file-path)
+                                  (check-for-in-package n node-type file-source file-path)
                                   ;; Look for forms that define new variables, thus creating a new lexical-scope
                                   ;; and relevant symbol-definition's
-                                  (check-for-defun n file-path file-source)
-                                  (check-for-let-binding n file-path file-source)
-                                  (check-for-simple-define n file-path file-source)
+                                  (check-for-defun n node-type file-path file-source)
+                                  (check-for-let-binding n node-type file-path file-source)
+                                  (check-for-simple-define n node-type file-path file-source)
                                   ;; Check if the node is a symbol-reference and record it into the scope if so
                                   ;; (uses *current-scope* internally intead of passing a scope in here)
-                                  (check-for-symbol-reference n file-path file-source)
+                                  (check-for-symbol-reference n node-type file-path file-source)
 
                                   (dolist (child (ts:node-children n))
                                           (walk child))
@@ -161,14 +185,12 @@
                                   (setf *current-scope* previous-scope)))))
                     (walk parse-tree))
             '())
-       (slog :debug "package name found was: ~A" *current-package*))
+       ;; (slog :debug "package name found was: ~A" *current-package*)
+       (slog :debug "Section 1 time: ~A ms." *section-one-time*)
+       (slog :debug "Section 2 time: ~A ms." *section-two-time*)
+       (slog :debug "Section 3 time: ~A ms." *section-three-time*))
 
-(defun node-obj (node source)
-       (let* ((text (clef-parser/parser:node-text node source))
-              (object (read-from-string text)))
-             object))
-
-(defun check-for-in-package (node source file-path)
+(defun check-for-in-package (node node-type source file-path)
        "Checks if the given node is an in-package declaration and updates *current-package* if so"
        (declare (ignore file-path))
        ;; For debug, print start and end byte offsets for this node
@@ -176,13 +198,13 @@
        ;; (multiple-value-bind (start end) (byte-offsets-for-node file-path node)
        ;;                      (slog :debug "node byte offsets: ~A ~A" start end))
        ;; (slog :debug "node byte offsets: ~A ~A" (byte-offsets-for-node file-path node))
-       (unless (eq (ts:node-type node) :list-lit)
+       (unless (eq node-type :list-lit)
                (return-from check-for-in-package nil))
 
-       (let ((text (node-text node source)))
+       (let ((text (fast-node-text node source file-path)))
             ;; (slog :debug "text is: ~A" text)
             ;; Look for (in-package ...) forms
-            (when (and (eq (ts:node-type node) :LIST-LIT)
+            (when (and (eq node-type :LIST-LIT)
                        (search "in-package" text))
                   (handler-case
                     (let ((form (read-from-string text)))
@@ -203,15 +225,15 @@
 ;; defmacro and lambdas
 ;; TODO: Technically, global defs can occur anywhere and should only modify the global scope. Currently this
 ;; will modify the "current" scope if you do something like put a defparameter inside a defun
-(defun check-for-defun (node file-path source)
+(defun check-for-defun (node node-type file-path source)
        "If a 'defun' node is found, unpack the specific type of node, name, and params into
 symbol-definitions. Returns the created lexical-scope if applicable, nil otherwise."
-       (when (not (eq (ts:node-type node) :defun))
+       (when (not (eq node-type :defun))
              (return-from check-for-defun nil))
 
        (let* ((defun-header-n (first (ts:node-children node)))
               (defun-header-children (ts:node-children defun-header-n))
-              (defun-type (node-text (first defun-header-children) source))
+              (defun-type (fast-node-text (first defun-header-children) source file-path))
               (defun-name-n
                 ;; lambdas by definition have no name
                 (if (string= defun-type "lambda") nil (second defun-header-children)))
@@ -233,7 +255,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              (store-scope-on-interval-tree scope file-path)
              ;; Make a symbol-definition for the function/macro name if applicable
              (when defun-name-n
-                   (let* ((defun-name (node-text defun-name-n source))
+                   (let* ((defun-name (fast-node-text defun-name-n source file-path))
                           (symbol-def (make-symbol-definition
                                         :symbol-name defun-name
                                         :package-name *current-package*
@@ -247,7 +269,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                          (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))
              ;; Make a symbol-definition for each param
              (dolist (param param-nodes)
-                     (let* ((param-name (node-text param source))
+                     (let* ((param-name (fast-node-text param source file-path))
                             (symbol-def (make-symbol-definition
                                           :symbol-name param-name
                                           :package-name *current-package*
@@ -280,12 +302,12 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
             (setf (clef-interval-data new-interval) scope)
             (interval:insert scopes-tree new-interval)))
 
-(defun check-for-let-binding (node file-path source)
+(defun check-for-let-binding (node node-type file-path source)
        "Check for 'let' or 'let*' bindings that create new lexical scopes and variable definitions."
        ;; A let or let* node in the AST is one where the node's type is (:value :list-lit),
        ;; its first-child has type (:value :sym-lit) with text being "let" or "let*",
        ;; and it's second-child is another (:value :list-lit) containing the bindings
-       (when (not (equal (ts:node-type node) '(:value :list-lit)))
+       (when (not (equal node-type '(:value :list-lit)))
              (return-from check-for-let-binding nil))
 
        (let* ((children (ts:node-children node))
@@ -293,7 +315,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
               (first-child-type (ts:node-type first-child)))
              (unless (and first-child
                           (equal first-child-type '(:value :sym-lit))
-                          (let ((sym-text (node-text first-child source)))
+                          (let ((sym-text (fast-node-text first-child source file-path)))
                                (or (string= sym-text "let")
                                    (string= sym-text "let*"))))
                      (return-from check-for-let-binding nil)))
@@ -325,9 +347,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                            (var-node (if (and (listp var-children) nil)
                                          (first var-children)
                                          let-var-node))
-                           (var-name (node-text
-                                       var-node
-                                       source))
+                           (var-name (fast-node-text var-node source file-path))
                            (symbol-def (make-symbol-definition
                                          :symbol-name var-name
                                          :package-name *current-package*
@@ -342,18 +362,18 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                           (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))))
 
 
-(defun check-for-simple-define (node file-path source)
+(defun check-for-simple-define (node node-type file-path source)
        "Check for 'simple' global var definitions like defparamater, defconstant, etc."
        ;; Ensure the node is a list-lit with a first child that's a (:value :sym-lit), where the sym-lit
        ;; is either 'defparameter', 'defconstant', or 'defvar'
-       (when (not (eq (ts:node-type node) :LIST-LIT))
+       (when (not (eq node-type :LIST-LIT))
              (return-from check-for-simple-define nil))
        (let* ((children (ts:node-children node))
               (first-child (first children))
               (first-child-type (ts:node-type first-child)))
              (unless (and first-child
                           (equal first-child-type '(:value :sym-lit))
-                          (let ((sym-text (node-text first-child source)))
+                          (let ((sym-text (fast-node-text first-child source file-path)))
                                ;; (slog :debug "sym-text: ~A" sym-text)
                                (or (string= sym-text "defparameter")
                                    (string= sym-text "defconstant")
@@ -364,7 +384,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
               ;; (first-child (first children))
               ;; (define-type (node-text first-child source))
               (name-node (second children))
-              (var-name (node-text name-node source))
+              (var-name (fast-node-text name-node source file-path))
               (symbol-def (make-symbol-definition
                             :symbol-name var-name
                             :package-name *current-package*
@@ -376,33 +396,48 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              ;; (slog :debug "Found ~A named: ~A" define-type var-name)
              (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))
 
-(defun check-for-symbol-reference (node file-path source)
+(defparameter *section-one-time* 0)
+(defparameter *section-two-time* 0)
+(defparameter *section-three-time* 0)
+
+(defun check-for-symbol-reference (node node-type file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's
 interval tree if so."
-       (unless (equal (ts:node-type node) '(:value :sym-lit))
+       (unless (equal node-type '(:value :sym-lit))
                (return-from check-for-symbol-reference nil))
        ;; (slog :debug "Found (:value :sym-lit) node: ~A" (node-text node source))
-       (let ((symbol-reference (make-symbol-reference
-                                 :symbol-name (node-text node source)
-                                 ;; :package-name *current-package* ;; TODO: revisit
-                                 :location (location-for-node file-path node)
-                                 :usage-scope *current-scope*
-                                 :node node)))
-            ;; (slog :debug "Recording symbol-reference for: ~A" (symbol-reference-symbol-name symbol-reference))
-            ;; Store symbol-reference into the appropriate interval tree for fast lookup based in editor caret position
-            (let ((refs-tree (gethash file-path *symbol-refs-by-file*))
-                  (new-interval (make-clef-interval
-                                  :start (location-start (symbol-reference-location symbol-reference))
-                                  :end (location-end (symbol-reference-location symbol-reference)))))
-                 (setf (clef-interval-data new-interval) symbol-reference)
-                 (interval:insert refs-tree new-interval))
-            ;; Also store into the current scope's symbol-references hash-table by appending the reference
-            ;; to the end of the occurrences list for this symbol name
-            (let ((scope-references-list (gethash (symbol-reference-symbol-name symbol-reference)
-                                                  (lexical-scope-symbol-references *current-scope*))))
-                 (if (not scope-references-list)
-                     (setf scope-references-list '()))
-                 (push symbol-reference scope-references-list))))
+       (let ((start-one (get-internal-real-time))
+             (start-two 0)
+             (start-three 0))
+            (let ((symbol-reference (make-symbol-reference
+                                      :symbol-name (fast-node-text node source file-path)
+                                      ;; :package-name *current-package* ;; TODO: revisit
+                                      :location (location-for-node file-path node)
+                                      :usage-scope *current-scope*
+                                      :node node)))
+                 (setf *section-one-time* (+ *section-one-time*
+                                             (/ (* (- (get-internal-real-time) start-one) 1000.0) internal-time-units-per-second)))
+                 (setf start-two (get-internal-real-time))
+                 ;; (slog :debug "Recording symbol-reference for: ~A" (symbol-reference-symbol-name symbol-reference))
+                 ;; Store symbol-reference into the appropriate interval tree for fast lookup based in editor caret position
+                 (let ((refs-tree (gethash file-path *symbol-refs-by-file*))
+                       (new-interval (make-clef-interval
+                                       :start (location-start (symbol-reference-location symbol-reference))
+                                       :end (location-end (symbol-reference-location symbol-reference)))))
+                      (setf (clef-interval-data new-interval) symbol-reference)
+                      (interval:insert refs-tree new-interval))
+                 (setf *section-two-time* (+ *section-two-time*
+                                             (/ (* (- (get-internal-real-time) start-two) 1000.0) internal-time-units-per-second)))
+                 (setf start-three (get-internal-real-time))
+                 ;; Also store into the current scope's symbol-references hash-table by appending the reference
+                 ;; to the end of the occurrences list for this symbol name
+                 (let ((scope-references-list (gethash (symbol-reference-symbol-name symbol-reference)
+                                                       (lexical-scope-symbol-references *current-scope*))))
+                      (if (not scope-references-list)
+                          (setf scope-references-list '()))
+                      (push symbol-reference scope-references-list)
+                      (setf *section-three-time* (+ *section-three-time*
+                                                    (/ (* (- (get-internal-real-time) start-three) 1000.0) internal-time-units-per-second)))))))
 ;; (slog :debug "Adding symbol-reference for ~A to current scope"
 ;;       (symbol-reference-symbol-name symbol-reference))
 ;; (slog :debug "New list is: ~A " scope-references-list))))
