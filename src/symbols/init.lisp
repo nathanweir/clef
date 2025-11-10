@@ -184,15 +184,10 @@
                                   ;; Restore previous scope
                                   (setf *current-scope* previous-scope)))))
                     (walk parse-tree))
-            '())
-       ;; (slog :debug "package name found was: ~A" *current-package*)
-       (slog :debug "Section 1 time: ~A ms." *section-one-time*)
-       (slog :debug "Section 2 time: ~A ms." *section-two-time*)
-       (slog :debug "Section 3 time: ~A ms." *section-three-time*))
+            '()))
 
 (defun check-for-in-package (node node-type source file-path)
        "Checks if the given node is an in-package declaration and updates *current-package* if so"
-       (declare (ignore file-path))
        ;; For debug, print start and end byte offsets for this node
 
        ;; (multiple-value-bind (start end) (byte-offsets-for-node file-path node)
@@ -344,22 +339,26 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                     ;;     (slog :debug "let-var-node is ~A" let-var-node))
                     (let* ((var-children (ts:node-children let-var-node))
                            ;; Note that (listp nil) is T in common lisp
-                           (var-node (if (and (listp var-children) nil)
+                           (var-node (if (and (listp var-children)
+                                              (not (null var-children)))
                                          (first var-children)
-                                         let-var-node))
-                           (var-name (fast-node-text var-node source file-path))
-                           (symbol-def (make-symbol-definition
-                                         :symbol-name var-name
-                                         :package-name *current-package*
-                                         :kind :variable
-                                         :location (location-for-node file-path
-                                                                      var-node)
-                                         ;; :defining-scope nil)))
-                                         :defining-scope scope
-                                         :node var-node)))
-                          ;; (slog :debug "Found let binding named: ~A" var-name)
-                          ;; Add this def the let-binding scope
-                          (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))))
+                                         let-var-node)))
+                          (when (and var-node
+                                     (equal (ts:node-type var-node) '(:value :sym-lit)))
+                                (let* ((var-name (fast-node-text var-node source file-path))
+                                       (symbol-def (make-symbol-definition
+                                                     :symbol-name var-name
+                                                     :package-name *current-package*
+                                                     :kind :variable
+                                                     :location (location-for-node file-path
+                                                                                  var-node)
+                                                     ;; :defining-scope nil)))
+                                                     :defining-scope scope
+                                                     :node var-node)))
+                                      ;; (slog :debug "var node is ~A" var-node)
+                                      ;; (slog :debug "Found let binding named: ~A" var-name)
+                                      ;; Add this def the let-binding scope
+                                      (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))))))
 
 
 (defun check-for-simple-define (node node-type file-path source)
@@ -396,48 +395,31 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              ;; (slog :debug "Found ~A named: ~A" define-type var-name)
              (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))
 
-(defparameter *section-one-time* 0)
-(defparameter *section-two-time* 0)
-(defparameter *section-three-time* 0)
-
 (defun check-for-symbol-reference (node node-type file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's
 interval tree if so."
        (unless (equal node-type '(:value :sym-lit))
                (return-from check-for-symbol-reference nil))
        ;; (slog :debug "Found (:value :sym-lit) node: ~A" (node-text node source))
-       (let ((start-one (get-internal-real-time))
-             (start-two 0)
-             (start-three 0))
-            (let ((symbol-reference (make-symbol-reference
-                                      :symbol-name (fast-node-text node source file-path)
-                                      ;; :package-name *current-package* ;; TODO: revisit
-                                      :location (location-for-node file-path node)
-                                      :usage-scope *current-scope*
-                                      :node node)))
-                 (setf *section-one-time* (+ *section-one-time*
-                                             (/ (* (- (get-internal-real-time) start-one) 1000.0) internal-time-units-per-second)))
-                 (setf start-two (get-internal-real-time))
-                 ;; (slog :debug "Recording symbol-reference for: ~A" (symbol-reference-symbol-name symbol-reference))
-                 ;; Store symbol-reference into the appropriate interval tree for fast lookup based in editor caret position
-                 (let ((refs-tree (gethash file-path *symbol-refs-by-file*))
-                       (new-interval (make-clef-interval
-                                       :start (location-start (symbol-reference-location symbol-reference))
-                                       :end (location-end (symbol-reference-location symbol-reference)))))
-                      (setf (clef-interval-data new-interval) symbol-reference)
-                      (interval:insert refs-tree new-interval))
-                 (setf *section-two-time* (+ *section-two-time*
-                                             (/ (* (- (get-internal-real-time) start-two) 1000.0) internal-time-units-per-second)))
-                 (setf start-three (get-internal-real-time))
-                 ;; Also store into the current scope's symbol-references hash-table by appending the reference
-                 ;; to the end of the occurrences list for this symbol name
-                 (let ((scope-references-list (gethash (symbol-reference-symbol-name symbol-reference)
-                                                       (lexical-scope-symbol-references *current-scope*))))
-                      (if (not scope-references-list)
-                          (setf scope-references-list '()))
-                      (push symbol-reference scope-references-list)
-                      (setf *section-three-time* (+ *section-three-time*
-                                                    (/ (* (- (get-internal-real-time) start-three) 1000.0) internal-time-units-per-second)))))))
+       (let ((symbol-reference (make-symbol-reference
+                                 :symbol-name (fast-node-text node source file-path)
+                                 ;; :package-name *current-package* ;; TODO: revisit
+                                 :location (location-for-node file-path node)
+                                 :usage-scope *current-scope*
+                                 :node node)))
+            (let ((refs-tree (gethash file-path *symbol-refs-by-file*))
+                  (new-interval (make-clef-interval
+                                  :start (location-start (symbol-reference-location symbol-reference))
+                                  :end (location-end (symbol-reference-location symbol-reference)))))
+                 (setf (clef-interval-data new-interval) symbol-reference)
+                 (interval:insert refs-tree new-interval))
+            ;; Also store into the current scope's symbol-references hash-table by appending the reference
+            ;; to the end of the occurrences list for this symbol name
+            (let ((scope-references-list (gethash (symbol-reference-symbol-name symbol-reference)
+                                                  (lexical-scope-symbol-references *current-scope*))))
+                 (if (not scope-references-list)
+                     (setf scope-references-list '()))
+                 (push symbol-reference scope-references-list))))
 ;; (slog :debug "Adding symbol-reference for ~A to current scope"
 ;;       (symbol-reference-symbol-name symbol-reference))
 ;; (slog :debug "New list is: ~A " scope-references-list))))

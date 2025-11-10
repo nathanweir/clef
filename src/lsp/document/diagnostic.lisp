@@ -60,7 +60,7 @@
                                   "uri"))
               (document-text (gethash document-uri clef-lsp/server:*documents*))
               (syntax-errors (get-syntax-errors document-text))
-              (compile-errors (debounced-sb-collect-diagnostics document-text))
+              (compile-errors (debounced-sb-collect-diagnostics document-text document-uri))
               (items (append syntax-errors compile-errors)))
              ;; (slog :debug "[textDocument/diagnostic] Reporting ~A diagnostics for ~A" (length items) document-uri)
              ;; (slog :debug "[textDocument/diagnostic] Items: ~A" items)
@@ -69,7 +69,7 @@
 
 ;; The below is extremely sloppy and dubious LLM-driven code for compiling documents and extracting their errors.
 ;; Could use a full rewrite
-(defun debounced-sb-collect-diagnostics (input-text)
+(defun debounced-sb-collect-diagnostics (input-text file-uri)
        "Uses SBCL to get diagnostics for a given file. TODO: Debounce this to 500ms"
        (let* ((tree (clef-parser/parser:parse-string input-text))
               (symbol-map (build-symbol-index tree input-text)))
@@ -79,45 +79,51 @@
 
              ;; print all values of the symbol-map hash table
              ;; (slog :debug "[textDocument/diagnostic] Built symbol map with ~A entries" (clef-util:shallow-hash-vals symbol-map))
-             (compile-and-collect-diagnostics symbol-map input-text tree)))
+             (compile-and-collect-diagnostics symbol-map input-text tree file-uri)))
 
-(defun compile-and-collect-diagnostics (symbol-map source-string tree)
+(defun compile-and-collect-diagnostics (symbol-map source-string tree file-uri)
        (let* ((source-package (or (clef-parser/utils:find-package-declaration tree source-string)
                                   *package*))
               (*package* source-package)
-              (diagnostics '()))
+              (output (make-string-output-stream))
+              (diagnostics '())
+              (compiler-output nil))
              (block compile-block
-                    (handler-bind
-                      ((warning
-                         (lambda (c)
-                                 (when (not (filter-condition c))
-                                       (push (make-diagnostic-from-condition c +diagnostic-severity-warning+ symbol-map source-string)
-                                             diagnostics))
-                                 (muffle-warning c)))
-                       ;; Catch ALL conditions (including the compiler errors)
-                       (condition
-                         (lambda (c)
-                                 ;; (format t "Intercepted condition: ~A (~A)~%" c (type-of c))
-                                 ;; Record the diagnostic
-                                 (when (not (filter-condition c))
-                                       (push (make-diagnostic-from-condition c +diagnostic-severity-error+ symbol-map source-string)
-                                             diagnostics))
-                                 ;; Swallow the error by returning from the block
-                                 (return-from compile-block nil))))
-                      (uiop:call-with-temporary-file
-                        (lambda (stream temp-path)
-                                (write-string source-string stream)
-                                (force-output stream)
-                                (close stream)
+                    (unwind-protect
+                      (handler-bind
+                        ((warning
+                           (lambda (c)
+                                   (when (not (filter-condition c))
+                                         (push (make-diagnostic-from-condition c +diagnostic-severity-warning+ symbol-map source-string)
+                                               diagnostics))))
+                         (condition
+                           (lambda (c)
+                                   (when (not (filter-condition c))
+                                         (push (make-diagnostic-from-condition c +diagnostic-severity-error+ symbol-map source-string)
+                                               diagnostics)))))
+                        (uiop:call-with-temporary-file
+                          (lambda (stream temp-path)
+                                  (write-string source-string stream)
+                                  (force-output stream)
+                                  (close stream)
 
-                                (let ((fasl-path (compile-file temp-path :verbose nil :print nil)))
-                                     (when (and fasl-path (probe-file fasl-path))
-                                           (delete-file fasl-path))))
-                        :want-stream-p t
-                        :want-pathname-p t
-                        :type "lisp"
-                        :keep nil)))
+                                  (let ((*standard-output* output)
+                                        (*error-output* output)
+                                        (*trace-output* output))
+                                       (let ((fasl-path (compile-file temp-path :verbose t :print 2)))
+                                            (when (and fasl-path (probe-file fasl-path))
+                                                  (delete-file fasl-path)))))
+                          :want-stream-p t
+                          :want-pathname-p t
+                          :type "lisp"
+                          :keep nil))
+                      ;; This ALWAYS executes, even if return-from is called
+                      (setf compiler-output (get-output-stream-string output))
+                      (slog :debug "compile-file output for ~A: ~%~A" file-uri compiler-output)))
              diagnostics))
+
+
+
 
 (defun extract-range (node)
        "Extract LSP range from a cl-tree-sitter node."
