@@ -18,21 +18,27 @@
 (defparameter *current-package* nil "The name of the current package encountered when processing the file")
 
 (defun get-ref-for-doc-pos (file-path line char)
-       "Gets the symbol reference name & lexical-scope for the given document position."
+       "Gets the symbol reference name & lexical-scope for the given document position.
+Note that symbol-ref can be nil if none is at the location"
        ;; (slog :debug ">>>>>>>>: ~A ~A ~A" file-path line char)
        (let* ((path (clef-util:cleanup-path file-path))
               (offset (line-char-to-byte-offset path line char))
-              (tree (gethash path *symbol-refs-by-file*))
-              (symbol-refs (interval:find-all tree offset)))
+              (symbol-refs (interval:find-all (gethash path *symbol-refs-by-file*) offset))
+              ;; Also get the lexical scope by position, as symbol-refs may be nil
+              (scopes (interval:find-all (gethash path *lexical-scopes-by-file*) offset)))
              ;; (slog :debug "Found symbol-defs at line ~A char ~A (offset ~A): ~A" line char offset symbol-defs)
-             ;; (slog :debug "symbol-name is: ~A"
-             ;; (symbol-reference-symbol-name
-             ;;   (clef-interval-data (first symbol-refs))))
-             (if (> (length symbol-refs) 0)
-                 (let ((symbol-ref (clef-interval-data (first symbol-refs))))
-                      (values (symbol-reference-usage-scope symbol-ref)
-                              (symbol-reference-symbol-name symbol-ref)))
-                 (values nil nil))))
+             ;; (slog :debug ">>>> scope intervals found: ~A" scopes)
+             ;; (values nil nil)))
+             (values
+               (when (and symbol-refs (consp symbol-refs))
+                     (symbol-reference-symbol-name (clef-interval-data (first symbol-refs))))
+               (clef-interval-data (first (last scopes))))))
+;;
+;; (if (> (length symbol-refs) 0)
+;; (let ((symbol-ref (clef-interval-data (first symbol-refs))))
+;;      (values (symbol-reference-usage-scope symbol-ref)
+;;              (symbol-reference-symbol-name symbol-ref)))
+;; (values nil nil))))
 
 ;; TODO: It is VERY annoying (and inefficient) to have to do this, but I've been unable to pull the byte
 ;; offsets out of death:cl-tree-sitter's low level API as they don't seem to be exposed in any way by
@@ -44,6 +50,8 @@
               (char-index char))     ;; Already 0-based
              ;; Add the char offset to the pre-calculated line offset
              (+ (aref line-offsets line-index) char-index)))
+
+
 
 ;; See above; becuase death/cl-tree-sitter doesn't expose byte offsets, clef-parser/parser was written incredibly
 ;; naively in that it repeatedly recalculates line offsets which causes a massive amount of performance waste in this file

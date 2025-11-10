@@ -85,6 +85,7 @@
                      location-end
                      lexical-scope-node
                      symbol-definition-node
+                     symbol-definition-kind
                      symbol-reference-node))
 
 (defpackage :clef-lsp/server
@@ -148,13 +149,15 @@
             (:import-from :serapeum :dict :href)
             (:local-nicknames
               (:ts :cl-tree-sitter/high-level))
-            (:export handle-text-document-definition
-                     handle-text-document-diagnostic
-                     handle-text-document-did-open
-                     handle-text-document-did-change
-                     handle-text-document-did-save
-                     handle-text-document-formatting
-                     handle-text-document-hover))
+            (:export
+              handle-text-document-completion
+              handle-text-document-definition
+              handle-text-document-diagnostic
+              handle-text-document-did-open
+              handle-text-document-did-change
+              handle-text-document-did-save
+              handle-text-document-formatting
+              handle-text-document-hover))
 
 (defpackage :clef-lsp/workspace
             (:use :cl :clef-log)

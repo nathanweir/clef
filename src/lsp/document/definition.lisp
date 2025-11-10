@@ -10,8 +10,9 @@
              (slog :debug "[textDocument/definition] Document: ~A" document-uri)
              (slog :debug "[textDocument/definition] Position: line ~A, character ~A" line character)
 
-             (multiple-value-bind (ref-scope ref-name)
+             (multiple-value-bind (ref-name ref-scope)
                                   (get-ref-for-doc-pos document-uri line character)
+                                  (slog :debug "[textDocument/definition] Reference name: ~A" ref-name)
                                   (when (not ref-scope)
                                         (slog :warn "[textDocument/definition] Could not find scope for position.")
                                         (return-from handle-text-document-definition

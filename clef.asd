@@ -35,6 +35,7 @@
                                               ;; (:file "lsp/defhandler")
                                               (:file "lsp/lifecycle/initialize")
                                               (:file "lsp/lifecycle/initialized")
+                                              (:file "lsp/document/completion")
                                               (:file "lsp/document/definition")
                                               (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/did-open")
