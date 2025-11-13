@@ -17,6 +17,16 @@
 
 (defparameter *current-package* nil "The name of the current package encountered when processing the file")
 
+(defparameter *global-scope* nil
+              "The global lexical scope for the entire workspace. Should the root of every scope tree")
+
+;; No longer needed since we set these on the global scope directly
+;; (defparameter *built-in-symbol-defs* nil
+;;               "A list of symbol-definition's for built-in Common Lisp symbols.")
+
+;; (defparameter *external-pkg-symbol-defs* nil
+;;               "A list of symbol-definition's for external package symbols loaded from the .asd.")
+
 (defun get-ref-for-doc-pos (file-path line char)
        "Gets the symbol reference name & lexical-scope for the given document position.
 Note that symbol-ref can be nil if none is at the location"
@@ -121,6 +131,20 @@ Note that symbol-ref can be nil if none is at the location"
                   file-paths))
 
 (defun build-project-symbol-map (project-root)
+       ;; Init the global scope and load in builtins + externals
+       (setf *global-scope* (make-lexical-scope
+                              :kind :workspace
+                              :location nil
+                              :parent-scope nil
+                              :symbol-definitions '()
+                              ;; Should never actually receive values
+                              :symbol-references (make-hash-table)
+                              :child-scopes '()
+                              :node nil))
+
+       (load-common-lisp-builtin-symbols *global-scope*)
+       (load-asd-external-packages *global-scope*)
+
        (slog :debug "Building symbol map at ~A" project-root)
        ;; Discover every .lisp file recursively under the root
        (let* ((wildcard-path (concatenate 'string
@@ -162,11 +186,14 @@ Note that symbol-ref can be nil if none is at the location"
                                 :file-path file-path
                                 :start 0
                                 :end (length file-source))
-                    :parent-scope nil
+                    :parent-scope *global-scope*
                     :symbol-definitions '()
                     :symbol-references (make-hash-table)
                     :child-scopes '()
                     :node parse-tree))
+
+            ;; Append as a child-scope of the global scope
+            (push *current-scope* (lexical-scope-child-scopes *global-scope*))
             (labels ((walk (n)
                            (let ((previous-scope *current-scope*)
                                  (node-type (ts:node-type n)))
@@ -193,6 +220,128 @@ Note that symbol-ref can be nil if none is at the location"
                                   (setf *current-scope* previous-scope)))))
                     (walk parse-tree))
             '()))
+
+(defun load-external-symbols (is-loaded global-scope package)
+       "Loads external package symbols into the global scope. 'is-loaded' sets whether the symbols
+are available without package prefixing. Otherwise, symbols will be added as 'package-name:symbol-name"
+
+       ;; (slog :debug "sideway-deps: ~A"
+       ;;       (asdf:component-sideway-dependencies (asdf:find-system :clef)))
+
+       (do-external-symbols (sym (find-package package))
+                            (slog :debug "Making symbol-def for external symbol: ~A from package: ~A" sym package)
+                            (let ((symbol-kind :unknown)
+                                  (source-location nil))
+                                 (when (special-operator-p sym)
+                                       (setf symbol-kind :special-operator))
+                                 (when (macro-function sym)
+                                       (setf symbol-kind :macro))
+                                 (when (fboundp sym)
+                                       (setf symbol-kind :function))
+                                 ;; (when (typep sym 'constant)
+                                 ;;       (setf symbol-kind :constant))
+                                 ;; (when (typep sym 'type)
+                                 ;;       (setf symbol-kind :type))
+                                 ;; (when (and (not symbol-kind)
+                                 ;;            (boundp sym))
+                                 ;;       (setf symbol-kind :variable)))
+
+                                 (setf source-location
+                                       (first (sb-introspect:find-definition-sources-by-name sym symbol-kind)))
+
+                                 ;; TODO: It's probably better to not concat into the full name here,
+                                 ;; and instead make that decision when emitting the symbols list.
+                                 ;; That does require tracking an extra val of whether it's in scope
+                                 (let* ((name (if is-loaded
+                                                  (string-downcase (symbol-name sym))
+                                                  (format nil "~A:~A"
+                                                          (string-downcase (symbol-name package))
+                                                          (string-downcase (symbol-name sym)))))
+                                        (stringpath (if source-location
+                                                        (namestring
+                                                          (sb-introspect:definition-source-pathname
+                                                            source-location))
+                                                        nil))
+                                        (symbol-def (make-symbol-definition
+                                                      :symbol-name name
+                                                      :package-name package
+                                                      :kind symbol-kind
+                                                      :location (if stringpath (make-location
+                                                                                 :file-path stringpath
+                                                                                 :start 0
+                                                                                 :end 0)
+                                                                    nil)
+                                                      ;; :defining-scope nil)))
+                                                      :defining-scope global-scope
+                                                      :node nil)))
+                                       (push symbol-def (lexical-scope-symbol-definitions global-scope))))))
+
+(defun load-common-lisp-builtin-symbols (global-scope)
+       "Loads common lisp built-in symbols into the global scope for the given file."
+       (load-external-symbols t global-scope :COMMON-LISP))
+
+(defun load-asd-external-packages (global-scope)
+       "Reads the referenced external packages for this system from the .ASD file and loads
+those packages' members into the symbol map"
+       (let ((lib-names (parse-lib-names-from-asd)))
+            (dolist (lib-name lib-names)
+                    (slog :debug "Loading external package symbols for lib: ~A" lib-name)
+                    ;; TODO: Should probably do this in a thread to not pollute the language server
+                    ;; (asdf:load-system lib-name)
+                    ;; Attempt to load external symbols for the package, but catch the error and
+                    ;; continue if it fails
+                    (handler-case
+                      ;; For now, we have to skip loading packages without easily inferrable names
+                      (load-external-symbols nil global-scope (if (stringp lib-name)
+                                                                  (read-from-string lib-name)
+                                                                  lib-name))
+                      (error (e)
+                             (slog :debug "Warning: Could not load external package symbols for ~A: ~A"
+                                   lib-name e))))))
+
+
+
+;; TODO: This is a future maintenance chore: copied part of this from
+;; src/lsp/lifecycle/initialize.lisp
+;; TODO: I can seemingly replace all of this with
+;; (asdf:component-sideway-dependencies (asdf:find-system <system-name>))
+(defun parse-lib-names-from-asd ()
+       "Retrieves a list if library names from the .asd file for this project
+by tree-sitter parsing the .asd file"
+
+       (let* ((path-root (clef-util:cleanup-path clef-lsp/server:*workspace-root*))
+              (wildcard-path (concatenate 'string path-root "/" "*.asd"))
+              (asd-files (uiop:directory* wildcard-path)))
+             (unless asd-files
+                     (slog :debug "[symbol init] No .asd files found in workspace root: ~A" wildcard-path)
+                     (return-from parse-lib-names-from-asd))
+             ;; (slog :debug "test: ~A" (clef-parser/parser:parse-string (clef-util:read-file-text (first asd-files))))
+             ;; Walk the tree looking for the :depends-on prop. :kwd-lit
+             (let* ((asd-uri (first asd-files))
+                    (source (clef-util:read-file-text asd-uri))
+                    (tree (clef-parser/parser:parse-string source))
+                    (found-depends-on nil))
+
+                   (setf (gethash asd-uri *document-line-offsets*)
+                         (calculate-line-offsets source))
+
+                   (labels ((walk (n)
+                                  (let ((node-type (ts:node-type n)))
+                                       ;; If we see depends-on, mark that it was found
+                                       (when (and (equal node-type '(:value :kwd-lit))
+                                                  (string= (fast-node-text n source asd-uri)
+                                                           ":depends-on"))
+                                             (slog :debug "[symbol init] found :depends-on")
+                                             (setf found-depends-on t))
+                                       ;; Assume that the next list seen will be the deps list
+                                       (when (and found-depends-on
+                                                  (equal node-type '(:value :list-lit)))
+                                             (return-from parse-lib-names-from-asd
+                                                          (read-from-string (fast-node-text n source asd-uri))))
+                                       (progn
+                                         (dolist (child (ts:node-children n))
+                                                 (walk child))))))
+                           (walk tree)))))
 
 (defun check-for-in-package (node node-type source file-path)
        "Checks if the given node is an in-package declaration and updates *current-package* if so"

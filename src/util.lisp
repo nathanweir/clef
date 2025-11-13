@@ -23,7 +23,7 @@ HASH-TABLE should have keyword keys matching the class's initargs."
              collect (list key value)))
 
 (defun cleanup-path (root-uri)
-       "Convert a 'file://' URI to a local pathname, removing any trailing slash."
+       "Convert a 'file://' URI to a local pathname, optionally keeping any trailing slash."
        (let* ((without-file (cl-ppcre:regex-replace "^file://" root-uri ""))
               (no-trailing-slash (cl-ppcre:regex-replace "/$" without-file "")))
              (namestring (uiop:parse-native-namestring no-trailing-slash))))

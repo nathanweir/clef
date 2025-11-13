@@ -10,14 +10,14 @@
 
 (deftype symbol-kind ()
          "An enum type for symbol kinds."
-         `(member :variable :function :macro :class :package :constant :type))
+         `(member :unknown :variable :function :macro :class :package :constant :type :special-operator))
 
 (defparameter +scope-kinds+ '(:let :flet :labels :lambda :defun :defmacro)
               "Enumeration of possible kinds of scope bindings.")
 
 (deftype scope-kind ()
          "An enum type for scope kinds."
-         `(member :document :let :flet :labels :lambda :defun :defmacro))
+         `(member :workspace :document :let :flet :labels :lambda :defun :defmacro))
 
 (defstruct location
            "A range (character offset) location within a file of source code."
@@ -41,7 +41,8 @@
            (symbol-name nil :type string)
            (package-name nil :type symbol)
            (kind nil :type symbol-kind)
-           (location nil :type location)
+           ;; Shouldn't be null for a local file but likely will be for built-ins or external references
+           (location nil :type (or null location))
            (defining-scope nil :type lexical-scope)
            ;; The AST node. TODO: This might be an AWFUL idea
            (node nil))
@@ -61,8 +62,9 @@
 
 (defstruct lexical-scope
            (kind nil :type scope-kind)
-           (location nil :type location)
-           ;; If null then this scope is the document root
+           ;; If null, then this scope is workspace-specific and not file-specific
+           (location nil :type (or null location))
+           ;; If null then this scope is the root of the scope tree
            (parent-scope nil :type (or null lexical-scope))
            ;; Should be a list of symbol-definition's
            (symbol-definitions nil :type list)

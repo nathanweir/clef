@@ -83,7 +83,7 @@
        "Finds the first .asd file in the workspace root uri, and loads it"
        ;; TODO: Handle missing trailing slash
        (let* ((path-root (clef-util:cleanup-path root-uri))
-              (wildcard-path (concatenate 'string path-root "*.asd"))
+              (wildcard-path (concatenate 'string path-root "/" "*.asd"))
               (asd-files (uiop:directory* wildcard-path)))
              (if asd-files
                  (load-asd (first asd-files))
@@ -100,8 +100,10 @@
                ;; We currently assume one does exist and it's the first value
                (let ((workspace-root (href (aref (href params-hash "workspace-folders") 0) "uri")))
                     (slog :info "Client workspace root: ~A" workspace-root)
+                    (setf clef-lsp/server:*workspace-root* workspace-root)
                     (load-workspace-asd workspace-root)
                     (let ((start-time (get-internal-real-time)))
+                         (slog :debug "Building project symbol map...")
                          (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root))
                          (slog :debug "Built project symbol map in ~A ms."
                                (/ (* (- (get-internal-real-time) start-time) 1000.0)

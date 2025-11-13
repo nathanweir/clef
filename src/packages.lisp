@@ -97,6 +97,7 @@
                      *documents*
                      *client-capabilities*
                      *server-capabilities-json*
+                     *workspace-root*
                      :before-handle-request
                      *server*
                      :reset))

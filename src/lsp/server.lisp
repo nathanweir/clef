@@ -16,6 +16,8 @@ Seehttps://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/
 Top level keys are file paths/URIs, values are the full text of the documents as strings. Newline chars. are preserved with
 (currently) no consideration of cross-platform differences.")
 
+(defvar *workspace-root* nil "The path to the root of the project workspace. Set in the initialize handler.")
+
 (defun before-handle-request (request)
        "Hook to run before handling any request."
        (let ((endpoint-name (clef-jsonrpc/types:request-method request)))

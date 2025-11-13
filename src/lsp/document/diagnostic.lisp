@@ -82,13 +82,12 @@
              (compile-and-collect-diagnostics symbol-map input-text tree file-uri)))
 
 (defun compile-and-collect-diagnostics (symbol-map source-string tree file-uri)
-       (declare (ignore file-uri))
        (let* ((source-package (or (clef-parser/utils:find-package-declaration tree source-string)
                                   *package*))
               (*package* source-package)
               (output (make-string-output-stream))
-              (diagnostics '()))
-             ;; (compiler-output nil))
+              (diagnostics '())
+              (compiler-output nil))
              (block compile-block
                     (unwind-protect
                       (handler-bind
@@ -119,9 +118,9 @@
                           :type "lisp"
                           :keep nil))))
              ;; This ALWAYS executes, even if return-from is called
-             ;; (setf compiler-output (get-output-stream-string output))))
+             (setf compiler-output (get-output-stream-string output))
              ;; Verbose output of all compile-file text; re-enable for debug
-             ;; (slog :debug "compile-file output for ~A: ~%~A" file-uri compiler-output)))
+             (slog :debug "compile-file output for ~A: ~%~A" file-uri compiler-output)
              diagnostics))
 
 

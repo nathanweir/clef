@@ -11,17 +11,17 @@
 
              (multiple-value-bind (ref-name ref-scope)
                                   (clef-symbols:get-ref-for-doc-pos document-uri line character)
-                                  (declare (ignore ref-name))
                                   ;; Collect symbol-ref names from current and parent scopes
-                                  (let ((scope ref-scope))
-                                       (loop
-                                         while scope
-                                         do (let* ((defs (clef-symbols:lexical-scope-symbol-definitions scope))
-                                                   (new-completions (make-completions defs)))
-                                                  ;; Append new completions to the end of 'completions'
-                                                  (dotimes (i (length new-completions))
-                                                           (vector-push-extend (aref new-completions i) completions)))
-                                         (setf scope (clef-symbols:lexical-scope-parent-scope scope)))))
+                                  (unless (not ref-name)
+                                          (let ((scope ref-scope))
+                                               (loop
+                                                 while scope
+                                                 do (let* ((defs (clef-symbols:lexical-scope-symbol-definitions scope))
+                                                           (new-completions (make-completions defs)))
+                                                          ;; Append new completions to the end of 'completions'
+                                                          (dotimes (i (length new-completions))
+                                                                   (vector-push-extend (aref new-completions i) completions)))
+                                                 (setf scope (clef-symbols:lexical-scope-parent-scope scope))))))
 
              (dict "isIncomplete" nil
                    "items" completions)))
