@@ -5,7 +5,6 @@
 ;; TODO: I need to move all of the asd/system loading into a thread for resiliency
 
 (defun systems-in-asd (asd-uri)
-
        ;; For now, actually just assume the correct name is the symbol of the file name
        (let* ((system-name (pathname-name asd-uri)))
              (list (make-symbol system-name))))

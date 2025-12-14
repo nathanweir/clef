@@ -70,7 +70,6 @@
             clang-tools
             # Wayland dependencies for GLFW
             wayland
-            glfw-wayland
             wayland-protocols
             libxkbcommon
 
