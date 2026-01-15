@@ -86,7 +86,15 @@
                      lexical-scope-node
                      symbol-definition-node
                      symbol-definition-kind
-                     symbol-reference-node))
+                     symbol-reference-node
+                     ;; system-info struct and accessors
+                     system-info
+                     make-system-info
+                     system-info-name
+                     system-info-asd-path
+                     system-info-dependencies
+                     system-info-source-files
+                     system-info-loaded-p))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
@@ -168,8 +176,17 @@
             (:import-from :serapeum :dict :href)
             (:export handle-initialize
                      handle-initialized
+                     ;; Legacy - kept for backward compatibility
                      load-workspace-asd
-                     load-asd))
+                     load-asd
+                     ;; Multi-ASD support
+                     *loaded-systems*
+                     *file-to-system*
+                     *asd-files*
+                     discover-asd-files
+                     load-all-workspace-systems
+                     get-file-system
+                     list-workspace-systems))
 
 (defpackage :clef-lsp/document
             (:use :cl :clef-log :clef-symbols)

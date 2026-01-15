@@ -72,3 +72,11 @@
            ;; Should be a list of lexical-scope's
            (child-scopes nil :type list)
            (node nil))
+
+(defstruct system-info
+  "Information about an ASDF system discovered in the workspace."
+  (name nil :type (or null string))
+  (asd-path nil :type (or null string))
+  (dependencies nil :type list)
+  (source-files nil :type list)
+  (loaded-p nil :type boolean))

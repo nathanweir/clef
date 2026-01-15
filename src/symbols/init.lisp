@@ -301,47 +301,28 @@ those packages' members into the symbol map"
 
 
 
-;; TODO: This is a future maintenance chore: copied part of this from
-;; src/lsp/lifecycle/initialize.lisp
-;; TODO: I can seemingly replace all of this with
-;; (asdf:component-sideway-dependencies (asdf:find-system <system-name>))
 (defun parse-lib-names-from-asd ()
-       "Retrieves a list if library names from the .asd file for this project
-by tree-sitter parsing the .asd file"
-
-       (let* ((path-root (clef-util:cleanup-path clef-lsp/server:*workspace-root*))
-              (wildcard-path (concatenate 'string path-root "/" "*.asd"))
-              (asd-files (uiop:directory* wildcard-path)))
-             (unless asd-files
-                     (slog :debug "[symbol init] No .asd files found in workspace root: ~A" wildcard-path)
-                     (return-from parse-lib-names-from-asd))
-             ;; (slog :debug "test: ~A" (clef-parser/parser:parse-string (clef-util:read-file-text (first asd-files))))
-             ;; Walk the tree looking for the :depends-on prop. :kwd-lit
-             (let* ((asd-uri (first asd-files))
-                    (source (clef-util:read-file-text asd-uri))
-                    (tree (clef-parser/parser:parse-string source))
-                    (found-depends-on nil))
-
-                   (setf (gethash asd-uri *document-line-offsets*)
-                         (calculate-line-offsets source))
-
-                   (labels ((walk (n)
-                                  (let ((node-type (ts:node-type n)))
-                                       ;; If we see depends-on, mark that it was found
-                                       (when (and (equal node-type '(:value :kwd-lit))
-                                                  (string= (fast-node-text n source asd-uri)
-                                                           ":depends-on"))
-                                             (slog :debug "[symbol init] found :depends-on")
-                                             (setf found-depends-on t))
-                                       ;; Assume that the next list seen will be the deps list
-                                       (when (and found-depends-on
-                                                  (equal node-type '(:value :list-lit)))
-                                             (return-from parse-lib-names-from-asd
-                                                          (read-from-string (fast-node-text n source asd-uri))))
-                                       (progn
-                                         (dolist (child (ts:node-children n))
-                                                 (walk child))))))
-                           (walk tree)))))
+  "Retrieves a combined list of library names from all loaded systems.
+Aggregates :depends-on from all discovered .asd files and filters out local system names."
+  (let ((all-deps '())
+        (local-system-names '()))
+    ;; Collect all local system names and their dependencies
+    (maphash (lambda (name sys-info)
+               (push name local-system-names)
+               (let ((deps (clef-symbols:system-info-dependencies sys-info)))
+                 (dolist (dep deps)
+                   ;; Normalize dependency to string
+                   (let ((dep-str (string-downcase
+                                   (if (stringp dep) dep (symbol-name dep)))))
+                     (pushnew dep-str all-deps :test #'string-equal)))))
+             clef-lsp/lifecycle::*loaded-systems*)
+    ;; Filter out local system names (don't try to load our own systems as external)
+    (let ((external-deps (set-difference all-deps local-system-names :test #'string-equal)))
+      (slog :debug "[symbol init] Found ~A external dependencies from ~A system(s)"
+            (length external-deps)
+            (hash-table-count clef-lsp/lifecycle::*loaded-systems*))
+      ;; Convert back to symbols for compatibility with existing code
+      (mapcar (lambda (s) (intern (string-upcase s) :keyword)) external-deps))))
 
 (defun check-for-in-package (node node-type source file-path)
        "Checks if the given node is an in-package declaration and updates *current-package* if so"
