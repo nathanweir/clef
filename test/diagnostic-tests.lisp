@@ -350,3 +350,34 @@
         ;; .asd files should return empty diagnostics
         (assert-true (or (null items) (= (length items) 0))
                      ".asd files should not be diagnosed")))))
+
+;;; Multiple occurrence highlighting test
+
+(deftest test-diagnostic-highlights-all-occurrences
+  "Test that ALL occurrences of an undefined symbol are highlighted - exactly one per occurrence"
+  (with-direct-handler-test
+    (init-server)
+    ;; Code with the same undefined function called 3 times
+    (let ((code "(defun foo ()
+  (undefined-xyz 1)
+  (undefined-xyz 2)
+  (undefined-xyz 3))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/multi-occur.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/multi-occur.lisp"))))
+             (items (get-diagnostic-items response))
+             ;; Count diagnostics for undefined-xyz
+             (undef-items (remove-if-not
+                            (lambda (item)
+                                   (search "UNDEFINED-XYZ"
+                                           (string-upcase (gethash "message" item))))
+                            items)))
+        ;; Should have EXACTLY 3 diagnostics - one for each occurrence, no duplicates
+        (assert-equal 3 (length undef-items)
+                      (format nil "Should have exactly 3 diagnostics for undefined-xyz, got ~A"
+                              (length undef-items)))))))

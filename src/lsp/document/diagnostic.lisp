@@ -87,6 +87,9 @@
               (*package* source-package)
               (output (make-string-output-stream))
               (diagnostics '())
+              ;; Track symbols we've already created diagnostics for to avoid duplicates
+              ;; SBCL reports errors per-call-site, but we want one diagnostic per occurrence
+              (processed-symbols (make-hash-table :test 'equal))
               (compiler-output nil))
              (block compile-block
                     (unwind-protect
@@ -94,13 +97,27 @@
                         ((warning
                            (lambda (c)
                                    (when (not (filter-condition c))
-                                         (push (make-diagnostic-from-condition c +diagnostic-severity-warning+ symbol-map source-string)
-                                               diagnostics))))
+                                         (let ((sym (extract-symbol-from-condition c)))
+                                              ;; Only process each symbol once (if we can extract a symbol name)
+                                              ;; If no symbol extracted, always create the diagnostic
+                                              (when (or (null sym)
+                                                        (not (gethash sym processed-symbols)))
+                                                    (when sym (setf (gethash sym processed-symbols) t))
+                                                    (setf diagnostics
+                                                          (nconc diagnostics
+                                                                 (make-diagnostics-from-condition c +diagnostic-severity-warning+ symbol-map source-string))))))))
                          (condition
                            (lambda (c)
                                    (when (not (filter-condition c))
-                                         (push (make-diagnostic-from-condition c +diagnostic-severity-error+ symbol-map source-string)
-                                               diagnostics)))))
+                                         (let ((sym (extract-symbol-from-condition c)))
+                                              ;; Only process each symbol once (if we can extract a symbol name)
+                                              ;; If no symbol extracted, always create the diagnostic
+                                              (when (or (null sym)
+                                                        (not (gethash sym processed-symbols)))
+                                                    (when sym (setf (gethash sym processed-symbols) t))
+                                                    (setf diagnostics
+                                                          (nconc diagnostics
+                                                                 (make-diagnostics-from-condition c +diagnostic-severity-error+ symbol-map source-string)))))))))
                         (uiop:call-with-temporary-file
                           (lambda (stream temp-path)
                                   (write-string source-string stream)
@@ -135,25 +152,38 @@
                          (clef-parser/parser:node-end-point-column node))))
 
 
-(defun make-diagnostic-from-condition (condition severity symbol-map source-string)
-       "Create one or more diagnostics from a condition with proper range extraction."
+(defun make-diagnostics-from-condition (condition severity symbol-map source-string)
+       "Create diagnostics from a condition - one for EACH occurrence of the problematic symbol.
+Returns a list of diagnostic dicts."
        (let* ((symbol-name (extract-symbol-from-condition condition))
-              (node (when symbol-name
-                          (find-node-for-symbol symbol-name symbol-map)))
-              (range (if node
-                         (extract-range node)
-                         (find-symbol-in-source source-string symbol-name))))
-
-             ;; (format t "symbol-name is ~A~%" symbol-name)
-             ;; (format t "Node is ~A~%" node)
-             ;; (format t "Range is ~A~%" range)
-             ;; (range message filename severity)
-             ;; TODO: Extract to a "make-diagnostic"
-             (dict "range" (or range
-                               ;; Ultimate fallback
-                               (make-range 0 0 0 0))
-                   "severity" severity
-                   "message" (princ-to-string condition))))
+              (nodes (when symbol-name
+                           (find-nodes-for-symbol symbol-name symbol-map)))
+              (message (princ-to-string condition)))
+             (cond
+               ;; Best case: we found nodes in the symbol map - create diagnostic for each
+               (nodes
+                 (mapcar (lambda (node)
+                                (dict "range" (extract-range node)
+                                      "severity" severity
+                                      "message" message))
+                         nodes))
+               ;; Fallback: try to find all occurrences in source text
+               (symbol-name
+                 (let ((ranges (find-all-symbol-occurrences source-string symbol-name)))
+                      (if ranges
+                          (mapcar (lambda (range)
+                                         (dict "range" range
+                                               "severity" severity
+                                               "message" message))
+                                  ranges)
+                          ;; Ultimate fallback: single diagnostic at start of file
+                          (list (dict "range" (make-range 0 0 0 0)
+                                      "severity" severity
+                                      "message" message)))))
+               ;; No symbol extracted - single diagnostic at start of file
+               (t (list (dict "range" (make-range 0 0 0 0)
+                              "severity" severity
+                              "message" message))))))
 
 (defun filter-condition (condition)
        "Filter out specific diagnostics conditions. Essentialy just a hardcoded whitelist. Returns true if the message should be filtered"
@@ -162,10 +192,9 @@
             (and (search "redefining" cond-text)
                  (search "DEFMACRO" cond-text))))
 
-;; TODO: This is highly suspect, I don't think it works well. Revisit
-;; Wait, am I just overwriting the entry with the most recent ocurrence of that symbol?
 (defun build-symbol-index (tree source)
-       "Build a hash table mapping symbol names to their tree-sitter nodes."
+       "Build a hash table mapping symbol names to lists of ALL their tree-sitter node occurrences.
+Each symbol maps to a list of nodes, allowing us to highlight every usage of an undefined symbol."
        (let ((symbol-map (make-hash-table :test 'equal)))
             (labels ((visit-node (node)
                                  (when node
@@ -173,13 +202,18 @@
                                             (when (listp kind)
                                                   (when (and (= (list-length kind) 2)
                                                              (eq (second kind) :SYM-LIT))
-                                                        (let ((text (and node (clef-parser/parser:node-text node source))))
-                                                             (when (and text (not (gethash text symbol-map)))
-                                                                   ;; Capitalize as it will be caps in the compile error
-                                                                   (setf (gethash (string-upcase text) symbol-map) node)))))
+                                                        (let* ((text (and node (clef-parser/parser:node-text node source)))
+                                                               (upcased (when text (string-upcase text))))
+                                                             (when upcased
+                                                                   ;; Append this node to the list of occurrences
+                                                                   (push node (gethash upcased symbol-map))))))
                                             (dolist (child (ts:node-children node))
                                                     (when child (visit-node child)))))))
                     (when tree (visit-node tree))
+                    ;; Reverse all lists so occurrences are in source order (first to last)
+                    (maphash (lambda (k v)
+                                    (setf (gethash k symbol-map) (nreverse v)))
+                             symbol-map)
                     symbol-map)))
 
 (defun extract-symbol-from-condition (condition)
@@ -235,21 +269,30 @@
                nil)
               (t nil))))
 
-(defun find-node-for-symbol (symbol-name symbol-map)
-       "Find the tree-sitter node for a given symbol name."
+(defun find-nodes-for-symbol (symbol-name symbol-map)
+       "Find ALL tree-sitter nodes for a given symbol name.
+Returns a list of nodes representing every occurrence of the symbol."
        (gethash (string-upcase symbol-name) symbol-map))
 
 
 
-(defun find-symbol-in-source (source-string symbol-name)
-       "Fallback: search for symbol in source text and return approximate range."
+(defun find-all-symbol-occurrences (source-string symbol-name)
+       "Find ALL occurrences of symbol-name in source text and return list of ranges.
+Used as fallback when symbol-map lookup fails."
        (when symbol-name
-             (let ((pos (search (string-upcase symbol-name)
-                                (string-upcase source-string))))
-                  (when pos
-                        (multiple-value-bind (line column)
-                                             (position-to-line-column source-string pos)
-                                             (make-range line column line (+ column (length symbol-name))))))))
+             (let ((upcased-source (string-upcase source-string))
+                   (upcased-symbol (string-upcase symbol-name))
+                   (symbol-len (length symbol-name))
+                   (ranges '())
+                   (start 0))
+                  (loop
+                    (let ((pos (search upcased-symbol upcased-source :start2 start)))
+                         (unless pos (return (nreverse ranges)))
+                         (multiple-value-bind (line column)
+                                              (position-to-line-column source-string pos)
+                                              (push (make-range line column line (+ column symbol-len))
+                                                    ranges))
+                         (setf start (1+ pos)))))))
 
 (defun position-to-line-column (string pos)
        "Convert character position to line/column."
