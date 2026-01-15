@@ -10,6 +10,9 @@
                                                "workspaceDiagnostics" t)
                     "definitionProvider" t
                     "referencesProvider" t
+                    "documentHighlightProvider" t
+                    "workspaceSymbolProvider" t
+                    "signatureHelpProvider" (dict)
                     "completionProvider"
                     (dict "triggerCharacters" '("(")
                           "completionItem" (dict "labelDetailsSupport" t))

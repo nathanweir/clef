@@ -209,13 +209,16 @@
               handle-text-document-did-change
               handle-text-document-did-save
               handle-text-document-formatting
-              handle-text-document-hover))
+              handle-text-document-hover
+              handle-text-document-highlight
+              handle-text-document-signature-help))
 
 (defpackage :clef-lsp/workspace
             (:use :cl :clef-log)
             (:import-from :serapeum :dict :href)
             (:export handle-workspace-diagnostic
-                     handle-workspace-did-change-configuration))
+                     handle-workspace-did-change-configuration
+                     handle-workspace-symbol))
 
 (defpackage :clef-lsp/misc
             (:use :cl :clef-log)
