@@ -365,3 +365,116 @@
         (let ((first-edit (first result)))
           (assert-not-nil (gethash "range" first-edit) "Edit should have range")
           (assert-not-nil (gethash "newText" first-edit) "Edit should have newText"))))))
+
+;;; Cross-file go-to-definition tests
+
+(deftest test-definition-finds-cross-file-function
+  "Test that go-to-definition finds a function defined in another file"
+  (let ((file-a-path nil)
+        (file-b-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          ;; Create file A with a function definition
+          (let ((code-a "(defun shared-helper (x)
+  (* x 2))"))
+            (setf file-a-path (write-temp-file code-a))
+            (let ((uri-a (format nil "file://~A" file-a-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-a
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-a))
+                            :id nil)
+              ;; Trigger symbol map build
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-a "version" 2)
+                                  "contentChanges" (vector (dict "text" code-a)))
+                            :id nil)))
+          ;; Create file B that calls the function from file A
+          (let ((code-b "(defun caller ()
+  (shared-helper 21))"))
+            (setf file-b-path (write-temp-file code-b))
+            (let ((uri-b (format nil "file://~A" file-b-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-b
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-b))
+                            :id nil)
+              ;; Trigger symbol map build
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-b "version" 2)
+                                  "contentChanges" (vector (dict "text" code-b)))
+                            :id nil)
+              ;; Request definition at "shared-helper" call (line 1, char 3)
+              (let* ((response (call-handler "textDocument/definition"
+                                             (dict "textDocument" (dict "uri" uri-b)
+                                                   "position" (dict "line" 1 "character" 3))))
+                     (result (response-result-safe response)))
+                ;; Should find definition in file A
+                (assert-not-nil result "Should find cross-file definition")
+                (when (hash-table-p result)
+                  (let ((result-uri (gethash "uri" result)))
+                    (assert-not-nil result-uri "Should have uri in result")
+                    (assert-true (search file-a-path result-uri)
+                                 "Definition should point to file A")))))))
+      ;; Cleanup
+      (when file-a-path (delete-temp-file file-a-path))
+      (when file-b-path (delete-temp-file file-b-path)))))
+
+(deftest test-definition-cross-file-returns-correct-location
+  "Test that cross-file definition returns the correct line/character location"
+  (let ((file-a-path nil)
+        (file-b-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          ;; File A: function on line 2 (after blank line)
+          (let ((code-a "
+(defun target-func ()
+  42)"))
+            (setf file-a-path (write-temp-file code-a))
+            (let ((uri-a (format nil "file://~A" file-a-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-a
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-a))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-a "version" 2)
+                                  "contentChanges" (vector (dict "text" code-a)))
+                            :id nil)))
+          ;; File B: calls target-func
+          (let ((code-b "(defun main ()
+  (target-func))"))
+            (setf file-b-path (write-temp-file code-b))
+            (let ((uri-b (format nil "file://~A" file-b-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-b
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-b))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-b "version" 2)
+                                  "contentChanges" (vector (dict "text" code-b)))
+                            :id nil)
+              ;; Request definition at "target-func" (line 1, char 3)
+              (let* ((response (call-handler "textDocument/definition"
+                                             (dict "textDocument" (dict "uri" uri-b)
+                                                   "position" (dict "line" 1 "character" 3))))
+                     (result (response-result-safe response)))
+                (assert-not-nil result "Should find cross-file definition")
+                (when (hash-table-p result)
+                  (let ((range (gethash "range" result)))
+                    (assert-not-nil range "Should have range")
+                    (when range
+                      (let ((start (gethash "start" range)))
+                        ;; Definition is on line 1 (0-indexed, after blank line)
+                        (assert-equal 1 (gethash "line" start)
+                                      "Definition should be on line 1")))))))))
+      ;; Cleanup
+      (when file-a-path (delete-temp-file file-a-path))
+      (when file-b-path (delete-temp-file file-b-path)))))

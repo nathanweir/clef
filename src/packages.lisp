@@ -94,7 +94,13 @@
                      system-info-asd-path
                      system-info-dependencies
                      system-info-source-files
-                     system-info-loaded-p))
+                     system-info-loaded-p
+                     ;; workspace symbol index for cross-file go-to-definition
+                     *workspace-symbol-index*
+                     clear-workspace-symbol-index
+                     remove-file-from-workspace-index
+                     add-to-workspace-index
+                     lookup-in-workspace-index))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)

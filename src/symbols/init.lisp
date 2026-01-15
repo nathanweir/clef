@@ -20,6 +20,39 @@
 (defparameter *global-scope* nil
               "The global lexical scope for the entire workspace. Should the root of every scope tree")
 
+(defparameter *workspace-symbol-index* (make-hash-table :test 'equal)
+              "Hash table mapping symbol names (strings) to lists of symbol-definition's across all files.
+Used for cross-file go-to-definition.")
+
+;;; Workspace symbol index management
+
+(defun clear-workspace-symbol-index ()
+  "Clear the entire workspace symbol index."
+  (clrhash *workspace-symbol-index*))
+
+(defun remove-file-from-workspace-index (file-path)
+  "Remove all symbol definitions from FILE-PATH from the workspace index."
+  (maphash (lambda (symbol-name defs)
+             (let ((filtered (remove-if (lambda (def)
+                                          (let ((loc (symbol-definition-location def)))
+                                            (and loc (string= (location-file-path loc) file-path))))
+                                        defs)))
+               (if filtered
+                   (setf (gethash symbol-name *workspace-symbol-index*) filtered)
+                   (remhash symbol-name *workspace-symbol-index*))))
+           *workspace-symbol-index*))
+
+(defun add-to-workspace-index (symbol-def)
+  "Add a symbol definition to the workspace index for cross-file lookup."
+  (let* ((name (symbol-definition-symbol-name symbol-def))
+         (existing (gethash name *workspace-symbol-index*)))
+    (setf (gethash name *workspace-symbol-index*)
+          (cons symbol-def existing))))
+
+(defun lookup-in-workspace-index (symbol-name)
+  "Look up a symbol by name in the workspace index. Returns a list of matching definitions."
+  (gethash symbol-name *workspace-symbol-index*))
+
 ;; No longer needed since we set these on the global scope directly
 ;; (defparameter *built-in-symbol-defs* nil
 ;;               "A list of symbol-definition's for built-in Common Lisp symbols.")
@@ -131,6 +164,9 @@ Note that symbol-ref can be nil if none is at the location"
                   file-paths))
 
 (defun build-project-symbol-map (project-root)
+       ;; Clear the workspace symbol index before rebuilding
+       (clear-workspace-symbol-index)
+
        ;; Init the global scope and load in builtins + externals
        (setf *global-scope* (make-lexical-scope
                               :kind :workspace
@@ -160,6 +196,10 @@ Note that symbol-ref can be nil if none is at the location"
 
 (defun build-file-symbol-map (file-path file-source)
        (slog :debug "Processing file for symbol-map: ~A" file-path)
+
+       ;; Remove any existing symbols from this file in the workspace index
+       ;; (needed when re-processing files on save)
+       (remove-file-from-workspace-index file-path)
 
        ;; Reset any previously found package names
        (setf *current-package* nil)
@@ -399,7 +439,10 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                                         :defining-scope *current-scope*
                                         :node defun-name-n)))
                          ;; (slog :debug "Found ~A named: ~A" defun-type defun-name)
-                         (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))
+                         (push symbol-def (lexical-scope-symbol-definitions *current-scope*))
+                         ;; Add top-level definitions to workspace index for cross-file lookup
+                         (when (eq (lexical-scope-kind *current-scope*) :document)
+                               (add-to-workspace-index symbol-def))))
              ;; Make a symbol-definition for each param
              (dolist (param param-nodes)
                      (let* ((param-name (fast-node-text param source file-path))
@@ -531,7 +574,11 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                             :defining-scope *current-scope*
                             :node name-node)))
              ;; (slog :debug "Found ~A named: ~A" define-type var-name)
-             (push symbol-def (lexical-scope-symbol-definitions *current-scope*))))
+             (push symbol-def (lexical-scope-symbol-definitions *current-scope*))
+             ;; Add top-level definitions to workspace index for cross-file lookup
+             ;; (defparameter/defvar/defconstant are always top-level)
+             (when (eq (lexical-scope-kind *current-scope*) :document)
+                   (add-to-workspace-index symbol-def))))
 
 (defun check-for-symbol-reference (node node-type file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's

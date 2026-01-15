@@ -22,10 +22,14 @@
 
 
 (defun search-up-for-symbol-def (ref-scope ref-name)
-       "Search up the lexical scope tree from REF-SCOPE to find the definition of REF-NAME."
-       ;; Base case, symbol def could not be found
+       "Search up the lexical scope tree from REF-SCOPE to find the definition of REF-NAME.
+If not found in the scope tree, falls back to searching the workspace symbol index
+for cross-file definitions."
+       ;; Base case: reached end of scope tree, try workspace index
        (unless ref-scope
-               (return-from search-up-for-symbol-def nil))
+               (slog :debug "Scope tree exhausted, searching workspace index for ~A" ref-name)
+               (return-from search-up-for-symbol-def
+                            (search-workspace-index-for-symbol ref-name)))
        (slog :debug "searching up for ref name ~A with scope kind ~A" ref-name
              (lexical-scope-kind ref-scope))
        ;; Check each symbol definition in the scope. If it has the same name as ref-name, return
@@ -33,10 +37,20 @@
        (let ((defs (lexical-scope-symbol-definitions ref-scope)))
             (dolist (def defs)
                     (when (string= (symbol-definition-symbol-name def) ref-name)
-                          (slog :debug "Found symbol definition for ~A" ref-name)
+                          (slog :debug "Found symbol definition for ~A in scope" ref-name)
                           (return-from search-up-for-symbol-def def))))
        (let ((parent-scope (lexical-scope-parent-scope ref-scope)))
             (search-up-for-symbol-def parent-scope ref-name)))
+
+(defun search-workspace-index-for-symbol (symbol-name)
+       "Search the workspace symbol index for a symbol definition.
+Returns the first match, or nil if not found."
+       (let ((defs (clef-symbols:lookup-in-workspace-index symbol-name)))
+            (when defs
+                  (slog :debug "Found ~A definition(s) for ~A in workspace index"
+                        (length defs) symbol-name)
+                  ;; Return the first match (could be enhanced to handle multiple definitions)
+                  (first defs))))
 
 ;; TODO: This will definitely be used elsewhere
 (defun node-to-lsp-range (node)
