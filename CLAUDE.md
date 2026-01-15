@@ -12,11 +12,41 @@ CLEF (Common Lisp Editor Facilitator) is an LSP server for Common Lisp, built fo
 # Run the LSP server
 just run
 
-# Run tests (starts server with test client)
+# Run LSP handler tests
 just test
 ```
 
 The `just run` command loads SBCL with ASDF, loads the clef system, and starts the server.
+
+## Testing
+
+Tests are in the `test/` directory and use a custom test framework.
+
+```
+test/
+├── package.lisp         # Test package definition
+├── framework.lisp       # Test framework (assertions, mock server)
+├── lifecycle-tests.lisp # Tests for initialize/initialized/shutdown
+├── document-tests.lisp  # Tests for document operations
+└── run-tests.lisp       # Test runner entry point
+```
+
+The framework provides:
+- `deftest` macro for defining tests
+- `with-direct-handler-test` macro that sets up server state and provides `call-handler` function
+- `init-server` macro to initialize server within tests
+- Assertion functions: `assert-equal`, `assert-true`, `assert-nil`, `assert-not-nil`
+
+To add a new test:
+```lisp
+(deftest test-my-feature
+  "Description"
+  (with-direct-handler-test
+    (init-server)
+    ;; call-handler is available here
+    (let ((response (call-handler "textDocument/myMethod" params)))
+      (assert-not-nil response))))
+```
 
 ## Architecture
 

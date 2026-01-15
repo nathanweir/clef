@@ -7,8 +7,10 @@ run:
     	--eval '(clef-root:start-server)' \
     	--quit
 
-# client.lisp is badly named; it's actuall used to test running the server, and the "client" is actually
-
-# just a usage of :jsonrpc
+# Run all LSP tests
 test:
+    @sbcl --noinform --non-interactive --load "test/run-tests.lisp" 2>&1 | grep --color=never -v "^make:"
+
+# Run the old integration test (deprecated)
+test-old:
     sbcl --script "test/client.lisp"
