@@ -262,6 +262,11 @@ Each symbol maps to a list of nodes, allowing us to highlight every usage of an 
                                                               ("Symbol \"([\\w\\-]+)\" not found in the [\\w\\-]+ package" message)
                                                               sym-name)))
                      matches))
+              ;; The variable X is defined but never used
+              ((cl-ppcre:scan-to-strings "The variable ([\\w\\-\\*]+) is defined but never used" message)
+               (cl-ppcre:register-groups-bind (var-name)
+                                              ("The variable ([\\w\\-\\*]+) is defined but never used" message)
+                                              var-name))
               ;; Type error patterns
               ((search "type-error" (string-downcase message))
                ;; Try to extract symbol from type error message

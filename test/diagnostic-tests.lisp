@@ -381,3 +381,37 @@
         (assert-equal 3 (length undef-items)
                       (format nil "Should have exactly 3 diagnostics for undefined-xyz, got ~A"
                               (length undef-items)))))))
+
+;;; Unused variable warning test
+
+(deftest test-diagnostic-unused-variable-is-warning
+  "Test that unused variable is reported as warning (not error) with proper location"
+  (with-direct-handler-test
+    (init-server)
+    ;; Code with an unused variable 'unused-var'
+    (let ((code "(defun foo ()
+  (let ((unused-var 42))
+    (print \"hello\")))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/unused-var.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/unused-var.lisp"))))
+             (items (get-diagnostic-items response))
+             (unused-diag (find-diagnostic-with-message items "defined but never used")))
+        (assert-not-nil unused-diag "Should detect unused variable")
+        (when unused-diag
+          ;; Should be a warning (severity 2), not error (severity 1)
+          (assert-equal 2 (diagnostic-severity unused-diag)
+                        "Unused variable should be warning severity (2), not error")
+          ;; Should NOT be at position 0,0 - should highlight the actual variable
+          (let* ((range (gethash "range" unused-diag))
+                 (start (when range (gethash "start" range)))
+                 (start-line (when start (gethash "line" start)))
+                 (start-char (when start (gethash "character" start))))
+            (assert-true (or (not (eql start-line 0))
+                             (not (eql start-char 0)))
+                         "Diagnostic should highlight the variable, not be at 0,0")))))))
