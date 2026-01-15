@@ -28,17 +28,17 @@
 
 
 (defun determine-symbol-kind (symbol-def)
-       "Determine the LSP SymbolKind for SYMBOL-DEF."
+       "Determine the LSP CompletionItemKind for SYMBOL-DEF."
        (let ((kind (clef-symbols:symbol-definition-kind symbol-def)))
             (cond
-              ((eq kind :function) 3)  ;; Function
-              ((eq kind :macro) 3)     ;; Function
-              ((eq kind :variable) 6)  ;; Variable
-              ((eq kind :class) 5)     ;; Class
-              ((eq kind :package) 9)   ;; Namespace
-              ((eq kind :constant) 14) ;; Constant
-              ((eq kind :type) 7)      ;; Type Parameter
-              (t 1))))                 ;; Text (default)
+              ((eq kind :function) clef-lsp/types/base:+completion-item-kind-function+)
+              ((eq kind :macro) clef-lsp/types/base:+completion-item-kind-function+)
+              ((eq kind :variable) clef-lsp/types/base:+completion-item-kind-variable+)
+              ((eq kind :class) clef-lsp/types/base:+completion-item-kind-class+)
+              ((eq kind :package) clef-lsp/types/base:+completion-item-kind-module+)
+              ((eq kind :constant) clef-lsp/types/base:+completion-item-kind-constant+)
+              ((eq kind :type) clef-lsp/types/base:+completion-item-kind-type-parameter+)
+              (t clef-lsp/types/base:+completion-item-kind-text+))))
 
 (defun make-completions (symbol-defs)
        "Create LSP completion items from SYMBOL-DEFS."

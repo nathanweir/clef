@@ -11,12 +11,6 @@ HASH-TABLE should have keyword keys matching the class's initargs."
                      hash-table)
             (apply #'make-instance class (nreverse initargs))))
 
-;; TODO: For testing, remove
-(defparameter *my-cool-param* 123)
-
-(defmacro a-while-macro (condition &body body)
-          `(loop while ,condition do (progn ,@body)))
-
 (defun shallow-hash-vals (hash-table)
        (loop for key being the hash-keys of hash-table
              using (hash-value value)

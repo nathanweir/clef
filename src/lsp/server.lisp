@@ -28,43 +28,46 @@ Top level keys are file paths/URIs, values are the full text of the documents as
                   (slog :error "Server not initialized yet.")
                   (error 'clef-lsp/types/base:server-not-initialized-error))))
 
+(defun capture-backtrace ()
+       "Capture current backtrace as a string."
+       (with-output-to-string (s)
+         (sb-debug:print-backtrace :stream s :count 20)))
+
 (defun handle-lsp-request (id request)
-       ;; (slog :info "Received LSP request: ~A" request)
-       (handler-case
-         ;; TODO: Actually create an appropriate response
-         (let* ((endpoint-name (clef-jsonrpc/types:request-method request)))
-               ;; Check if the handler exists
-               (let ((handler (gethash endpoint-name *handlers*)))
-                    (if handler
-                        (let ((message (funcall handler request)))
-                             ;; (slog :debug "[~A] ✓" endpoint-name)
-                             ;; If message is 'nil', then we should return no response. Return nil here
-                             ;; TODO: This is my hacky support for notifications, but could probably define this
-                             ;; as a param or elsewhere
-                             (if (null message)
-                                 nil
-                                 (make-instance 'clef-jsonrpc/types:jsonrpc-response
-                                                :result message
-                                                :id id)))
-                        (progn
-                          (slog :error "[~A] No handler found" endpoint-name)
-                          (error 'clef-lsp/types/base:method-not-found-error :endpoint endpoint-name)))))
-         (clef-lsp/types/base:lsp-error (e)
-                                        ;; (slog :error "[LSP error handling request: ~A" e)
-                                        (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                                                       :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
-                                                                             :code (clef-lsp/types/base:lsp-error-code e)
-                                                                             :message (clef-lsp/types/base:lsp-error-message e)
-                                                                             :data (ignore-errors (clef-lsp/types/base:lsp-error-data e)))
-                                                       :id id))
-         (error (e)
-                ;; TODO: Find a way to capture a backtrace here
-                (slog :error "[~A] Internal error handling request: ~A" (clef-jsonrpc/types:request-method request) e)
-                (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                               :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
-                                                     :code clef-jsonrpc/types:+internal-error+
-                                                     :message (format nil "Internal server error: ~A" e))
-                               :id id))))
+       (let ((captured-backtrace nil))
+            (handler-case
+              (handler-bind
+                ((error (lambda (e)
+                          (declare (ignore e))
+                          (setf captured-backtrace (capture-backtrace)))))
+                (let* ((endpoint-name (clef-jsonrpc/types:request-method request)))
+                      (let ((handler (gethash endpoint-name *handlers*)))
+                           (if handler
+                               (let ((message (funcall handler request)))
+                                    (if (null message)
+                                        nil
+                                        (make-instance 'clef-jsonrpc/types:jsonrpc-response
+                                                       :result message
+                                                       :id id)))
+                               (progn
+                                 (slog :error "[~A] No handler found" endpoint-name)
+                                 (error 'clef-lsp/types/base:method-not-found-error :endpoint endpoint-name))))))
+              (clef-lsp/types/base:lsp-error (e)
+                                             (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
+                                                            :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
+                                                                                  :code (clef-lsp/types/base:lsp-error-code e)
+                                                                                  :message (clef-lsp/types/base:lsp-error-message e)
+                                                                                  :data (ignore-errors (clef-lsp/types/base:lsp-error-data e)))
+                                                            :id id))
+              (error (e)
+                     (slog :error "[~A] Internal error: ~A" (clef-jsonrpc/types:request-method request) e)
+                     (when captured-backtrace
+                           (slog :error "Backtrace:~%~A" captured-backtrace))
+                     (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
+                                    :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
+                                                          :code clef-jsonrpc/types:+internal-error+
+                                                          :message (format nil "Internal server error: ~A" e))
+                                    :id id)))))
 
 (defun run-lsp-server-stdio (&key (input *standard-input*) (output *standard-output*))
        "Run LSP server over stdio"

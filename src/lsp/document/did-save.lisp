@@ -3,10 +3,12 @@
 (defun handle-text-document-did-save (message)
        (let* ((params (clef-jsonrpc/types:request-params message))
               (document-uri (clef-util:cleanup-path (href params "text-document" "uri"))))
-             (slog :debug "[textDocument/didSave] Loading saved file: ~A" document-uri)
-             (if (uiop:string-suffix-p document-uri ".asd" )
-                 (clef-lsp/lifecycle:load-asd document-uri)
-                 ;; TODO: Consider reloading the relevant system instead
-                 ;; might be fast enougH? using load causes errors with defconstant
-                 ;; Or, swallow those errors and just inform users that defconstant reloads won't work
-                 (load document-uri))))
+             (slog :debug "[textDocument/didSave] Document saved: ~A" document-uri)
+             ;; For .asd files, reload the system definition
+             (when (uiop:string-suffix-p document-uri ".asd")
+                   (clef-lsp/lifecycle:load-asd document-uri))
+             ;; Rebuild symbol map for the saved file
+             (let ((document-text (gethash (format nil "file://~A" document-uri)
+                                           clef-lsp/server:*documents*)))
+                  (when document-text
+                        (clef-symbols:build-file-symbol-map document-uri document-text)))))

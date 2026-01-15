@@ -2,9 +2,10 @@
 
 ;; TODO: All of this src/parser code is old and messy; could do with a complete rewrite & restructuring
 
-;; TODO: Make this path configurable / auto-discovered
-;; I'm surprised I can use a path to the .so, here!
-(cl-tree-sitter:register-language :commonlisp "/home/nathan/dev/clef/src/parser/tree-sitter-commonlisp")
+;; Register tree-sitter language using path relative to the ASDF system
+(cl-tree-sitter:register-language
+  :commonlisp
+  #.(namestring (asdf:system-relative-pathname :clef "src/parser/tree-sitter-commonlisp")))
 
 (declaim (ftype (function (string)) parse-file))
 (defun parse-file (file-path)

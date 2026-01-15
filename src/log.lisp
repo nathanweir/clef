@@ -1,20 +1,21 @@
 (in-package :clef-log)
 
-;; TODO: Actually observe this
-(defparameter +log-level+ :debug
-              "The current log level. Possible values are :debug, :warn, :error, and :info.")
+;; Log level configuration (mutable, so use * convention)
+(defvar *log-level* :debug
+  "The current log level. Possible values are :debug, :info, :warn, and :error.")
+
 (defparameter *log-levels*
               '(:debug 0
-                       :warn 1
-                       :error 2
-                       :info 3)
+                :info 1
+                :warn 2
+                :error 3)
               "Mapping of log levels to their severity.")
 
-(defparameter +log-mode+ :console
-              "The current log mode. Possible values are :file and :console.")
+(defvar *log-mode* :console
+  "The current log mode. Possible values are :file and :console.")
 
-(defparameter +log-file-path+ #p"/home/nathan/clef.log"
-              "The file path for log output when in file mode.")
+(defvar *log-file-path* (merge-pathnames "clef.log" (user-homedir-pathname))
+  "The file path for log output when in file mode.")
 
 (defun formatted-current-time ()
     "Returns the current time formatted as a string."
@@ -23,26 +24,26 @@
 
 (defun init (log-mode)
     "Initializes the logging system."
-    (setf +log-mode+ log-mode)
-    (when (eq +log-mode+ :file)
-          (with-open-file (stream +log-file-path+ :direction :output :if-does-not-exist :create :if-exists :supersede)
+    (setf *log-mode* log-mode)
+    (when (eq *log-mode* :file)
+          (with-open-file (stream *log-file-path* :direction :output :if-does-not-exist :create :if-exists :supersede)
               (format stream "[~A] [INFO] Log initialized.~%" (formatted-current-time)))))
 
 ;; Short for "s"erver log. Probably worth renaming
 (defun slog (level message &rest args)
     "Logs a MESSAGE at the given LEVEL with optional ARGS for formatting."
     (let* ((level-severity (getf *log-levels* level))
-           (current-severity (getf *log-levels* +log-level+)))
+           (current-severity (getf *log-levels* *log-level*)))
         (when (<= current-severity level-severity)
               (let ((formatted-message (if args
                                            (apply #'format nil message args)
                                            message))
                     (timestamp (formatted-current-time)))
                   (cond
-                   ((eq +log-mode+ :console)
+                   ((eq *log-mode* :console)
                        (format t "[~A] [~A] ~A~%" timestamp level formatted-message))
-                   ((eq +log-mode+ :file)
-                       (with-open-file (stream +log-file-path+ :direction :output :if-does-not-exist :create :if-exists :append)
+                   ((eq *log-mode* :file)
+                       (with-open-file (stream *log-file-path* :direction :output :if-does-not-exist :create :if-exists :append)
                            (format stream "[~A] [~A] ~A~%" timestamp level formatted-message)))
                    (t
-                       (error "Unknown log mode: ~A" +log-mode+)))))))
+                       (error "Unknown log mode: ~A" *log-mode*)))))))

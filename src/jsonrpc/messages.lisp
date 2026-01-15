@@ -36,40 +36,44 @@
          (t value)))
 
 (defun read-lsp-message (stream)
-       "Read an LSP message from a binary stream according to LSP spec."
-       (let ((headers (make-hash-table :test 'equal))
-             (content-length nil))
-            ;; Read headers
-            (dolist (line (read-header-lines stream))
-                    (let* ((sep (position #\: line))
-                           (key (and sep (string-downcase (subseq line 0 sep))))
-                           (value (and sep (string-trim '(#\Space) (subseq line (1+ sep))))))
-                          (when (and key value)
-                                (setf (gethash key headers) value)
-                                (when (string= key "content-length")
-                                      (setf content-length (parse-integer value :junk-allowed t))))))
-            (unless content-length
-                    (error "Missing Content-Length header in LSP message"))
-            ;; (slog :debug "Read content-length header: ~A" content-length)
-            ;; Read content
-            (let* ((buffer (make-array content-length :element-type '(unsigned-byte 8)))
-                   (nread (read-sequence buffer stream)))
-                  (unless (= nread content-length)
-                          (error "Failed to read full LSP message body"))
-                  (let* ((message-hash (make-hash-table-hyphen-case
-                                         (com.inuoe.jzon:parse
-                                           (babel:octets-to-string buffer :encoding :utf-8))))
-                         (message (make-instance 'jsonrpc-request
-                                                 :id (gethash "id" message-hash)
-                                                 :method (gethash "method" message-hash)
-                                                 :params (gethash "params" message-hash))))
-                        ;; (slog :debug ">>>>>>> Read LSP message-hash: ~A" message-hash)
-                        ;; (format t "Keys: ~A~%" (loop for k being the hash-keys of message-hash collect k))
-                        ;; (format t "gethash :params: ~A~%" (gethash :params message-hash))
-                        ;; (format t "gethash \"params\": ~A~%" (gethash "params" message-hash))
-                        ;; (slog :debug ">>>>>>> Read LSP message-hash: ~A" message-hash)
-                        ;; (slog :debug ">>>>>>> Read LSP params: ~A" (gethash "params" message-hash))
-                        message))))
+       "Read an LSP message from a binary stream according to LSP spec.
+Returns NIL on EOF or stream error to allow graceful shutdown."
+       (handler-case
+           (let ((headers (make-hash-table :test 'equal))
+                 (content-length nil)
+                 (header-lines (read-header-lines stream)))
+                ;; Check for EOF (no headers read)
+                (unless header-lines
+                        (return-from read-lsp-message nil))
+                ;; Read headers
+                (dolist (line header-lines)
+                        (let* ((sep (position #\: line))
+                               (key (and sep (string-downcase (subseq line 0 sep))))
+                               (value (and sep (string-trim '(#\Space) (subseq line (1+ sep))))))
+                              (when (and key value)
+                                    (setf (gethash key headers) value)
+                                    (when (string= key "content-length")
+                                          (setf content-length (parse-integer value :junk-allowed t))))))
+                (unless content-length
+                        (clef-log:slog :error "Missing Content-Length header in LSP message")
+                        (return-from read-lsp-message nil))
+                ;; Read content
+                (let* ((buffer (make-array content-length :element-type '(unsigned-byte 8)))
+                       (nread (read-sequence buffer stream)))
+                      (unless (= nread content-length)
+                              (clef-log:slog :error "Failed to read full LSP message body (got ~D of ~D bytes)"
+                                             nread content-length)
+                              (return-from read-lsp-message nil))
+                      (let* ((message-hash (make-hash-table-hyphen-case
+                                             (com.inuoe.jzon:parse
+                                               (babel:octets-to-string buffer :encoding :utf-8))))
+                             (message (make-instance 'jsonrpc-request
+                                                     :id (gethash "id" message-hash)
+                                                     :method (gethash "method" message-hash)
+                                                     :params (gethash "params" message-hash))))
+                            message)))
+         (end-of-file () nil)
+         (stream-error () nil)))
 
 (defun write-lsp-message (response stream)
        "Write an LSP message to a binary stream according to LSP spec."

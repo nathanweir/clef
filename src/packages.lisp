@@ -8,10 +8,10 @@
 (defpackage :clef-log
             (:use :cl)
             (:export :slog
-                     +log-level+
+                     *log-level*
                      *log-levels*
-                     +log-mode+
-                     +log-file-path+
+                     *log-mode*
+                     *log-file-path*
                      init))
 
 (defpackage :clef-root
@@ -117,7 +117,33 @@
                      :lsp-error
                      :lsp-error-code
                      :lsp-error-message
-                     :lsp-error-data))
+                     :lsp-error-data
+                     ;; CompletionItemKind constants
+                     +completion-item-kind-text+
+                     +completion-item-kind-method+
+                     +completion-item-kind-function+
+                     +completion-item-kind-constructor+
+                     +completion-item-kind-field+
+                     +completion-item-kind-variable+
+                     +completion-item-kind-class+
+                     +completion-item-kind-interface+
+                     +completion-item-kind-module+
+                     +completion-item-kind-property+
+                     +completion-item-kind-unit+
+                     +completion-item-kind-value+
+                     +completion-item-kind-enum+
+                     +completion-item-kind-keyword+
+                     +completion-item-kind-snippet+
+                     +completion-item-kind-color+
+                     +completion-item-kind-file+
+                     +completion-item-kind-reference+
+                     +completion-item-kind-folder+
+                     +completion-item-kind-enum-member+
+                     +completion-item-kind-constant+
+                     +completion-item-kind-struct+
+                     +completion-item-kind-event+
+                     +completion-item-kind-operator+
+                     +completion-item-kind-type-parameter+))
 
 (defpackage :clef-lsp/types/basic
             (:use :cl :clef-log)

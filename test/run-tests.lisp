@@ -40,15 +40,16 @@
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
 
 ;; Completely suppress logging during tests
-(setf clef-log:+log-mode+ :file)
-(setf clef-log:+log-file-path+ #p"/dev/null")
+(setf clef-log:*log-mode* :file)
+(setf clef-log:*log-file-path* #p"/dev/null")
 
 ;; Load test files with warnings suppressed
 (handler-bind ((warning #'muffle-warning))
   (load (project-path "test/package.lisp"))
   (load (project-path "test/framework.lisp"))
   (load (project-path "test/lifecycle-tests.lisp"))
-  (load (project-path "test/document-tests.lisp")))
+  (load (project-path "test/document-tests.lisp"))
+  (load (project-path "test/diagnostic-tests.lisp")))
 
 ;; Run tests
 (let ((success (clef-test:run-all-tests)))
