@@ -34,6 +34,7 @@
                                               (:file "lsp/lifecycle/initialized")
                                               (:file "lsp/document/completion")
                                               (:file "lsp/document/definition")
+                                              (:file "lsp/document/references")
                                               (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")

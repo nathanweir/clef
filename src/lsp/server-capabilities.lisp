@@ -9,6 +9,7 @@
                     "diagnosticProvider" (dict "interFileDependencies" nil
                                                "workspaceDiagnostics" t)
                     "definitionProvider" t
+                    "referencesProvider" t
                     "completionProvider"
                     (dict "triggerCharacters" '("(")
                           "completionItem" (dict "labelDetailsSupport" t))

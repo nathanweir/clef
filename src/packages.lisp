@@ -87,6 +87,7 @@
                      symbol-definition-node
                      symbol-definition-kind
                      symbol-reference-node
+                     symbol-reference-symbol-name
                      ;; system-info struct and accessors
                      system-info
                      make-system-info
@@ -202,6 +203,7 @@
             (:export
               handle-text-document-completion
               handle-text-document-definition
+              handle-text-document-references
               handle-text-document-diagnostic
               handle-text-document-did-open
               handle-text-document-did-change

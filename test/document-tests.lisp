@@ -478,3 +478,219 @@
       ;; Cleanup
       (when file-a-path (delete-temp-file file-a-path))
       (when file-b-path (delete-temp-file file-b-path)))))
+
+;;; textDocument/references tests
+
+(deftest test-references-returns-array
+  "Test that references returns an array response"
+  (let ((temp-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          (let ((code "(defun foo (x)
+  (* x x))
+
+(defun bar ()
+  (foo 5))"))
+            (setf temp-path (write-temp-file code))
+            (let ((file-uri (format nil "file://~A" temp-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" file-uri
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" file-uri "version" 2)
+                                  "contentChanges" (vector (dict "text" code)))
+                            :id nil)
+              ;; Request references at "foo" definition (line 0, char 7)
+              (let ((response (call-handler "textDocument/references"
+                                            (dict "textDocument" (dict "uri" file-uri)
+                                                  "position" (dict "line" 0 "character" 7)
+                                                  "context" (dict "includeDeclaration" nil)))))
+                (assert-not-nil response "Should get a response")))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-references-finds-usages-in-same-file
+  "Test that references finds all usages of a symbol in the same file"
+  (let ((temp-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          (let ((code "(defun helper (n)
+  (* n 2))
+
+(defun use1 ()
+  (helper 5))
+
+(defun use2 ()
+  (helper 10))"))
+            (setf temp-path (write-temp-file code))
+            (let ((file-uri (format nil "file://~A" temp-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" file-uri
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" file-uri "version" 2)
+                                  "contentChanges" (vector (dict "text" code)))
+                            :id nil)
+              ;; Request references at "helper" call (line 4, char 3)
+              (let* ((response (call-handler "textDocument/references"
+                                             (dict "textDocument" (dict "uri" file-uri)
+                                                   "position" (dict "line" 4 "character" 3)
+                                                   "context" (dict "includeDeclaration" nil))))
+                     (result (response-result-safe response)))
+                ;; Should find at least 2 references (the two calls to helper)
+                (assert-not-nil result "Should find references")
+                (when (vectorp result)
+                  (assert-true (>= (length result) 2)
+                               "Should find at least 2 references to helper"))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-references-includes-declaration-when-requested
+  "Test that references includes the declaration when includeDeclaration is true"
+  (let ((temp-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          (let ((code "(defun target ()
+  42)
+
+(defun caller ()
+  (target))"))
+            (setf temp-path (write-temp-file code))
+            (let ((file-uri (format nil "file://~A" temp-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" file-uri
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" file-uri "version" 2)
+                                  "contentChanges" (vector (dict "text" code)))
+                            :id nil)
+              ;; Request references with includeDeclaration = true
+              (let* ((response (call-handler "textDocument/references"
+                                             (dict "textDocument" (dict "uri" file-uri)
+                                                   "position" (dict "line" 4 "character" 3)
+                                                   "context" (dict "includeDeclaration" t))))
+                     (result (response-result-safe response)))
+                ;; Should find at least 2 locations (declaration + usage)
+                (assert-not-nil result "Should find references")
+                (when (vectorp result)
+                  (assert-true (>= (length result) 2)
+                               "Should include declaration plus usage"))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-references-cross-file
+  "Test that references finds usages across multiple files"
+  (let ((file-a-path nil)
+        (file-b-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          ;; File A: defines shared-fn
+          (let ((code-a "(defun shared-fn (x)
+  (+ x 1))"))
+            (setf file-a-path (write-temp-file code-a))
+            (let ((uri-a (format nil "file://~A" file-a-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-a
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-a))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-a "version" 2)
+                                  "contentChanges" (vector (dict "text" code-a)))
+                            :id nil)))
+          ;; File B: uses shared-fn
+          (let ((code-b "(defun caller ()
+  (shared-fn 5))"))
+            (setf file-b-path (write-temp-file code-b))
+            (let ((uri-b (format nil "file://~A" file-b-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" uri-b
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code-b))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" uri-b "version" 2)
+                                  "contentChanges" (vector (dict "text" code-b)))
+                            :id nil)
+              ;; Request references at shared-fn call in file B
+              (let* ((response (call-handler "textDocument/references"
+                                             (dict "textDocument" (dict "uri" uri-b)
+                                                   "position" (dict "line" 1 "character" 3)
+                                                   "context" (dict "includeDeclaration" nil))))
+                     (result (response-result-safe response)))
+                ;; Should find the reference in file B
+                (assert-not-nil result "Should find cross-file references")))))
+      (when file-a-path (delete-temp-file file-a-path))
+      (when file-b-path (delete-temp-file file-b-path)))))
+
+(deftest test-references-empty-for-unknown-symbol
+  "Test that references returns empty array for unknown symbols"
+  (with-direct-handler-test
+    (init-server)
+    (call-handler "textDocument/didOpen"
+                  (dict "textDocument" (dict "uri" "file:///tmp/test.lisp"
+                                             "languageId" "lisp"
+                                             "version" 1
+                                             "text" ""))
+                  :id nil)
+    (let* ((response (call-handler "textDocument/references"
+                                   (dict "textDocument" (dict "uri" "file:///tmp/test.lisp")
+                                         "position" (dict "line" 0 "character" 0)
+                                         "context" (dict "includeDeclaration" nil))))
+           (result (response-result-safe response)))
+      ;; Should return empty array, not error
+      (assert-true (or (null result)
+                       (and (vectorp result) (= 0 (length result))))
+                   "Should return empty result for unknown symbol"))))
+
+(deftest test-references-from-definition-site
+  "Test that references works when cursor is on the function name in a defun"
+  (let ((temp-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          (let ((code "(defun my-func (x)
+  (* x 2))
+
+(defun caller1 ()
+  (my-func 5))
+
+(defun caller2 ()
+  (my-func 10))"))
+            (setf temp-path (write-temp-file code))
+            (let ((file-uri (format nil "file://~A" temp-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" file-uri
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" file-uri "version" 2)
+                                  "contentChanges" (vector (dict "text" code)))
+                            :id nil)
+              ;; Request references at "my-func" DEFINITION (line 0, char 7 = on "my-func")
+              ;; This is the function name in the defun, not a usage
+              (let* ((response (call-handler "textDocument/references"
+                                             (dict "textDocument" (dict "uri" file-uri)
+                                                   "position" (dict "line" 0 "character" 7)
+                                                   "context" (dict "includeDeclaration" nil))))
+                     (result (response-result-safe response)))
+                ;; Should find the 2 usages (caller1 and caller2)
+                (assert-not-nil result "Should find references from definition site")
+                (when (vectorp result)
+                  (assert-true (>= (length result) 2)
+                               "Should find at least 2 references when clicking on definition"))))))
+      (when temp-path (delete-temp-file temp-path)))))

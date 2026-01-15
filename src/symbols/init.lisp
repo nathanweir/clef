@@ -234,6 +234,8 @@ Note that symbol-ref can be nil if none is at the location"
 
             ;; Append as a child-scope of the global scope
             (push *current-scope* (lexical-scope-child-scopes *global-scope*))
+            ;; Store the document scope on the interval tree so it can be found by find-all
+            (store-scope-on-interval-tree *current-scope* file-path)
             (labels ((walk (n)
                            (let ((previous-scope *current-scope*)
                                  (node-type (ts:node-type n)))
