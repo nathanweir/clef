@@ -2,7 +2,7 @@
 
 ## What is this?
 
-It's a Common Lisp Language server built against [the LSP spec](https://microsoft.github.io/language-server-protocol/), initially built for use with Zed and Helix. Being built as a hobby project and still a WIP, but the following features are largely functional:
+It's a Common Lisp Language server built against [the LSP spec](https://microsoft.github.io/language-server-protocol/), initially built for use with Zed and Helix. Being built as a hobby project and still a WIP, largely functional (I use clef when building clef!). Currently supports::
 - Symbol map generation
 - Go to defintion
 - Find references
