@@ -1,15 +1,11 @@
 (in-package :clef-lsp/lifecycle)
 
-;;; State for tracking multiple ASDF systems in the workspace
-
-(defparameter *loaded-systems* (make-hash-table :test 'equal)
-  "Hash table mapping system names (strings) to system-info structs.")
-
-(defparameter *file-to-system* (make-hash-table :test 'equal)
-  "Hash table mapping absolute file paths to the system name they belong to.")
-
-(defparameter *asd-files* nil
-  "List of all discovered .asd file paths in the workspace.")
+;;; Workspace ASDF system discovery and loading.
+;;;
+;;; The loaded-systems / file-to-system / asd-files tables formerly defined
+;;; here as defparameters now live on CLEF-CONTEXT:*SERVER* so that all
+;;; CLEF state resets atomically on shutdown. This file just reads and
+;;; writes them through the CTX: aliases.
 
 ;; TODO: I need to move all of the asd/system loading into a thread for resiliency
 
@@ -246,10 +242,11 @@
 (defun compute-system-load-order ()
   "Compute topological order for loading systems based on inter-project dependencies.
 Systems with no local dependencies are loaded first."
-  (let ((local-system-names (loop for name being the hash-keys of *loaded-systems*
-                                  collect name))
-        (no-local-deps '())
-        (with-local-deps '()))
+  (let* ((systems ctx:loaded-systems)
+         (local-system-names (loop for name being the hash-keys of systems
+                                   collect name))
+         (no-local-deps '())
+         (with-local-deps '()))
     ;; Partition systems by whether they have local dependencies
     (maphash (lambda (name sys-info)
                (let* ((deps (clef-symbols:system-info-dependencies sys-info))
@@ -262,7 +259,7 @@ Systems with no local dependencies are loaded first."
                  (if (null local-deps)
                      (push name no-local-deps)
                      (push name with-local-deps))))
-             *loaded-systems*)
+             systems)
     ;; Return systems without local deps first, then those with deps
     (append (nreverse no-local-deps) (nreverse with-local-deps))))
 
@@ -295,12 +292,13 @@ Systems with no local dependencies are loaded first."
         (slog :warn "Failed to load system ~A: ~A" system-name e)))))
 
 (defun build-file-to-system-mapping ()
-  "Populate *file-to-system* from loaded system info."
-  (clrhash *file-to-system*)
-  (maphash (lambda (system-name sys-info)
-             (dolist (file-path (clef-symbols:system-info-source-files sys-info))
-               (setf (gethash file-path *file-to-system*) system-name)))
-           *loaded-systems*))
+  "Populate the file-to-system table on *SERVER* from loaded system info."
+  (let ((mapping ctx:file-to-system))
+    (clrhash mapping)
+    (maphash (lambda (system-name sys-info)
+               (dolist (file-path (clef-symbols:system-info-source-files sys-info))
+                 (setf (gethash file-path mapping) system-name)))
+             ctx:loaded-systems)))
 
 (defun load-all-workspace-systems (root-uri)
   "Discover and load all ASDF systems in the workspace."
@@ -308,12 +306,12 @@ Systems with no local dependencies are loaded first."
     (if (null asd-files)
         (slog :warn "No .asd files found in workspace: ~A" root-uri)
         (progn
-          (setf *asd-files* asd-files)
+          (setf ctx:asd-files asd-files)
           (slog :info "Discovered ~A .asd file(s) in workspace" (length asd-files))
 
           ;; Clear previous state
-          (clrhash *loaded-systems*)
-          (clrhash *file-to-system*)
+          (clrhash ctx:loaded-systems)
+          (clrhash ctx:file-to-system)
 
           ;; Phase 1: Parse all .asd files to discover systems
           (dolist (asd-path asd-files)
@@ -321,7 +319,7 @@ Systems with no local dependencies are loaded first."
             (let ((systems (parse-asd-file asd-path)))
               (dolist (sys systems)
                 (slog :debug "Found system: ~A" (clef-symbols:system-info-name sys))
-                (setf (gethash (clef-symbols:system-info-name sys) *loaded-systems*) sys))))
+                (setf (gethash (clef-symbols:system-info-name sys) ctx:loaded-systems) sys))))
 
           ;; Phase 2: Determine load order based on dependencies
           (let ((load-order (compute-system-load-order)))
@@ -329,25 +327,25 @@ Systems with no local dependencies are loaded first."
 
             ;; Phase 3: Load each system in dependency order
             (dolist (system-name load-order)
-              (let ((sys-info (gethash system-name *loaded-systems*)))
+              (let ((sys-info (gethash system-name ctx:loaded-systems)))
                 (when sys-info
                   (load-system-with-info sys-info)))))
 
           ;; Phase 4: Build file-to-system mapping
           (build-file-to-system-mapping)
           (slog :info "Loaded ~A system(s), mapped ~A file(s)"
-                (hash-table-count *loaded-systems*)
-                (hash-table-count *file-to-system*))))))
+                (hash-table-count ctx:loaded-systems)
+                (hash-table-count ctx:file-to-system))))))
 
 ;;; Utility functions for querying system state
 
 (defun get-file-system (file-path)
   "Get the system name that a file belongs to, or nil if unknown."
-  (gethash (namestring file-path) *file-to-system*))
+  (gethash (namestring file-path) ctx:file-to-system))
 
 (defun list-workspace-systems ()
   "Return a list of all discovered system names."
-  (loop for name being the hash-keys of *loaded-systems*
+  (loop for name being the hash-keys of ctx:loaded-systems
         collect name))
 
 (defun handle-initialize (request)
@@ -359,7 +357,7 @@ Systems with no local dependencies are loaded first."
                ;; We currently assume one does exist and it's the first value
                (let ((workspace-root (href (aref (href params-hash "workspace-folders") 0) "uri")))
                     (slog :info "Client workspace root: ~A" workspace-root)
-                    (setf clef-lsp/server:*workspace-root* workspace-root)
+                    (setf ctx:workspace-root workspace-root)
                     ;; Load all .asd files (root + test directories)
                     (load-all-workspace-systems workspace-root)
                     (let ((start-time (get-internal-real-time)))
@@ -374,8 +372,7 @@ Systems with no local dependencies are loaded first."
                       ;; behavior, and notify the client.
                       (slog :error "Failed to get client workspace root: ~A" e)))
 
-
-             (setf clef-lsp/server:*client-capabilities* capabilities)
+             (setf ctx:client-capabilities capabilities)
 
              ;; TODO: use *server-capabilities*
              ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#initializeResult

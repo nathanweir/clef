@@ -1,57 +1,49 @@
 (in-package :clef-symbols)
 
-(defparameter *lexical-scopes-by-file* (make-hash-table)
-              "A hash-table mapping file paths to interval trees of lexical-scope's")
-
-(defparameter *symbol-refs-by-file* (make-hash-table)
-              "A hash-table mapping file paths to interval trees of symbol-reference's")
+;;; Symbol analysis.
+;;;
+;;; Persistent state (scope trees, symbol-ref trees, the workspace-wide symbol
+;;; index, per-file line offset caches, the global scope) all live on
+;;; CLEF-CONTEXT:*SERVER*. Transient state used while walking a parse tree --
+;;; the current scope and current package -- remain as dynamic specials in
+;;; this package; they are only meaningful inside a single
+;;; BUILD-FILE-SYMBOL-MAP call and don't belong in the shared context.
 
 (defparameter *current-scope* nil
               "The current lexical scope that is the context in which the current processed node is occurring")
 
-;; TODO: This should be universal to the LSP and not specific to this package
-(defparameter *document-line-lengths* (make-hash-table)
-              "A hash-table mapping file paths to vectors of line lengths for that document.")
-(defparameter *document-line-offsets* (make-hash-table)
-              "A hash-table mapping file paths to vectors of line offsets (starting byte offset) for that document.")
-
 (defparameter *current-package* nil "The name of the current package encountered when processing the file")
-
-(defparameter *global-scope* nil
-              "The global lexical scope for the entire workspace. Should the root of every scope tree")
-
-(defparameter *workspace-symbol-index* (make-hash-table :test 'equal)
-              "Hash table mapping symbol names (strings) to lists of symbol-definition's across all files.
-Used for cross-file go-to-definition.")
 
 ;;; Workspace symbol index management
 
 (defun clear-workspace-symbol-index ()
   "Clear the entire workspace symbol index."
-  (clrhash *workspace-symbol-index*))
+  (clrhash ctx:workspace-symbol-index))
 
 (defun remove-file-from-workspace-index (file-path)
   "Remove all symbol definitions from FILE-PATH from the workspace index."
-  (maphash (lambda (symbol-name defs)
-             (let ((filtered (remove-if (lambda (def)
-                                          (let ((loc (symbol-definition-location def)))
-                                            (and loc (string= (location-file-path loc) file-path))))
-                                        defs)))
-               (if filtered
-                   (setf (gethash symbol-name *workspace-symbol-index*) filtered)
-                   (remhash symbol-name *workspace-symbol-index*))))
-           *workspace-symbol-index*))
+  (let ((index ctx:workspace-symbol-index))
+    (maphash (lambda (symbol-name defs)
+               (let ((filtered (remove-if (lambda (def)
+                                            (let ((loc (symbol-definition-location def)))
+                                              (and loc (string= (location-file-path loc) file-path))))
+                                          defs)))
+                 (if filtered
+                     (setf (gethash symbol-name index) filtered)
+                     (remhash symbol-name index))))
+             index)))
 
 (defun add-to-workspace-index (symbol-def)
   "Add a symbol definition to the workspace index for cross-file lookup."
   (let* ((name (symbol-definition-symbol-name symbol-def))
-         (existing (gethash name *workspace-symbol-index*)))
-    (setf (gethash name *workspace-symbol-index*)
+         (index ctx:workspace-symbol-index)
+         (existing (gethash name index)))
+    (setf (gethash name index)
           (cons symbol-def existing))))
 
 (defun lookup-in-workspace-index (symbol-name)
   "Look up a symbol by name in the workspace index. Returns a list of matching definitions."
-  (gethash symbol-name *workspace-symbol-index*))
+  (gethash symbol-name ctx:workspace-symbol-index))
 
 ;; No longer needed since we set these on the global scope directly
 ;; (defparameter *built-in-symbol-defs* nil
@@ -66,9 +58,9 @@ Note that symbol-ref can be nil if none is at the location"
        ;; (slog :debug ">>>>>>>>: ~A ~A ~A" file-path line char)
        (let* ((path (clef-util:cleanup-path file-path))
               (offset (line-char-to-byte-offset path line char))
-              (symbol-refs (interval:find-all (gethash path *symbol-refs-by-file*) offset))
+              (symbol-refs (interval:find-all (gethash path ctx:symbol-refs) offset))
               ;; Also get the lexical scope by position, as symbol-refs may be nil
-              (scopes (interval:find-all (gethash path *lexical-scopes-by-file*) offset)))
+              (scopes (interval:find-all (gethash path ctx:lexical-scopes) offset)))
              ;; (slog :debug "Found symbol-defs at line ~A char ~A (offset ~A): ~A" line char offset symbol-defs)
              ;; (slog :debug ">>>> scope intervals found: ~A" scopes)
              ;; (values nil nil)))
@@ -88,7 +80,7 @@ Note that symbol-ref can be nil if none is at the location"
 ;; the nodes the high-level API creates
 (defun line-char-to-byte-offset (file-path line char)
        "Converts a line and character position to a byte offset."
-       (let* ((line-offsets (gethash file-path *document-line-offsets*))
+       (let* ((line-offsets (gethash file-path ctx:document-line-offsets))
               (line-index line) ;; Convert to 0-based
               (char-index char))     ;; Already 0-based
              ;; Add the char offset to the pre-calculated line offset
@@ -102,7 +94,7 @@ Note that symbol-ref can be nil if none is at the location"
 ;; Long-term we need to either utility-ize this kind of text seeking, or find a different way to use tree-sitter that actually exposes
 ;; the byte offsets directly.
 (defun fast-node-text (node source file-path)
-       (let* ((line-offsets (gethash file-path *document-line-offsets*))
+       (let* ((line-offsets (gethash file-path ctx:document-line-offsets))
               (start-row (node-start-point-row node))
               (start-col (node-start-point-column node))
               (end-row (node-end-point-row node))
@@ -168,18 +160,18 @@ Note that symbol-ref can be nil if none is at the location"
        (clear-workspace-symbol-index)
 
        ;; Init the global scope and load in builtins + externals
-       (setf *global-scope* (make-lexical-scope
-                              :kind :workspace
-                              :location nil
-                              :parent-scope nil
-                              :symbol-definitions '()
-                              ;; Should never actually receive values
-                              :symbol-references (make-hash-table)
-                              :child-scopes '()
-                              :node nil))
+       (setf ctx:global-scope (make-lexical-scope
+                                :kind :workspace
+                                :location nil
+                                :parent-scope nil
+                                :symbol-definitions '()
+                                ;; Should never actually receive values
+                                :symbol-references (make-hash-table)
+                                :child-scopes '()
+                                :node nil))
 
-       (load-common-lisp-builtin-symbols *global-scope*)
-       (load-asd-external-packages *global-scope*)
+       (load-common-lisp-builtin-symbols ctx:global-scope)
+       (load-asd-external-packages ctx:global-scope)
 
        (slog :debug "Building symbol map at ~A" project-root)
        ;; Discover every .lisp file recursively under the root
@@ -205,13 +197,13 @@ Note that symbol-ref can be nil if none is at the location"
        (setf *current-package* nil)
 
        ;; Calculate and store line lengths for this document
-       (setf (gethash file-path *document-line-offsets*)
+       (setf (gethash file-path ctx:document-line-offsets)
              (calculate-line-offsets file-source))
 
        ;; Init the interval trees
-       (setf (gethash file-path *symbol-refs-by-file*)
+       (setf (gethash file-path ctx:symbol-refs)
              (interval:make-tree))
-       (setf (gethash file-path *lexical-scopes-by-file*)
+       (setf (gethash file-path ctx:lexical-scopes)
              (interval:make-tree))
 
        ;; Parse the file with tree-sitter and then walk the output tree to find
@@ -226,14 +218,14 @@ Note that symbol-ref can be nil if none is at the location"
                                 :file-path file-path
                                 :start 0
                                 :end (length file-source))
-                    :parent-scope *global-scope*
+                    :parent-scope ctx:global-scope
                     :symbol-definitions '()
                     :symbol-references (make-hash-table)
                     :child-scopes '()
                     :node parse-tree))
 
             ;; Append as a child-scope of the global scope
-            (push *current-scope* (lexical-scope-child-scopes *global-scope*))
+            (push *current-scope* (lexical-scope-child-scopes ctx:global-scope))
             ;; Store the document scope on the interval tree so it can be found by find-all
             (store-scope-on-interval-tree *current-scope* file-path)
             (labels ((walk (n)
@@ -347,7 +339,8 @@ those packages' members into the symbol map"
   "Retrieves a combined list of library names from all loaded systems.
 Aggregates :depends-on from all discovered .asd files and filters out local system names."
   (let ((all-deps '())
-        (local-system-names '()))
+        (local-system-names '())
+        (systems ctx:loaded-systems))
     ;; Collect all local system names and their dependencies
     (maphash (lambda (name sys-info)
                (push name local-system-names)
@@ -357,12 +350,12 @@ Aggregates :depends-on from all discovered .asd files and filters out local syst
                    (let ((dep-str (string-downcase
                                    (if (stringp dep) dep (symbol-name dep)))))
                      (pushnew dep-str all-deps :test #'string-equal)))))
-             clef-lsp/lifecycle::*loaded-systems*)
+             systems)
     ;; Filter out local system names (don't try to load our own systems as external)
     (let ((external-deps (set-difference all-deps local-system-names :test #'string-equal)))
       (slog :debug "[symbol init] Found ~A external dependencies from ~A system(s)"
             (length external-deps)
-            (hash-table-count clef-lsp/lifecycle::*loaded-systems*))
+            (hash-table-count systems))
       ;; Convert back to symbols for compatibility with existing code
       (mapcar (lambda (s) (intern (string-upcase s) :keyword)) external-deps))))
 
@@ -473,7 +466,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
 
 (defun store-scope-on-interval-tree (scope file-path)
        "Stores the given lexical SCOPE into the interval tree for FILE-PATH."
-       (let ((scopes-tree (gethash file-path *lexical-scopes-by-file*))
+       (let ((scopes-tree (gethash file-path ctx:lexical-scopes))
              (new-interval (make-clef-interval
                              :start (location-start (lexical-scope-location scope))
                              :end (location-end (lexical-scope-location scope)))))
@@ -594,7 +587,7 @@ interval tree if so."
                                  :location (location-for-node file-path node)
                                  :usage-scope *current-scope*
                                  :node node)))
-            (let ((refs-tree (gethash file-path *symbol-refs-by-file*))
+            (let ((refs-tree (gethash file-path ctx:symbol-refs))
                   (new-interval (make-clef-interval
                                   :start (location-start (symbol-reference-location symbol-reference))
                                   :end (location-end (symbol-reference-location symbol-reference)))))

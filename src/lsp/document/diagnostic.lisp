@@ -58,7 +58,7 @@
        (let* ((document-uri (href (clef-jsonrpc/types:request-params message)
                                   "text-document"
                                   "uri"))
-              (document-text (gethash document-uri clef-lsp/server:*documents*))
+              (document-text (gethash document-uri ctx:documents))
               (syntax-errors (get-syntax-errors document-text))
               (compile-errors (debounced-sb-collect-diagnostics document-text document-uri))
               (items (append syntax-errors compile-errors)))

@@ -4,6 +4,4 @@
        (let* ((params-hash (clef-jsonrpc/types:request-params message))
               (document-uri (href params-hash "text-document" "uri"))
               (document-text (href params-hash "text-document" "text")))
-
-             ;; (slog :debug "opened text: ~A" document-text)
-             (setf (gethash document-uri clef-lsp/server:*documents*) document-text)))
+             (setf (gethash document-uri ctx:documents) document-text)))

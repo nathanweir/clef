@@ -17,7 +17,7 @@
 (defun handle-text-document-formatting (message)
        (let* ((params (clef-jsonrpc/types:request-params message))
               (file-uri (href params "text-document" "uri"))
-              (document-text (gethash file-uri clef-lsp/server:*documents*))
+              (document-text (gethash file-uri ctx:documents))
               (pos (href params "position"))
               (options (href params "options")))
              ;; Format the entire file with cl-indentify

@@ -53,16 +53,17 @@ To add a new test:
 ### Communication Flow
 1. Editor sends JSON-RPC requests via stdio
 2. `read-lsp-message` (jsonrpc/messages.lisp) parses HTTP-like headers + JSON body
-3. Requests dispatch to handlers registered in `*handlers*` hash table
-4. Handlers access global state (`*documents*`, `*workspace-root*`, symbol tables)
+3. Requests dispatch to handlers registered on the server context (`ctx:handlers`)
+4. Handlers access shared state through `clef-context` accessors (`ctx:documents`, `ctx:workspace-root`, symbol tables, ...)
 5. Responses convert to JSON-RPC and write to stdout
 
 ### Key Source Modules (src/)
 
 | Module | Purpose |
 |--------|---------|
+| `context.lisp` | Central `server-context` struct + `*server*` — all persistent state lives here |
 | `jsonrpc/` | JSON-RPC protocol implementation |
-| `lsp/server.lisp` | Main server loop, handler registration, state management |
+| `lsp/server.lisp` | Main server loop, handler dispatch |
 | `lsp/lifecycle/` | Initialize/initialized/shutdown handlers |
 | `lsp/document/` | Document handlers (completion, definition, hover, formatting, diagnostics) |
 | `lsp/workspace/` | Workspace-level handlers |
@@ -73,15 +74,32 @@ To add a new test:
 | `packages.lisp` | Package definitions and namespace exports |
 | `main.lisp` | Entry point (`clef-root:start-server`) |
 
-### Global State Variables
+### Server Context (`clef-context`)
 
-- `*documents*` - Hash table of open files (path → full text)
-- `*handlers*` - Hash table mapping LSP methods to handler functions
-- `*lexical-scopes-by-file*` - Maps files to interval trees of lexical scopes
-- `*symbol-refs-by-file*` - Maps files to symbol references with location info
-- `*workspace-root*` - Root directory of project
-- `*client-capabilities*` - What the client editor supports
-- `*initialized*` - Boolean for LSP lifecycle state
+All persistent server state lives on a single `server-context` struct held in
+`clef-context:*server*`. Short symbol-macro aliases (`ctx:documents`,
+`ctx:workspace-root`, `ctx:handlers`, ...) expand to struct-accessor reads on
+`*server*`, so call sites read and write them as if they were ordinary
+variables, including with `setf`.
+
+Fields on the context include:
+
+- `ctx:documents` — hash table of open files (URI → full text)
+- `ctx:handlers` — hash table mapping LSP methods to handler functions
+- `ctx:workspace-root` — project workspace root URI
+- `ctx:client-capabilities` — client capabilities reported at initialize time
+- `ctx:initialized` / `ctx:shutdown-received` — lifecycle flags
+- `ctx:output-stream` — stream for outbound LSP notifications
+- `ctx:lexical-scopes` / `ctx:symbol-refs` — per-file interval trees
+- `ctx:workspace-symbol-index` — cross-file symbol lookup table
+- `ctx:document-line-offsets` — per-file byte offset caches
+- `ctx:global-scope` — root lexical-scope (builtins + external packages)
+- `ctx:loaded-systems` / `ctx:file-to-system` / `ctx:asd-files` — ASDF state
+
+Shutdown and exit handlers call `ctx:reset-context` to atomically replace
+`*server*` with a fresh context, which also gives tests a clean slate between
+runs. No CLEF package should define its own mutable `defparameter` for
+server state — put new fields on the struct in `src/context.lisp` instead.
 
 ### Symbol Resolution
 

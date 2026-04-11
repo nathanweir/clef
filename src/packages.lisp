@@ -14,6 +14,51 @@
                      *log-file-path*
                      init))
 
+(defpackage :clef-context
+            (:use :cl)
+            (:documentation "Central server context. Holds all persistent CLEF LSP
+state on a single SERVER-CONTEXT struct bound to *SERVER*. All other CLEF
+packages reach shared state through the accessors exported here rather than
+through their own defparameters.")
+            (:export :server-context
+                     :make-server-context
+                     :server-context-p
+                     :*server*
+                     :reset-context
+                     ;; Struct field accessors (the generated ones, for when the
+                     ;; symbol-macro aliases can't be used)
+                     :server-context-initialized
+                     :server-context-shutdown-received
+                     :server-context-client-capabilities
+                     :server-context-workspace-root
+                     :server-context-output-stream
+                     :server-context-handlers
+                     :server-context-documents
+                     :server-context-lexical-scopes
+                     :server-context-symbol-refs
+                     :server-context-workspace-symbol-index
+                     :server-context-document-line-offsets
+                     :server-context-global-scope
+                     :server-context-loaded-systems
+                     :server-context-file-to-system
+                     :server-context-asd-files
+                     ;; Symbol-macro aliases (short form, preferred at call sites)
+                     :initialized
+                     :shutdown-received
+                     :client-capabilities
+                     :workspace-root
+                     :output-stream
+                     :handlers
+                     :documents
+                     :lexical-scopes
+                     :symbol-refs
+                     :workspace-symbol-index
+                     :document-line-offsets
+                     :global-scope
+                     :loaded-systems
+                     :file-to-system
+                     :asd-files))
+
 (defpackage :clef-root
             (:use :cl :clef-log)
             (:export :start-server))
@@ -66,12 +111,11 @@
 (defpackage :clef-symbols
             (:use :cl :clef-log :clef-parser/parser)
             (:local-nicknames
+              (:ctx :clef-context)
               (:ts :cl-tree-sitter/high-level)
               (:ts-ll :cl-tree-sitter/low-level))
             (:export build-project-symbol-map
                      build-file-symbol-map
-                     *lexical-scopes-by-file*
-                     *symbol-refs-by-file*
                      get-ref-for-doc-pos
                      lexical-scope-kind
                      lexical-scope-symbol-definitions
@@ -96,31 +140,28 @@
                      system-info-dependencies
                      system-info-source-files
                      system-info-loaded-p
-                     ;; workspace symbol index for cross-file go-to-definition
-                     *workspace-symbol-index*
+                     ;; Workspace symbol index management (operates on context)
                      clear-workspace-symbol-index
                      remove-file-from-workspace-index
                      add-to-workspace-index
-                     lookup-in-workspace-index))
+                     lookup-in-workspace-index
+                     ;; Byte offset helpers (used by some handlers)
+                     line-char-to-byte-offset))
 
 (defpackage :clef-lsp/server
             (:use :cl :clef-log)
+            (:local-nicknames
+              (:ctx :clef-context))
             (:import-from :serapeum :dict)
             (:export :start
-                     *handlers*
-                     *initialized*
-                     *documents*
-                     *client-capabilities*
-                     *server-capabilities-json*
-                     *workspace-root*
+                     :sethandler
+                     :register-handlers
                      :before-handle-request
-                     *server*
-                     :reset))
-
-;; (defpackage :clef-lsp/defhandler
-;;     (:use :cl :clef-log)
-;;     (:import-from :clef-lsp/server *handlers* :before-handle-request)
-;;     (:export :defhandler))
+                     :handle-lsp-request
+                     :send-notification
+                     :publish-diagnostics
+                     :reset
+                     *server-capabilities-json*))
 
 (defpackage :clef-lsp/types/base
             (:use :cl :clef-log)
@@ -169,17 +210,10 @@
                      :position-line
                      :position-character))
 
-;; (defpackage :clef-lsp/types/lifecycle
-;;     (:use :cl :clef-lsp/types/base :schemata)
-;;     (:export :initialize-params
-;;              :initialize-params-process-id
-;;              :initialize-params-root-uri
-;;              :initialize-params-capabilities
-;;              :workspace-folder
-;;              :client-capabilities))
-
 (defpackage :clef-lsp/lifecycle
             (:use :cl :clef-log)
+            (:local-nicknames
+              (:ctx :clef-context))
             (:import-from :serapeum :dict :href)
             (:export handle-initialize
                      handle-initialized
@@ -187,19 +221,20 @@
                      load-workspace-asd
                      load-asd
                      ;; Multi-ASD support
-                     *loaded-systems*
-                     *file-to-system*
-                     *asd-files*
                      discover-asd-files
                      load-all-workspace-systems
                      get-file-system
-                     list-workspace-systems))
+                     list-workspace-systems
+                     parse-asd-file
+                     load-system-with-info
+                     build-file-to-system-mapping))
 
 (defpackage :clef-lsp/document
             (:use :cl :clef-log :clef-symbols)
-            (:import-from :serapeum :dict :href)
             (:local-nicknames
+              (:ctx :clef-context)
               (:ts :cl-tree-sitter/high-level))
+            (:import-from :serapeum :dict :href)
             (:export
               handle-text-document-completion
               handle-text-document-definition
@@ -215,6 +250,8 @@
 
 (defpackage :clef-lsp/workspace
             (:use :cl :clef-log)
+            (:local-nicknames
+              (:ctx :clef-context))
             (:import-from :serapeum :dict :href)
             (:export handle-workspace-diagnostic
                      handle-workspace-did-change-configuration
@@ -222,6 +259,8 @@
 
 (defpackage :clef-lsp/misc
             (:use :cl :clef-log)
+            (:local-nicknames
+              (:ctx :clef-context))
             (:import-from :serapeum :dict)
             (:export handle-shutdown
                      handle-exit))

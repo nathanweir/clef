@@ -46,10 +46,10 @@
               (hover-line (href params "position" "line"))
               (hover-char (href params "position" "character"))
               (symbol-at-pos (find-symbol-at-position
-                               (href clef-lsp/server:*documents* document-uri)
+                               (gethash document-uri ctx:documents)
                                hover-line
                                hover-char))
-              (document-text (href clef-lsp/server:*documents* document-uri))
+              (document-text (gethash document-uri ctx:documents))
               (tree (clef-parser/parser:parse-string document-text))
               (symbol-pkg (or (clef-parser/utils:find-package-declaration tree document-text)
                               *package*))

@@ -49,7 +49,7 @@
                                              "text" *simple-lisp-code*))
                   :id nil)
     (assert-equal *simple-lisp-code*
-                  (gethash "file:///tmp/test.lisp" clef-lsp/server:*documents*)
+                  (gethash "file:///tmp/test.lisp" clef-context:documents)
                   "Document text should be stored")))
 
 (deftest test-did-open-multiple-documents
@@ -69,9 +69,9 @@
                                              "text" "(defun b () 2)"))
                   :id nil)
     (assert-equal "(defun a () 1)"
-                  (gethash "file:///tmp/a.lisp" clef-lsp/server:*documents*))
+                  (gethash "file:///tmp/a.lisp" clef-context:documents))
     (assert-equal "(defun b () 2)"
-                  (gethash "file:///tmp/b.lisp" clef-lsp/server:*documents*))))
+                  (gethash "file:///tmp/b.lisp" clef-context:documents))))
 
 ;;; textDocument/didChange tests
 
@@ -93,7 +93,7 @@
                         "contentChanges" (vector (dict "text" "(defun new () t)")))
                   :id nil)
     (assert-equal "(defun new () t)"
-                  (gethash "file:///tmp/test.lisp" clef-lsp/server:*documents*)
+                  (gethash "file:///tmp/test.lisp" clef-context:documents)
                   "Document should be updated")))
 
 ;;; textDocument/hover tests

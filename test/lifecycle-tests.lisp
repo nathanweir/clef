@@ -24,7 +24,7 @@
   (with-direct-handler-test
     (call-handler "initialize" (make-minimal-initialize-params))
     (assert-equal "file:///tmp/test-workspace"
-                  clef-lsp/server:*workspace-root*
+                  clef-context:workspace-root
                   "Workspace root should be set")))
 
 (deftest test-initialize-stores-client-capabilities
@@ -36,7 +36,7 @@
                         "workspaceFolders" (vector (dict "uri" "file:///tmp/test"
                                                          "name" "test")))))
       (call-handler "initialize" params)
-      (assert-not-nil clef-lsp/server:*client-capabilities*
+      (assert-not-nil clef-context:client-capabilities
                       "Client capabilities should be stored"))))
 
 (deftest test-initialized-sets-flag
@@ -46,7 +46,7 @@
     (call-handler "initialize" (make-minimal-initialize-params))
     ;; Then send initialized notification
     (call-handler "initialized" (dict) :id nil)
-    (assert-true clef-lsp/server:*initialized*
+    (assert-true clef-context:initialized
                  "Server should be marked as initialized")))
 
 (deftest test-server-not-initialized-error
@@ -68,11 +68,11 @@
     (call-handler "initialize" (make-minimal-initialize-params))
     (call-handler "initialized" (dict) :id nil)
     ;; Verify initialized
-    (assert-true clef-lsp/server:*initialized*)
+    (assert-true clef-context:initialized)
     ;; Shutdown
     (call-handler "shutdown" (dict))
     ;; State should be reset
-    (assert-nil clef-lsp/server:*initialized*
+    (assert-nil clef-context:initialized
                 "Server should not be initialized after shutdown")))
 
 (deftest test-capabilities-include-expected-providers

@@ -44,7 +44,7 @@ Returns symbols matching the query from across the workspace."
                            (search query-upcase (string-upcase symbol-name)))
                    (dolist (def defs)
                      (push (symbol-def-to-symbol-info def symbol-name) results))))
-               clef-symbols:*workspace-symbol-index*)
+               ctx:workspace-symbol-index)
 
       (slog :debug "[workspace/symbol] Found ~A matching symbols" (length results))
 
@@ -86,7 +86,3 @@ Returns symbols matching the query from across the workspace."
                         "character" (clef-parser/parser:node-start-point-column node))
           "end" (dict "line" (clef-parser/parser:node-end-point-row node)
                       "character" (clef-parser/parser:node-end-point-column node)))))
-
-;; Register the handler
-(setf (gethash "workspace/symbol" clef-lsp/server:*handlers*)
-      #'handle-workspace-symbol)

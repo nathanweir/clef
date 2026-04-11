@@ -55,10 +55,10 @@ Returns all locations where the symbol at the given position is referenced."
 This handles the case where the cursor is on a function/variable name in a definition
 (e.g., the 'foo' in '(defun foo ...)'), rather than on a usage."
   (let* ((file-path (clef-util:cleanup-path document-uri))
-         (offset (clef-symbols::line-char-to-byte-offset file-path line character)))
+         (offset (clef-symbols:line-char-to-byte-offset file-path line character)))
     ;; Get the lexical scope at this position
     (let ((scopes (interval:find-all
-                   (gethash file-path clef-symbols:*lexical-scopes-by-file*)
+                   (gethash file-path ctx:lexical-scopes)
                    offset)))
       ;; Check each scope (from innermost to outermost) for definitions at this position
       (dolist (scope-interval scopes)
@@ -100,7 +100,7 @@ Returns a list of LSP Location dicts."
                  ;; Walk all intervals in the tree to find matching symbol names
                  (let ((file-refs (find-refs-in-tree refs-tree symbol-name file-path)))
                    (setf locations (nconc locations file-refs)))))
-             clef-symbols:*symbol-refs-by-file*)
+             ctx:symbol-refs)
     locations))
 
 (defun find-refs-in-tree (refs-tree symbol-name file-path)

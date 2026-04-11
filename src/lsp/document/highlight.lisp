@@ -38,7 +38,7 @@ Returns all occurrences of the symbol under cursor in the current document."
         ;; Find all occurrences in this file
         (let ((highlights '()))
           ;; Add all references in this file
-          (let ((refs-tree (gethash file-path clef-symbols:*symbol-refs-by-file*)))
+          (let ((refs-tree (gethash file-path ctx:symbol-refs)))
             (when refs-tree
               (let ((all-refs (get-all-intervals-from-tree refs-tree)))
                 (dolist (interval all-refs)
@@ -51,7 +51,7 @@ Returns all occurrences of the symbol under cursor in the current document."
                             highlights)))))))
 
           ;; Add definitions in this file
-          (let ((scopes-tree (gethash file-path clef-symbols:*lexical-scopes-by-file*)))
+          (let ((scopes-tree (gethash file-path ctx:lexical-scopes)))
             (when scopes-tree
               (let ((all-scopes (get-all-intervals-from-tree scopes-tree)))
                 (dolist (scope-interval all-scopes)
@@ -72,7 +72,3 @@ Returns all occurrences of the symbol under cursor in the current document."
   "Create an LSP DocumentHighlight dict from a tree-sitter node."
   (dict "range" (node-to-lsp-range node)
         "kind" kind))
-
-;; Register the handler
-(setf (gethash "textDocument/documentHighlight" clef-lsp/server:*handlers*)
-      #'handle-text-document-highlight)

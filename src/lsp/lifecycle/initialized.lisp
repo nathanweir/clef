@@ -2,6 +2,6 @@
 
 (defun handle-initialized (request)
        (declare (ignore request))
-       (setf clef-lsp/server:*initialized* t)
+       (setf ctx:initialized t)
        ;; Send no response
        nil)

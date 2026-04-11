@@ -8,7 +8,7 @@ Returns signature information for the function call at the cursor position."
          (position (href params "position"))
          (line (href position "line"))
          (character (href position "character"))
-         (document-text (gethash document-uri clef-lsp/server:*documents*)))
+         (document-text (gethash document-uri ctx:documents)))
     (slog :debug "[textDocument/signatureHelp] Document: ~A" document-uri)
     (slog :debug "[textDocument/signatureHelp] Position: line ~A, char ~A" line character)
 
@@ -214,7 +214,3 @@ Tries workspace index first, then falls back to sb-introspect for loaded functio
     (dict "signatures" (vector signature)
           "activeSignature" 0
           "activeParameter" (or active-param 0))))
-
-;; Register the handler
-(setf (gethash "textDocument/signatureHelp" clef-lsp/server:*handlers*)
-      #'handle-text-document-signature-help)

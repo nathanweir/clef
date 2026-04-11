@@ -19,6 +19,7 @@
                                  :components ((:file "packages")
                                               (:file "util")
                                               (:file "log")
+                                              (:file "context")
                                               (:file "jsonrpc/types")
                                               (:file "jsonrpc/messages")
                                               (:file "parser/parser")
