@@ -120,14 +120,23 @@
        (ctx:reset-context)
        (slog :info "CLEF LSP server state has been reset."))
 
-(defun start (&key (input *standard-input*) (output *standard-output*) (log-mode :file))
-       "Starts the CLEF LSP server."
+(defun start (&key (input *standard-input*) (output *standard-output*)
+                   (log-mode :none) log-file-path)
+       "Starts the CLEF LSP server.
+
+        LOG-MODE defaults to :none -- normal use writes no log file at all. The
+        from-source launchers opt into :file with a project-local path; the
+        binary opts in only when CLEF_LOG_FILE is set."
 
        ;; Controls verbosity and whether to output logs to console or a file
-       (clef-log:init log-mode)
+       (clef-log:init log-mode :file-path log-file-path)
 
        (slog :debug "Starting CLEF LSP server...")
        (slog :debug "Registering handlers...")
-       (register-handlers)
-       (run-lsp-server-stdio :input input :output output)
+       ;; OUTPUT was captured above and is the only stream the protocol may use.
+       ;; Rebind *standard-output* so a stray format t anywhere in a handler or a
+       ;; dependency lands on stderr instead of corrupting the client's stream.
+       (let ((*standard-output* *error-output*))
+            (register-handlers)
+            (run-lsp-server-stdio :input input :output output))
        (slog :info "Shutting down CLEF LSP server."))

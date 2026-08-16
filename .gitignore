@@ -42,3 +42,9 @@ local-projects/
 
 metaModel.json
 metaModel.schema.json
+
+# Local scratch
+tmp/
+
+# Built executable
+/clef
