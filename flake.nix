@@ -85,7 +85,9 @@
               stdenv.cc.cc.lib
             ]
           );
-          NIX_LD = lib.fileContents "${stdenv.cc}/nix-support/dynamic-linker";
+          # NB: must not be `lib.fileContents "${stdenv.cc}/nix-support/..."` —
+          # reading an absolute store path is forbidden in pure eval mode.
+          NIX_LD = stdenv.cc.bintools.dynamicLinker;
 
           # Add this line for subprocesses
           LD_LIBRARY_PATH = lib.makeLibraryPath (
