@@ -85,7 +85,13 @@
 ;; expects a dumping image to call; save-lisp-and-die does not run it for us.
 (uiop:call-image-dump-hook)
 
-(let ((out (merge-pathnames "clef" *here*)))
+;; parser.lisp bakes (asdf:system-relative-pathname :clef "src/parser/...") into
+;; the image at compile time, so the nix build has to compile from the source's
+;; final store path rather than a scratch copy -- which leaves nowhere next to
+;; build.lisp to write to. CLEF_OUTPUT redirects the dump; `just build' leaves it
+;; unset and still gets ./clef.
+(let ((out (or (uiop:getenv "CLEF_OUTPUT")
+               (merge-pathnames "clef" *here*))))
   (format *error-output* "~&Dumping executable to ~A~%" out)
   (sb-ext:save-lisp-and-die
     out

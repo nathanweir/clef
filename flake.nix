@@ -27,6 +27,15 @@
       };
     in
     {
+      # The standalone image. Editors and sandboxes should point at this rather
+      # than at a binary built in the working tree: everything it dlopens is a
+      # store path, so it runs anywhere /nix is visible and needs no dev shell,
+      # no ASDF, no C toolchain and no LD_LIBRARY_PATH.
+      packages.x86_64-linux = rec {
+        clef = pkgs.callPackage ./nix/clef.nix { };
+        default = clef;
+      };
+
       nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = [
