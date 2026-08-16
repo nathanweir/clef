@@ -68,14 +68,24 @@ Returns the first match, or nil if not found."
                ;; TODO: I'm not 100% sure this is valid; do I need to do #() to serialize to nil?
                (return-from make-goto-definition-response #()))
        ;; Put in dummy values for now
-       (let ((scope (symbol-definition-defining-scope symbol-def))
-             (file-path (location-file-path
-                          (symbol-definition-location symbol-def))))
+       (let* ((scope (symbol-definition-defining-scope symbol-def))
+              (file-path (location-file-path
+                           (symbol-definition-location symbol-def)))
+              (uri (clef-util:path-to-file-uri file-path)))
+             (declare (ignorable scope))
 
-            ;; Just return one Location for now
-            (dict "uri" (format nil "file://~A" file-path)
-                  "range" (node-to-lsp-range
-                            (symbol-definition-node symbol-def)))))
+             ;; Definitions inside SBCL itself resolve to a logical pathname we
+             ;; cannot turn into a real file URI. Report "no definition" rather
+             ;; than handing the editor a location it cannot open.
+             (if uri
+                 ;; Just return one Location for now
+                 (dict "uri" uri
+                       "range" (node-to-lsp-range
+                                 (symbol-definition-node symbol-def)))
+                 (progn
+                  (slog :debug "[make-goto-definition-response] No usable file URI for ~A"
+                        file-path)
+                  #()))))
 ;; TODO: Attempting to return this LocationLink did not work. Revisit.
 ;; (dict "targetUri" (format nil "file://~A" (location-file-path
 ;;                                             (symbol-definition-location symbol-def)))

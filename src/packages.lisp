@@ -3,6 +3,7 @@
             (:export :hash-table-to-instance
                      :shallow-hash-vals
                      :cleanup-path
+                     :path-to-file-uri
                      :read-file-text))
 
 (defpackage :clef-log
@@ -61,7 +62,8 @@ through their own defparameters.")
 
 (defpackage :clef-root
             (:use :cl :clef-log)
-            (:export :start-server))
+            (:export :start-server
+                     :main))
 
 (defpackage :clef-jsonrpc/types
             (:use :cl :clef-log)
