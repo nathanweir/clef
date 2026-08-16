@@ -40,8 +40,7 @@
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
 
 ;; Completely suppress logging during tests
-(setf clef-log:*log-mode* :file)
-(setf clef-log:*log-file-path* #p"/dev/null")
+(setf clef-log:*log-mode* :none)
 
 ;; Load test files with warnings suppressed
 (handler-bind ((warning #'muffle-warning))
