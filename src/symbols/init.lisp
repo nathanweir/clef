@@ -335,6 +335,43 @@ those packages' members into the symbol map"
 
 
 
+(defun normalize-dependency-name (dep)
+  "Return the system name in DEP as a string, or NIL if it names no system.
+
+   ASDF's dependency-def grammar is more than plain names:
+
+     dependency-def := simple-component-name
+                     | (:feature feature-expression dependency-def)
+                     | (:version simple-component-name version-specifier)
+                     | (:require module-name)
+
+   Treating every entry as an atom made a perfectly valid .asd abort the whole
+   project symbol map, so recognise the list forms -- recursing for :feature,
+   whose real dependency is nested -- and quietly ignore anything unrecognised
+   rather than signalling from inside initialize.
+
+   Feature-conditional dependencies are reported unconditionally: clef offers
+   completion rather than building, so indexing a system the current
+   implementation would skip is friendlier than omitting its symbols."
+  (typecase dep
+    ;; Before SYMBOL: NIL is both a symbol and the empty list, and an empty or
+    ;; stray dependency entry must not become a system named "NIL".
+    (null nil)
+    (string dep)
+    (symbol (symbol-name dep))
+    (cons (let* ((head (first dep))
+                 (head-name (and (symbolp head) (symbol-name head))))
+            (cond
+              ((null head-name) nil)
+              ((and (string-equal head-name "FEATURE") (third dep))
+               (normalize-dependency-name (third dep)))
+              ((and (or (string-equal head-name "VERSION")
+                        (string-equal head-name "REQUIRE"))
+                    (second dep))
+               (normalize-dependency-name (second dep)))
+              (t nil))))
+    (t nil)))
+
 (defun parse-lib-names-from-asd ()
   "Retrieves a combined list of library names from all loaded systems.
 Aggregates :depends-on from all discovered .asd files and filters out local system names."
@@ -346,10 +383,10 @@ Aggregates :depends-on from all discovered .asd files and filters out local syst
                (push name local-system-names)
                (let ((deps (clef-symbols:system-info-dependencies sys-info)))
                  (dolist (dep deps)
-                   ;; Normalize dependency to string
-                   (let ((dep-str (string-downcase
-                                   (if (stringp dep) dep (symbol-name dep)))))
-                     (pushnew dep-str all-deps :test #'string-equal)))))
+                   (let ((dep-name (normalize-dependency-name dep)))
+                     (when dep-name
+                           (pushnew (string-downcase dep-name) all-deps
+                                    :test #'string-equal))))))
              systems)
     ;; Filter out local system names (don't try to load our own systems as external)
     (let ((external-deps (set-difference all-deps local-system-names :test #'string-equal)))

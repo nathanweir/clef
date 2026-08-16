@@ -48,7 +48,8 @@
   (load (project-path "test/framework.lisp"))
   (load (project-path "test/lifecycle-tests.lisp"))
   (load (project-path "test/document-tests.lisp"))
-  (load (project-path "test/diagnostic-tests.lisp")))
+  (load (project-path "test/diagnostic-tests.lisp"))
+  (load (project-path "test/dependency-tests.lisp")))
 
 ;; Run tests
 (let ((success (clef-test:run-all-tests)))

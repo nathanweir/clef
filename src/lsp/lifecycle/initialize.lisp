@@ -35,21 +35,28 @@
 (setf asdf:*compile-file-warnings-behaviour* :warn)  ; Keep warnings as warnings
 
 (defun safe-load-system (system-name)
-       "Load system with forced non-interactive error handling."
-       (let ((sb-ext:*invoke-debugger-hook*
-               (lambda (condition hook)
-                       (declare (ignore hook))
-                       (format *error-output* "Error: ~A~%" condition)
-                       (format *error-output* "Condition type: ~A~%" (type-of condition))
-                       ;; Exit the entire debugger context immediately
-                       (sb-ext:exit :code 1))))
-            (handler-case
-              (progn
-                (slog :debug ">>> would load system here: ~A" system-name)
-                (asdf:load-system system-name))
-              (error (c)
-                     (format *error-output* "Load failed: ~A~%" c)
-                     nil))))
+       "Load SYSTEM-NAME, containing any failure to this call.
+
+        The debugger hook here used to call sb-ext:exit, which meant a bad .asd
+        anywhere in a user's workspace terminated the whole server from inside a
+        request handler -- the client just saw the pipe close, with nothing on
+        the protocol stream to explain it. Abandon only this system instead, so
+        an unloadable dependency costs its symbols and nothing more."
+       (block load-system
+              (let ((sb-ext:*invoke-debugger-hook*
+                      (lambda (condition hook)
+                              (declare (ignore hook))
+                              (slog :error "Abandoning load of ~A: ~A" system-name condition)
+                              (return-from load-system nil))))
+                   (handler-case
+                     (progn
+                       (slog :debug ">>> would load system here: ~A" system-name)
+                       (asdf:load-system system-name))
+                     ;; serious-condition, not error: storage exhaustion and
+                     ;; friends must not reach the debugger hook either.
+                     (serious-condition (c)
+                            (slog :error "Load of ~A failed: ~A" system-name c)
+                            nil)))))
 
 
 (defun load-asd (asd-file)
@@ -358,14 +365,30 @@ Systems with no local dependencies are loaded first."
                (let ((workspace-root (href (aref (href params-hash "workspace-folders") 0) "uri")))
                     (slog :info "Client workspace root: ~A" workspace-root)
                     (setf ctx:workspace-root workspace-root)
-                    ;; Load all .asd files (root + test directories)
-                    (load-all-workspace-systems workspace-root)
-                    (let ((start-time (get-internal-real-time)))
-                         (slog :debug "Building project symbol map...")
-                         (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root))
-                         (slog :debug "Built project symbol map in ~A ms."
-                               (/ (* (- (get-internal-real-time) start-time) 1000.0)
-                                  internal-time-units-per-second))))
+                    ;; Each stage is reported separately. These used to share one
+                    ;; handler, so a failure deep in dependency parsing surfaced
+                    ;; as "Failed to get client workspace root" -- which sent
+                    ;; debugging in entirely the wrong direction.
+                    (handler-case
+                      ;; Load all .asd files (root + test directories)
+                      (load-all-workspace-systems workspace-root)
+                      (error (e)
+                             (slog :error "Failed to load workspace systems under ~A: ~A"
+                                   workspace-root e)))
+                    (handler-case
+                      (let ((start-time (get-internal-real-time)))
+                           (slog :debug "Building project symbol map...")
+                           (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root))
+                           (slog :debug "Built project symbol map in ~A ms."
+                                 (/ (* (- (get-internal-real-time) start-time) 1000.0)
+                                    internal-time-units-per-second)))
+                      (error (e)
+                             ;; Completion, workspace symbols and cross-file
+                             ;; definition all go dark when this fails, so say so
+                             ;; rather than leaving a bare condition in the log.
+                             (slog :error "Failed to build project symbol map (completion, workspace ~
+                                           symbols and cross-file definition will be unavailable): ~A"
+                                   e))))
                (error (e)
                       ;; TODO: Propogate the error and return some specific code?
                       ;; Actually, we can continue initializing the server, but would need to disable some

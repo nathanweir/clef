@@ -118,6 +118,8 @@ through their own defparameters.")
               (:ts-ll :cl-tree-sitter/low-level))
             (:export build-project-symbol-map
                      build-file-symbol-map
+                     normalize-dependency-name
+                     parse-lib-names-from-asd
                      get-ref-for-doc-pos
                      lexical-scope-kind
                      lexical-scope-symbol-definitions
