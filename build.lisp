@@ -38,7 +38,15 @@
               while line
               for slash = (position #\/ line)
               when (and slash (search ".so" line))
-                do (pushnew (subseq line slash) paths :test #'string=))))
+                ;; READ-LINE hands back (simple-array character (*)) -- 32 bits
+                ;; per character. Paths pinned from those would sit in the dumped
+                ;; image as UTF-32, where nix's reference scanner cannot see them:
+                ;; it looks for the store hash as contiguous ASCII. The libraries
+                ;; would then be undetected runtime deps of the built binary and a
+                ;; GC could collect them out from under it. Store as base-strings
+                ;; so the paths are ASCII in the heap and get found.
+                do (pushnew (coerce (subseq line slash) 'simple-base-string)
+                            paths :test #'string=))))
     paths))
 
 (defun absolutize-shared-objects ()
