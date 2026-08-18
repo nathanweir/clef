@@ -225,10 +225,18 @@ lives in thousands of repos you don't control.
 **Disposition:** `build` or `wrap` (ocicl) — undecided · **Leverage:** mostly
 `unilateral`, constraint metadata is `needs-buy-in`
 
-### 5.6 No tree-sitter grammar — highest-leverage single artifact
+### 5.6 The tree-sitter grammar situation — highest-leverage single artifact
 
-There is no well-vetted Common Lisp tree-sitter grammar. Nathan hand-edited one
-into shape for his Zed extension.
+> **Correction to an earlier draft.** This section originally claimed *"there is
+> no well-vetted Common Lisp tree-sitter grammar."* That is wrong. Upstream
+> `tree-sitter-grammars/tree-sitter-commonlisp` exists, and the Zed extension
+> pins it by commit. The accurate claim is narrower and still damning: a grammar
+> exists, it was **not good enough to use as-is** (hence the local fork), and
+> essentially nothing downstream consumes it — no LLM harness ships CL
+> highlighting by default. The gap is adoption and polish, not absence.
+
+Nathan hand-edited a grammar into shape for his Zed extension. See
+[`roadmap.md`](roadmap.md) W2 for the four divergent copies this has produced.
 
 In 2026 tree-sitter is the substrate every editor, highlighter, code-aware tool,
 and LLM harness builds on. **No LLM harness observed has CL syntax highlighting

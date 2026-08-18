@@ -154,16 +154,42 @@ are the one area where an image-enrichment channel genuinely wins)?
 
 #### W2. Tree-sitter grammar as a standalone artifact **[U]**
 
-Harden the grammar currently embedded in the Zed extension into an independent,
-well-tested artifact. Highest *external* leverage item in the project — every
-editor, highlighter, and LLM harness downstream of it (motivation §5.6, §5.7).
+Highest *external* leverage item in the project — every editor, highlighter, and
+LLM harness is downstream of it (motivation §5.6, §5.7).
+
+**The real job here is consolidation, not authoring.** Surveyed 2026-08-18;
+there are currently **four divergent sources of truth**:
+
+| # | location | what it is |
+|---|---|---|
+| 1 | `tree-sitter-grammars/tree-sitter-commonlisp` | upstream, pinned by commit `32323509` in `zed-common-lisp/extension.toml` |
+| 2 | `zed-common-lisp/grammars/commonlisp/` | vendored copy, `grammar.js` 397 lines, carries `LICENSE.md` and `queries/tags.scm` |
+| 3 | `~/dev/tree-sitter-common-lisp/` | local fork, single commit, **no remote**, `grammar.js` 372 lines, plus `grammar-one.js`, `grammar-two.js`, `old-grammar.js.bkp` |
+| 4 | `clef/src/parser/tree-sitter-commonlisp.so` | prebuilt binary checked into this repo, **provenance unrecorded** |
+
+The two local `grammar.js` files differ (372 vs 397 lines). Nobody currently
+knows which one #4 was built from — and `nix/clef.nix` already notes the `.so`
+arrived carrying another machine's RPATH including a `$HOME` path.
+
+**Nathan's own query work is the valuable part** and lives in
+`zed-common-lisp/languages/commonlisp/`: `highlights.scm` (14.5 KB — the bulk of
+the effort), `brackets.scm`, `outline.scm`, `config.toml`. Adapted from existing
+grammars found online, possibly including Clojure ones; licenses were checked but
+**attribution may be incomplete and must be audited before anything is
+published**.
 
 *Be upfront publicly:* a CL grammar can never be complete, because reader macros
 make the lexical grammar user-extensible at read time. "Good enough for 99% of
 real code" is the goal and is infinitely more than zero.
 
-*First questions:* How far is the current grammar from standalone quality? What
-corpus do we test against? Do we upstream it anywhere, and if so where?
+*First questions:* Which of the four is authoritative? Can the fork's changes be
+expressed as a patch against upstream, or contributed back? What corpus do we
+test against? Is #4 reproducible from source, and does the build become part of
+this repo?
+
+*Related deferred idea:* getting the grammar applied to Claude Code itself, so CL
+renders with real highlighting in-harness. Explicitly **not urgent** — noted so
+it isn't lost.
 
 #### W3. Package/import conventions + linter + `.asd` generation **[U]**
 
@@ -254,6 +280,24 @@ ecosystem. Pairs naturally with W4 tier 3.
 The final aspirational deliverable, explicitly **gated on building enough of the
 above first** — and on Nathan's own CL fluency reaching the point where it can
 be written honestly. Stated plainly: not writable today.
+
+## 5b. Adjacent existing work to pull in
+
+Surveyed 2026-08-18. Not yet moved, but should be accounted for before anything
+is built twice.
+
+- **`~/dev/zed-common-lisp`** — the Zed extension. Brings in CLEF plus syntax
+  highlighting. Self-described as rough; there was no clean Zed extension
+  template to work from. Source of the query work described in W2.
+- **`~/dev/zed-common-lisp/cl-formatter/`** — a separate Common Lisp formatter
+  subproject (`package.lisp` + `main.lisp`, no dependencies). Directly relevant:
+  CLEF currently formats via `cl-indentify`, carrying the TODO *"really not sure
+  if indentify is OK to use long-term"* (`formatting.lisp:15`). Whether the
+  golden path's formatter is this, `cl-indentify`, or something else is an open
+  W-level question that does not yet have a workstream.
+- **`~/dev/tree-sitter-common-lisp`** — the grammar fork, see W2.
+- **`~/dev/weir`** — the speculative Lisp language design work. Idea source
+  only, explicitly not a dependency (motivation §B2).
 
 ## 6. Deliberately deferred
 
