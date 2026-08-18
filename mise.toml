@@ -31,6 +31,10 @@ description = "Run the LSP server from source (stdio)"
 # which is a standing invitation to drift.
 run = "lsp/start-server.sh"
 
+[tasks."conditions:test"]
+description = "Run the clef-conditions test suite"
+run = "sbcl --noinform --non-interactive --load conditions/test/run-tests.lisp"
+
 [tasks."lsp:test-integration"]
 description = "Old stdio integration test (deprecated, unmaintained)"
 run = "sbcl --script lsp/test/client.lisp"
@@ -41,8 +45,8 @@ description = "Alias for lsp:build"
 depends = ["lsp:build"]
 
 [tasks.test]
-description = "Alias for lsp:test"
-depends = ["lsp:test"]
+description = "Run every component's tests"
+depends = ["lsp:test", "conditions:test"]
 
 [tasks.run]
 description = "Alias for lsp:run"
