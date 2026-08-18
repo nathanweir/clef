@@ -16,4 +16,9 @@
    #:diagnostic-references
    ;; extraction
    #:extract
-   #:condition-severity))
+   #:condition-severity
+   ;; rendering
+   #:render
+   #:render-to-string
+   #:*color*
+   #:*context-lines*))

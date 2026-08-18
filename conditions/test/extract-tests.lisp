@@ -113,11 +113,14 @@
                "CALLS-UNDEFINED")
         (check "  severity" (clef-conditions:diagnostic-severity d) :warning)))
 
-    ;; Distinct call sites must get distinct positions -- the bug in the old
-    ;; approach was flagging every occurrence of a name.
-    (format t "~&distinctness~%")
+    ;; Positions differ per top-level form. Note the limit honestly: each error
+    ;; above sits in a DIFFERENT defun, and FILE-POSITION names the enclosing
+    ;; top-level form rather than the error, so two errors inside one defun
+    ;; would legitimately share a position. Narrowing to the exact symbol is the
+    ;; renderer's job (see render-tests), not this layer's.
+    (format t "~&position per top-level form~%")
     (let ((positions (remove nil (mapcar #'clef-conditions:diagnostic-file-position diags))))
-      (check "positions are distinct per diagnostic"
+      (check "distinct forms get distinct positions"
              (length (remove-duplicates positions)) (length positions))))
 
   ;; Degradation: a condition signalled outside compilation still yields a
@@ -131,6 +134,8 @@
     (check "runtime error keeps its message"
            (clef-conditions:diagnostic-message d) "plain runtime error")
     (check "runtime error kind" (clef-conditions:diagnostic-kind d) :unknown))
+
+  (run-render-tests)
 
   (format t "~&~%~A checks, ~A failure(s)~%" *checks* (length *failures*))
   (null *failures*))

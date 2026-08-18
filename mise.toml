@@ -35,6 +35,10 @@ run = "lsp/start-server.sh"
 description = "Run the clef-conditions test suite"
 run = "sbcl --noinform --non-interactive --load conditions/test/run-tests.lisp"
 
+[tasks."conditions:demo"]
+description = "Side-by-side: SBCL's default compiler output vs clef-conditions"
+run = "sbcl --noinform --non-interactive --load conditions/demo.lisp"
+
 [tasks."lsp:test-integration"]
 description = "Old stdio integration test (deprecated, unmaintained)"
 run = "sbcl --script lsp/test/client.lisp"

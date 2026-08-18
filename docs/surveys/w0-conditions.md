@@ -50,10 +50,36 @@ Compiled a file with five deliberate errors and inspected each condition.
 | accessor | example value |
 |---|---|
 | `file-name` | `/tmp/.../tmp.lisp` |
-| **`file-position`** | **`59`, `112`, `165`, `224`, `274`** |
+| `file-position` | `59`, `112`, `165`, `224`, `274` |
 | `original-source-path` | `(3 2)` — structural path into the form |
 | `context` | `((DEFUN CALLS-UNDEFINED))` — the enclosing definition |
 | **`original-source`** | **`(PROBE-PKG::NO-SUCH-FUNCTION 1 2)`** — the exact offending form |
+
+> ### Correction: `file-position` is NOT the error position
+>
+> An earlier draft of this survey read `file-position` as the location of the
+> error. **It is the location of the enclosing top-level form.** Measured: three
+> different conditions inside one `defun` — an unused parameter, a bad `format`
+> call and an undefined variable — *all* reported `file-position` 42, the
+> position of the `defun` itself.
+>
+> What distinguishes them is `original-source-path`: `(2)` for the parameter,
+> `(3 2)` for the others. That is a structural path into the read form, and
+> resolving it to a character position needs either a re-read with position
+> tracking or a syntax tree to map it onto.
+>
+> The probe that produced the original table happened to put each error in a
+> separate top-level form, which made the positions look precise. They were not.
+>
+> **This is why clef's author fell back to searching for the symbol** — the
+> naive reading of "conditions carry location" is only half true, and the half
+> that is missing is the half you need.
+>
+> *Consequences:* `clef-conditions`' renderer scans forward from the form for
+> the known symbol, bounded by the form — accurate for ordinary code, and it
+> says so explicitly when it cannot pin the symbol down. **Clef's language
+> server can do better**, because `original-source-path` is a tree path and it
+> already has a tree-sitter tree to walk with it.
 
 **And the condition itself carries the message in structured form**, via the
 standard `format-control` / `format-arguments` slots:

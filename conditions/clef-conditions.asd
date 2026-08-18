@@ -7,7 +7,8 @@
   :serial t
   :components ((:module "src"
                 :components ((:file "package")
-                             (:file "extract")))))
+                             (:file "extract")
+                             (:file "render")))))
 
 (defsystem :clef-conditions/test
   :description "Tests for clef-conditions"
@@ -17,4 +18,5 @@
   :serial t
   :components ((:module "test"
                 :components ((:file "package")
-                             (:file "extract-tests")))))
+                             (:file "extract-tests")
+                             (:file "render-tests")))))
