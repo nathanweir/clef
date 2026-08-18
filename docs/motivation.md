@@ -623,9 +623,9 @@ project's thesis.
    utilities (SBOM generation etc.). *Verify:* actual current capability and
    scope — not yet properly evaluated.
 4. **Coalton: adopt, wrap, or ignore?** (§B1)
-5. **Repo scope.** Strong likelihood of widening this repo's scope. Options:
-   widen CLEF, spin up a separate repo, or accept a monorepo with CLEF as one
-   component. **Undecided — deliberately deferred.**
+5. ~~**Repo scope.**~~ **Resolved (reversibly):** monorepo, `clef` stays the
+   umbrella name, the language server becomes `clef-lsp` as one component among
+   several. See [`roadmap.md`](roadmap.md) §2 for layout and rationale.
 6. **Does "build it and they will come" apply to constraint metadata?** (§5.5)
 
 ## 9. Non-goals and guardrails
