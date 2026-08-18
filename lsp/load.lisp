@@ -5,18 +5,25 @@
 (require :sb-introspect)
 (require :sb-concurrency)
 
-;; Configure ASDF to place compiled files in project-local build/ directory
-;; instead of ~/.cache/common-lisp/ - makes cleanup safer and project self-contained
-(let ((project-root (truename ".")))
-  (asdf:initialize-output-translations
-   `(:output-translations
-     ;; Redirect this project's outputs to build/ subdirectory
-     ((,project-root :**/ :*.*.*) (,project-root "build" :**/ :*.*.*))
-     ;; Keep default behavior for everything else (system libraries, quicklisp, etc.)
-     :inherit-configuration)))
+;; Resolve the component root from this file's own location, not from
+;; (truename "."). An editor -- or the ~/.local/bin/clef wrapper -- launches the
+;; server with the *edited project* as its working directory, which is only
+;; incidentally this repository. Deriving the root from the cwd meant the load
+;; happened to work when editing clef itself and nowhere else.
+(defparameter *clef-lsp-root*
+  (make-pathname :directory (pathname-directory *load-truename*)))
+
+;; Compile into a project-local build/ directory rather than
+;; ~/.cache/common-lisp/, matching build.lisp and test/run-tests.lisp so every
+;; entry point agrees on where fasls land.
+(asdf:initialize-output-translations
+ `(:output-translations
+   ((,*clef-lsp-root* :**/ :*.*.*) (,*clef-lsp-root* "build" :**/ :*.*.*))
+   ;; Keep default behavior for everything else (system libraries, quicklisp, etc.)
+   :inherit-configuration))
 
 ;; Register this directory with ASDF
-(asdf:load-asd (merge-pathnames "clef-lsp.asd" (truename ".")))
+(asdf:load-asd (merge-pathnames "clef-lsp.asd" *clef-lsp-root*))
 
 ;; Load the system with style warnings suppressed (third-party libs)
 (handler-bind ((style-warning #'muffle-warning))
