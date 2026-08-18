@@ -4,9 +4,9 @@
 §3, this precedes any build work and is allowed to cancel it.
 
 **Verdict: build the compiler-condition renderer, wrap `dissect` for
-backtraces.** The ecosystem has stack introspection; it does not have diagnostic
-rendering. And SBCL already carries far more structured information than either
-clef or the ecosystem currently uses.
+backtraces.** The ecosystem has stack introspection. Diagnostic rendering exists
+in exactly one place — Swank — where it is unusable outside Emacs (§1). SBCL
+itself carries far more structured information than clef was using.
 
 ---
 
@@ -18,11 +18,19 @@ clef or the ecosystem currently uses.
 | [`trivial-custom-debugger`](https://github.com/phoe/trivial-custom-debugger) | Portably installs an arbitrary function as *the* system debugger, not just `*debugger-hook*`. Tested on nine implementations. | **`point-at`** — useful for the REPL case, but see §3 |
 | [`trivial-backtrace`](https://trivial-backtrace.common-lisp.dev/) | String representation of a backtrace. | superseded by `dissect` |
 
-**The gap:** nothing found renders *compiler conditions with source context* —
-the "here is your code, here is the line, here is what's wrong with it" format
-that every modern toolchain has. The ecosystem's debugging story is about
-inspecting a live stack after the fact, which is the image-first assumption
-again (motivation §5.2). Prior art for pretty backtraces exists
+**The gap — and it is not what it first looked like.** An earlier draft of this
+section said nothing renders *compiler conditions with source context*. The
+accurate statement is worse: **exactly one thing does, and it is Swank.**
+
+`swank/sbcl.lisp` line 441 makes the identical `(sb-c::find-error-context nil)`
+call this survey recommends, and has for years — inside a 2,000-line file bound
+to the SLIME wire protocol and Emacs. See [`motivation.md`](../motivation.md)
+§5.10. The capability was never missing; it was captured. Everyone outside Emacs
+re-derives it or, as clef did, gives up and scrapes English.
+
+What the ecosystem *does* publish is stack inspection after the fact — the
+image-first assumption again (motivation §5.2). Prior art for pretty backtraces
+exists
 ([snellman, 2007](https://www.snellman.net/blog/archive/2007-12-19-pretty-sbcl-backtraces.html))
 and the community view is essentially *"the backtrace printer is just Lisp code,
 write a nicer one"* — true, and nobody has shipped one as a reusable artifact.
@@ -145,6 +153,9 @@ uses. The renderer being separable is what lets the language server share it.
 internal SBCL API — same standing as the arena work (motivation §B2). Version
 pinning plus a test that fails fast on SBCL upgrade. The `format-control` /
 `format-arguments` half is standard CL and safe.
+
+This is now an accepted cost rather than an open risk: **the project is
+SBCL-only by decision** (motivation §8b).
 
 ## 5. Open questions
 

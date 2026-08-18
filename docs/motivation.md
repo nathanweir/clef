@@ -360,6 +360,38 @@ one of the few interfaces that forces the decomposition, because the protocol
 cannot assume your editor, your image, or that your code even compiles right
 now.
 
+##### The sharpest evidence found so far: Swank
+
+While surveying W0 we asked why SBCL's rich structured diagnostics — file, byte
+offset, enclosing form, the offending symbol as *data* — are not exposed by any
+library. Then we looked in `swank/sbcl.lisp`:
+
+```lisp
+;; line 441
+(signal-compiler-condition (real-condition condition)
+                           (sb-c::find-error-context nil))
+```
+
+**That is the identical call clef now makes.** SLIME has been extracting
+structured compiler diagnostics for years — at line 441 of a 2,000-line file
+welded to the SLIME wire protocol and Emacs.
+
+> **The capability was never missing. It was captured.**
+
+This is the thesis in one artifact. Not "Common Lisp can't do this" but "Common
+Lisp does this, once, inside the Emacs integration layer, and everyone outside
+Emacs either re-derives it or gives up." Clef itself gave up: `diagnostic.lisp`
+regex-scraped the printed English instead.
+
+> *Position:* "It is incredible the degree to which the entirety of CL seems to
+> hinge on Emacs and SLIME."
+
+*Correction to an earlier draft of [`surveys/w0-conditions.md`](surveys/w0-conditions.md):*
+it said the ecosystem "does not have diagnostic rendering." More precisely: it
+has exactly one implementation, unusable outside Emacs. Same conclusion about
+what to build, very different story about why — and the second story is far more
+damning.
+
 **Disposition:** `build` (CLEF, already underway) · **Leverage:** `unilateral`
 
 ## 6. Positive models to study
@@ -725,6 +757,48 @@ project's thesis.
    umbrella name, the language server becomes `clef-lsp` as one component among
    several. See [`roadmap.md`](roadmap.md) §2 for layout and rationale.
 6. **Does "build it and they will come" apply to constraint metadata?** (§5.5)
+
+## 8b. Decision: SBCL only
+
+**Decided 2026-08-18. This is a project-level scope decision, not a per-artifact
+one.**
+
+> *Position:* "I am more than comfortable with supporting **only** SBCL. The
+> portability culture does not need to live here — although as a massive caveat
+> to someone using our tooling."
+
+CL's portability culture is strong: `trivial-*` wrappers exist precisely so
+libraries can avoid implementation lock-in. One consequence (see §5.10) is that
+an implementation-specific library feels improper to publish — so the useful
+SBCL-only thing does not get published *at all*, and everyone loses.
+
+We are opting out of that norm deliberately.
+
+**What this unblocks.** Three workstreams were each carrying a "these are
+internals, tread carefully" caveat. That caveat does not disappear, but it stops
+being an argument against the approach:
+
+| workstream | internals relied on |
+|---|---|
+| W0 conditions | `sb-c::find-error-context` and the compiler error context accessors |
+| W6 arenas | `sb-vm:` arena API, `hide-arena`, `c-find-heap->arena` |
+| W4 typing | SBCL's derived types, `sb-introspect` |
+
+**What it obliges us to do:**
+
+- **Say so loudly and early** — in the README, in the golden-path guide, and at
+  the top of anything published. A user discovering the SBCL dependency after
+  adopting the toolchain is a betrayal; one who knew going in made a choice.
+- **Pin the SBCL version** and keep tests that fail fast on upgrade. Internals
+  move. `clef-conditions`' test suite is explicitly written as that canary.
+- **Isolate the internals** behind our own layer, so a future port is a rewrite
+  of one file rather than an archaeology project. `clef-conditions` already does
+  this: every SB-C access is `ignore-errors`-guarded and degrades to `NIL`.
+
+**What it does not mean:** we do not go out of our way to *break* other
+implementations, and standard-CL code stays standard. The `format-control` /
+`format-arguments` half of condition extraction is portable and written that
+way. The rule is that portability is never allowed to *cost* us a capability.
 
 ## 9. Non-goals and guardrails
 

@@ -10,6 +10,20 @@ golden path for writing Common Lisp in 2026.
 The only component that exists today is the language server, originally built
 for Zed and Helix.
 
+> ## ⚠️ SBCL only
+>
+> This is a deliberate decision, not an oversight, and it will not change.
+>
+> Much of what makes this project worth doing depends on implementation
+> internals — SBCL's compiler error contexts for real diagnostics, its arena
+> allocator for manual memory, its derived types for type surfacing. CL's
+> portability culture treats that as improper, with the result that the useful
+> implementation-specific thing never gets published at all.
+>
+> We would rather ship something genuinely good on one implementation than
+> something mediocre everywhere. If you need CCL, ECL, ABCL or LispWorks, this
+> is not for you, and you should know that before adopting it rather than after.
+
 See [`docs/motivation.md`](docs/motivation.md) for why, and
 [`docs/roadmap.md`](docs/roadmap.md) for what and in what order. Both are living
 documents and deliberately keep their open disagreements visible.
