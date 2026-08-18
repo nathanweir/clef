@@ -1,0 +1,11 @@
+{
+  "name": "clef",
+  "description": "Common Lisp language server (CLEF) for code intelligence - diagnostics, go-to-definition, references, hover, and completion",
+  "version": "1.0.0",
+  "author": {
+    "name": "Nathan"
+  },
+  "repository": "https://github.com/nathan/clef",
+  "license": "MIT",
+  "lspServers": "./.lsp.json"
+}

@@ -46,5 +46,34 @@ metaModel.schema.json
 # Local scratch
 tmp/
 
+# Sandbox artifacts. The bubblewrap isolation used for agent sessions bind-mounts
+# /dev/null over these paths, so they appear as character devices in the repo
+# root rather than files. They are never real project content -- do not commit.
+.bashrc
+.bash_profile
+.profile
+.zshrc
+.zprofile
+.gitconfig
+.gitmodules
+.ripgreprc
+.mcp.json
+.claude/commands
+.claude/hooks
+.claude/launch.json
+.claude/loop.md
+.claude/output-styles
+.claude/routines
+.claude/scheduled_tasks.json
+.claude/settings.json
+.claude/skills
+.claude/workflows
+.claude/settings.local.json
+.claude/.cc-writes/
+
+# Editor state
+.idea
+.vscode
+
 # Built executable
 /clef

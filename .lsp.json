@@ -1,0 +1,10 @@
+{
+  "lisp": {
+    "command": "clef",
+    "extensionToLanguage": {
+      ".lisp": "lisp",
+      ".cl": "lisp",
+      ".asd": "lisp"
+    }
+  }
+}
