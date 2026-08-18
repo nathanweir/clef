@@ -5,7 +5,7 @@
 ;; Register tree-sitter language using path relative to the ASDF system
 (cl-tree-sitter:register-language
   :commonlisp
-  #.(namestring (asdf:system-relative-pathname :clef "src/parser/tree-sitter-commonlisp")))
+  #.(namestring (asdf:system-relative-pathname :clef-lsp "src/parser/tree-sitter-commonlisp")))
 
 (declaim (ftype (function (string)) parse-file))
 (defun parse-file (file-path)

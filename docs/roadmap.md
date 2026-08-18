@@ -30,6 +30,10 @@ no searching for.
 
 ## 2. Repo structure
 
+**Status: done, 2026-08-18.** The layout below is what now exists, not a
+proposal. Source build, test suite, and `nix build .#clef` were all verified
+green before and after the move.
+
 **Decision (reversible): monorepo, `clef` stays the umbrella name.**
 
 Rationale:
@@ -43,25 +47,69 @@ Rationale:
   name already has.
 - The language server becomes `clef-lsp`, one component among several.
 
-Proposed layout — one ASDF system per component, each with its own `.asd`:
+Layout as built — one ASDF system per component, each with its own `.asd`:
 
 ```
 clef/
-  lsp/           clef-lsp.asd        the language server (existing src/ moves here)
-  conditions/    clef-conditions.asd humane condition printing / error formatting
-  profile/       clef-profile.asd    SBCL dev+release defaults
-  lint/          clef-lint.asd       package/import conventions, ftype-on-exports
-  arena/         clef-arena.asd      dev-mode arena escape checking
-  grammar/                           tree-sitter grammar (not CL)
-  proj/                              project/dependency tool (see W5)
+  lsp/                     the language server, the only component so far
+    clef-lsp.asd           system :clef-lsp   (was :clef)
+    build.lisp             dumps the standalone binary to lsp/clef
+    load.lisp              load from source
+    start-server.sh        from-source stdio entry point
+    src/
+    test/
+      clef-lsp-test.asd    system :clef-lsp-test  (was :clef-test)
+  nix/                     clef.nix, cl-tree-sitter.nix
   docs/
-  examples/                          candidate programs (see §4)
+  mise.toml                task runner
+  flake.nix                toolchain, source of truth for versions
 ```
+
+Directories for the components that don't exist yet (`conditions/`, `profile/`,
+`lint/`, `arena/`, `grammar/`, `proj/`, `examples/`) are **not** created in
+advance — empty scaffolding rots and lies about progress. They land with their
+first real file.
 
 Separate `.asd` files per component rather than one file with secondary systems,
 deliberately: it forces every dependency edge to be declared explicitly, which
-dogfoods W4. If we can't keep our own build honest and declarative, we have no
+dogfoods W3. If we can't keep our own build honest and declarative, we have no
 business shipping a convention for it.
+
+**What moved, and what deliberately didn't:**
+
+- The ASDF system is now `:clef-lsp`; the test system is `:clef-lsp-test`.
+- The **binary is still called `clef`**. Editors, `.lsp.json`, and the Claude
+  plugin manifest all point at that name, and renaming it buys nothing today.
+  Its build location changed from `./clef` to `lsp/clef`.
+- Lisp *package* names (`clef-root`, `clef-lsp/document`, `clef-symbols`, …) are
+  untouched. They are a separate namespace from ASDF system names and renaming
+  them would be churn with no benefit.
+- `nix/clef.nix` roots its fileset at `lsp/` rather than the repo root, so the
+  store layout stays flat and the patchelf and build paths inside it are
+  unchanged.
+
+### Task runner: mise, not just
+
+`Justfile` is gone, replaced by `mise.toml`. mise is the newer and more complete
+tool, and the one with more existing familiarity. **Tasks only** — the toolchain
+stays pinned by `flake.nix`, since nothing in the Common Lisp ecosystem is
+available through mise anyway and splitting toolchain provenance across two
+systems buys nothing. mise itself is installed via the flake's dev shell.
+
+Tasks are namespaced `<component>:<verb>` (`lsp:build`, `lsp:test`, `lsp:run`)
+so adding components later requires no renaming, with bare aliases pointing at
+the language server for now.
+
+Two fixes came along with the swap:
+
+- The old `test` recipe piped through `grep`, so it reported grep's exit status.
+  The mise task has no pipe at all, which makes a meaningless exit status
+  structurally impossible rather than merely fixed.
+- `lsp:run` delegates to `start-server.sh` instead of duplicating its
+  invocation. The Justfile carried its own copy under a *"keep in sync with
+  start-server.sh"* comment, which is a standing invitation to drift.
+  `start-server.sh` now derives its own location instead of hardcoding
+  `/home/nathan/dev/clef`.
 
 **Constraint to hold from day one:** any user-facing tool must be
 **distributable as a prebuilt binary**. If the project tool is written in CL,

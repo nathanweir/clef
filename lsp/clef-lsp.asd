@@ -1,4 +1,4 @@
-(defsystem :clef
+(defsystem :clef-lsp
            :description "Common Lisp Editor Facilitator - An LSP server for Common Lisp"
            :author "Nathan Weir"
            :license "MIT"

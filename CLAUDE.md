@@ -4,32 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CLEF (Common Lisp Editor Facilitator) is an LSP server for Common Lisp, built for use with Zed and Helix editors. It implements LSP 3.17 specification.
+This repo is a monorepo. Its long-term goal is the developer tooling layer
+Common Lisp never got — see `docs/motivation.md` and `docs/roadmap.md`, which
+are the authority on scope and ordering.
+
+The only component that exists today is **`lsp/`**: CLEF (Common Lisp Editor
+Facilitator), an LSP 3.17 server for Common Lisp, built for Zed and Helix.
+
+- ASDF system: `:clef-lsp` (tests: `:clef-lsp-test`)
+- Built binary: `lsp/clef` — still named `clef`, since editors point at it
+- Lisp package names (`clef-root`, `clef-lsp/document`, ...) are a separate
+  namespace from ASDF system names and were not renamed
 
 ## Build and Run Commands
 
-```bash
-# Run the LSP server
-just run
+Tasks run through **mise**, not just. The toolchain comes from `flake.nix`.
 
-# Run LSP handler tests
-just test
+```bash
+mise run build    # build the standalone binary into lsp/clef
+mise run test     # run the LSP test suite
+mise run run      # run the server from source over stdio
+mise tasks        # list all tasks
 ```
 
-The `just run` command loads SBCL with ASDF, loads the clef system, and starts the server.
+Tasks are namespaced `lsp:build`, `lsp:test`, `lsp:run`; the bare names above
+are aliases. `mise run run` delegates to `lsp/start-server.sh`, which is the
+single definition of how to launch from source — do not duplicate that
+invocation elsewhere.
+
+`nix build .#clef` produces the packaged binary, which is what editors should
+actually point at.
 
 ## Testing
 
-Tests are in the `test/` directory and use a custom test framework.
+Tests are in `lsp/test/` and use a custom test framework.
 
 ```
-test/
-├── package.lisp         # Test package definition
-├── framework.lisp       # Test framework (assertions, mock server)
-├── lifecycle-tests.lisp # Tests for initialize/initialized/shutdown
-├── document-tests.lisp  # Tests for document operations
-└── run-tests.lisp       # Test runner entry point
+lsp/test/
+├── package.lisp          # Test package definition
+├── framework.lisp        # Test framework (assertions, mock server)
+├── lifecycle-tests.lisp  # Tests for initialize/initialized/shutdown
+├── document-tests.lisp   # Tests for document operations
+├── diagnostic-tests.lisp # Tests for diagnostics
+├── dependency-tests.lisp # Tests for ASDF dependency parsing
+└── run-tests.lisp        # Test runner entry point
 ```
+
+Note `run-tests.lisp` `load`s the test files directly rather than going through
+ASDF, so a new test file must be added there. `clef-lsp-test.asd` exists but is
+not what the runner uses.
+
+Fixture files go in `lsp/tmp/test/` via `write-temp-file` — never global `/tmp`,
+which is not writable in sandboxed environments.
 
 The framework provides:
 - `deftest` macro for defining tests
@@ -57,7 +83,7 @@ To add a new test:
 4. Handlers access shared state through `clef-context` accessors (`ctx:documents`, `ctx:workspace-root`, symbol tables, ...)
 5. Responses convert to JSON-RPC and write to stdout
 
-### Key Source Modules (src/)
+### Key Source Modules (lsp/src/)
 
 | Module | Purpose |
 |--------|---------|
@@ -99,7 +125,7 @@ Fields on the context include:
 Shutdown and exit handlers call `ctx:reset-context` to atomically replace
 `*server*` with a fresh context, which also gives tests a clean slate between
 runs. No CLEF package should define its own mutable `defparameter` for
-server state — put new fields on the struct in `src/context.lisp` instead.
+server state — put new fields on the struct in `lsp/src/context.lisp` instead.
 
 ### Symbol Resolution
 
@@ -117,7 +143,7 @@ Uses byte offsets internally (not line-char pairs) for efficiency. The `get-ref-
 ## Key Dependencies
 
 - **SBCL** - Steel Bank Common Lisp (the runtime)
-- **tree-sitter** - C library for parsing (precompiled .so in src/parser/)
+- **tree-sitter** - C library for parsing (precompiled .so in lsp/src/parser/)
 - **serapeum** - Utility library (dict, href functions used heavily)
 - **com.inuoe.jzon** - JSON parsing/writing
 - **cl-interval** - Interval trees for symbol lookup

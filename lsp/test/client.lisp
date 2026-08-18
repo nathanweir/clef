@@ -16,7 +16,7 @@
  (require 'sb-concurrency)
 
  (asdf:load-asd #P"/home/nathan/dev/clef/clef.asd")
- (asdf:load-system :clef)
+ (asdf:load-system :clef-lsp)
 
  ;; Run via `ros -- test/client.lisp`
 

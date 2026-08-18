@@ -33,8 +33,8 @@
 
 ;; Keep build chatter off stdout so this is safe to run from a pipe.
 (let ((*standard-output* *error-output*))
-  (asdf:load-asd (merge-pathnames "clef.asd" *here*))
-  (asdf:load-system :clef))
+  (asdf:load-asd (merge-pathnames "clef-lsp.asd" *here*))
+  (asdf:load-system :clef-lsp))
 
 ;;; SBCL records each dlopen'd library by the name it was asked for. Deps here
 ;;; are requested by bare soname ("libffi.so.8") and only resolve because the
@@ -100,7 +100,7 @@
 ;; expects a dumping image to call; save-lisp-and-die does not run it for us.
 (uiop:call-image-dump-hook)
 
-;; parser.lisp bakes (asdf:system-relative-pathname :clef "src/parser/...") into
+;; parser.lisp bakes (asdf:system-relative-pathname :clef-lsp "src/parser/...") into
 ;; the image at compile time, so the nix build has to compile from the source's
 ;; final store path rather than a scratch copy -- which leaves nowhere next to
 ;; build.lisp to write to. CLEF_OUTPUT redirects the dump; `just build' leaves it

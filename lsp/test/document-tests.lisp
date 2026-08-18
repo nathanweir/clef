@@ -219,7 +219,7 @@
 Global /tmp is deliberately avoided: it is not writable under sandboxed
 environments, and keeping scratch inside the project makes cleanup safe and the
 checkout self-contained."
-  (let ((dir (asdf:system-relative-pathname :clef "tmp/test/")))
+  (let ((dir (asdf:system-relative-pathname :clef-lsp "tmp/test/")))
     (ensure-directories-exist dir)
     dir))
 

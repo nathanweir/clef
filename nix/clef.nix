@@ -6,7 +6,7 @@
 #
 #   (cl-tree-sitter:register-language
 #     :commonlisp
-#     #.(namestring (asdf:system-relative-pathname :clef "src/parser/tree-sitter-commonlisp")))
+#     #.(namestring (asdf:system-relative-pathname :clef-lsp "src/parser/tree-sitter-commonlisp")))
 #
 # Whatever that evaluates to during compilation is what SBCL re-dlopens on every
 # subsequent startup, so it has to already be the path the grammar will live at.
@@ -39,12 +39,16 @@ let
   # Only what the build reads. Keeps the source -- which stays in the runtime
   # closure, since the image points into it for the grammar -- down to the
   # system itself rather than the whole working tree.
+  # Rooted at lsp/ rather than the repo root, so the store layout stays flat --
+  # clef-lsp.asd, build.lisp and src/ sit directly in $src, exactly as they did
+  # before the monorepo split. That keeps the patchelf and build paths below
+  # unchanged.
   sources = lib.fileset.toSource {
-    root = ../.;
+    root = ../lsp;
     fileset = lib.fileset.unions [
-      ../clef.asd
-      ../build.lisp
-      ../src
+      ../lsp/clef-lsp.asd
+      ../lsp/build.lisp
+      ../lsp/src
     ];
   };
 

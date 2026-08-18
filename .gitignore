@@ -76,4 +76,4 @@ tmp/
 .vscode
 
 # Built executable
-/clef
+/lsp/clef

@@ -1,8 +1,8 @@
-(defsystem :clef-test
+(defsystem :clef-lsp-test
   :description "Tests for CLEF - Common Lisp Editor Facilitator"
   :author "Nathan Weir"
   :license "MIT"
-  :depends-on ("clef"
+  :depends-on ("clef-lsp"
                "serapeum"
                "bordeaux-threads"
                "com.inuoe.jzon"

@@ -58,6 +58,10 @@
           ];
 
           packages = [
+            # Task runner. The toolchain itself stays pinned by this flake --
+            # mise is used for tasks only, not tool installation.
+            mise
+
             glib
             libGL
             freeglut

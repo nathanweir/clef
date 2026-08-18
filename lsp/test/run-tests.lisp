@@ -38,12 +38,12 @@
 (require 'sb-introspect)
 
 ;; Clear cached fasl files that might be stale
-(asdf:clear-system :clef)
+(asdf:clear-system :clef-lsp)
 
 ;; Load the main system
 (handler-bind ((warning #'muffle-warning))
-  (asdf:load-asd (project-path "clef.asd"))
-  (asdf:load-system :clef))
+  (asdf:load-asd (project-path "clef-lsp.asd"))
+  (asdf:load-system :clef-lsp))
 
 ;; Load test dependencies
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)

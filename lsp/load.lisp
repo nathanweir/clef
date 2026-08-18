@@ -16,8 +16,8 @@
      :inherit-configuration)))
 
 ;; Register this directory with ASDF
-(asdf:load-asd (merge-pathnames "clef.asd" (truename ".")))
+(asdf:load-asd (merge-pathnames "clef-lsp.asd" (truename ".")))
 
 ;; Load the system with style warnings suppressed (third-party libs)
 (handler-bind ((style-warning #'muffle-warning))
-  (asdf:load-system :clef :verbose nil))
+  (asdf:load-system :clef-lsp :verbose nil))

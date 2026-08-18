@@ -1,0 +1,49 @@
+# Task runner for the clef monorepo.
+#
+# Deliberately tasks-only. The toolchain -- SBCL, tree-sitter, the C toolchain --
+# stays pinned by flake.nix, which is the single source of truth for what
+# versions this project builds against. mise is not used for tool installation
+# here: nothing in the Common Lisp ecosystem is available through it anyway, and
+# splitting toolchain provenance across two systems buys nothing.
+#
+# Tasks are named <component>:<verb> so that adding further components (a
+# condition formatter, a linter, a project tool) does not require renaming
+# anything. The bare aliases at the bottom point at the language server, which
+# is the only component that exists today.
+
+[tasks."lsp:build"]
+description = "Build the standalone clef LSP binary into lsp/clef"
+run = "sbcl --noinform --non-interactive --load lsp/build.lisp"
+
+[tasks."lsp:test"]
+description = "Run the CLEF LSP test suite"
+# No pipe here on purpose. The previous Justfile recipe piped through grep to
+# drop a "make:" line emitted by cl-tree-sitter's prepare-op, which meant the
+# recipe reported grep's exit status -- a suite that died before running a
+# single test still exited 0. One line of noise is a fair trade for an exit
+# status that means something.
+run = "sbcl --noinform --non-interactive --load lsp/test/run-tests.lisp"
+
+[tasks."lsp:run"]
+description = "Run the LSP server from source (stdio)"
+# Delegates to the script rather than repeating the invocation. The Justfile
+# used to carry its own copy with a "keep in sync with start-server.sh" comment,
+# which is a standing invitation to drift.
+run = "lsp/start-server.sh"
+
+[tasks."lsp:test-integration"]
+description = "Old stdio integration test (deprecated, unmaintained)"
+run = "sbcl --script lsp/test/client.lisp"
+
+# Convenience aliases for the only component that currently exists.
+[tasks.build]
+description = "Alias for lsp:build"
+depends = ["lsp:build"]
+
+[tasks.test]
+description = "Alias for lsp:test"
+depends = ["lsp:test"]
+
+[tasks.run]
+description = "Alias for lsp:run"
+depends = ["lsp:run"]
