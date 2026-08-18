@@ -492,20 +492,115 @@ errors, at the language level. No soundness guarantee anywhere.
 
 #### B2. Manual memory management with arenas
 
-*Initial assessment — the item most likely to hit a wall.*
+##### The position
 
-- `dynamic-extent` gives stack allocation for the common case and is underused.
-- `static-vectors` + CFFI gives genuinely manual memory for arrays of
-  primitives / foreign buffers.
-- General CL objects are GC'd by construction — conses, structs, CLOS instances.
-  An arena holding them fights the collector rather than replacing it.
+One of the most exciting things about CL is that it is genuinely fast — a
+systems-adjacent language, not something running on the JVM. But it is garbage
+collected, and GC is always double-edged.
 
-Honest read: manual memory for **data** (foreign buffers, primitive arrays, FFI
-structs) is achievable; manual memory for **the object graph** is not. That may
-still cover the real use case — pending Nathan's detail memo.
+> "If I want to do something that cares about performance, would I have the
+> option to effectively turn off garbage collection, even if only in individual
+> areas that I care about, and then wield the idea of arenas as a way of doing
+> smarter memory management in a way that doesn't entail all of the paper cuts of
+> other approaches?"
 
-*Verify:* possible recent SBCL arena support. Recollection is vague and
-untrusted; do not build on it without checking.
+Explicitly **not** wanted: a borrow checker in CL ("that would be insane"), or
+routinely mucking with raw pointers. CFFI is an acceptable fallback for the
+genuinely hard cases, but a better approach would be preferable. The framing is
+the standard one: *you want your hot path fast — how many language and
+environment ergonomics can you provide to make that as least painful as
+possible?*
+
+The wider goal this serves: making CL **a general tool**, not "the thing you
+pull open when you feel like using parentheses."
+
+*Related side project:* `weir` — a private repo where Nathan has been pushing an
+LLM on the design of a hypothetical Lisp with pie-in-the-sky attributes suited
+to game development (typing, package system, arenas). Not expected to become
+anything; useful as a source of ideas. **Arenas keep surfacing there, which is
+part of why they surface here.**
+
+##### VERIFIED — and the earlier assessment in this document was wrong
+
+An earlier draft called this "the item most likely to hit a wall" and asserted
+that manual memory was achievable for *data* (foreign buffers, primitive arrays)
+but not for *the object graph*, since general CL objects are GC'd by
+construction. **That is wrong.** Tested directly on 2026-08-18.
+
+Environment: stock SBCL **2.6.7** as installed on this machine (nixpkgs build,
+not a custom one). Probe scripts preserved in `docs/experiments/arenas/`.
+
+**Findings:**
+
+- Arena support is **compiled into stock SBCL**, feature flag `:arena-allocator`
+  present in `*features*`. (Note: `:system-tlabs` is *not* present — if older
+  discussion referenced that name, it is not the current flag.)
+- The API is substantial and exported from `SB-VM`:
+  - `new-arena (size &optional growth-amount (max-extensions 7) &key hidable)`
+  - `with-arena (arena) &body` · `without-arena` · `in-same-arena`
+  - `switch-to-arena` / `unuse-arena`
+  - `rewind-arena` · `destroy-arena`
+  - `arena-bytes-used` · `arena-bytes-wasted` · `arena-contents`
+  - `find-containing-arena` · `points-to-arena` · `c-find-heap->arena` ·
+    `show-heap->arena` · `dump-arena-objects`
+  - `*arena-exhaustion-handler*`, `arena-size-limit`,
+    `arena-huge-object-threshold`
+- **Ordinary CL objects allocate into arenas.** A `(make-list 1000)` inside
+  `with-arena` landed in the arena — confirmed via `find-containing-arena`.
+  Consing, not just foreign buffers.
+- `rewind-arena` is an O(1) bulk free: `arena-bytes-used` went 24192 → 0.
+- **It is unsafe by construction.** A global still referencing arena memory
+  after `rewind-arena` read back its old contents intact — no error, no
+  protection. Classic use-after-free: it works until the memory is reused.
+
+##### The part that changes the calculus: real escape tooling exists
+
+Three layers, all working, all tested:
+
+1. `sb-vm:points-to-arena` — object-level check.
+2. `sb-vm:c-find-heap->arena` — scans threads and dynamic space, and **returns
+   the offending symbols by name.** In the test it returned `(**HOLDER**)`,
+   correctly identifying the one global holding an arena pointer.
+3. `:hidable t` + `sb-vm:hide-arena` — **mprotects the arena.** Touching an
+   escaped reference then raises a *catchable* `SB-KERNEL:MEMORY-FAULT-ERROR`,
+   and SBCL prints a diagnosis identifying the arena and faulting object
+   (`fault in arena 0x... [HIDDEN]`, `access of object @ 0x...`).
+   `unhide-arena` restores access.
+
+**This is the finding.** We cannot have a borrow checker, and we don't want one.
+But CL can have a **dynamic escape checker in dev builds** — which is a large
+fraction of the felt safety benefit for a fraction of the cost.
+
+##### Proposed golden-path affordance
+
+A `with-arena`-style macro that:
+
+- **in dev/test builds** — allocates hidable, hides the arena at scope exit,
+  runs `c-find-heap->arena`, and fails loudly with a *humane* message naming the
+  escaping binding
+- **in release builds** — compiles down to bare `sb-vm:with-arena` with zero
+  overhead
+
+That converts the worst class of arena bug (silent use-after-free) into a
+named, actionable test failure, and it is a small build.
+
+##### Caveats that must not be lost
+
+- These are **`SB-VM` internals**: undocumented, no ANSI standing, and free to
+  change between SBCL releases. Anything built on them is a bet on SBCL
+  specifically, and needs version pinning and a test suite that fails fast on
+  upgrade.
+- SBCL's own arena diagnostics are a perfect miniature of §5.3 — genuinely
+  useful information (`arena_mprotect 0x...: 517 objects in 1 chunk(s)`,
+  `CORRUPTION WARNING ... Continuing with fingers crossed`) delivered as raw
+  unformatted shouting. Whatever we build must wrap this, not surface it.
+- Still true and still useful alongside arenas: `dynamic-extent` for stack
+  allocation (underused), and `static-vectors` + CFFI for foreign buffers.
+
+**Revised verdict: this bin is substantially *less* speculative than Bin B1's
+typing work, not more.** The runtime capability already exists and works; what's
+missing is entirely ergonomics and safety-tooling — which is exactly this
+project's thesis.
 
 ## 8. Open questions / design forks
 
@@ -555,7 +650,9 @@ can be on the list. They should not be on the same roadmap.
 
 - ~~Nathan's detail memo on strong declarative typing~~ — received, folded into
   §B1
-- Nathan's detail memo on arenas / manual memory (§B2)
+- ~~Nathan's detail memo on arenas / manual memory~~ — received, folded into
+  §B2, and the SBCL arena question is now **empirically settled** (see
+  `docs/experiments/arenas/`)
 - Prior LLM conversations on CL to be pasted in — additional color on CLOS
   verbosity rationale and other topics
 - Empirical test of the debugger-defaults question (§5.1)
