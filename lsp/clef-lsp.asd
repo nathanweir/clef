@@ -4,7 +4,8 @@
            :license "MIT"
            :version "0.0.1"
            :depends-on
-           ("uiop"
+           ("clef-conditions"
+            "uiop"
             "babel"
             "com.inuoe.jzon"
             "serapeum"

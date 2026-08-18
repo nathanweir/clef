@@ -26,7 +26,16 @@
       *load-verbose* nil
       *load-print* nil)
 
-;; Compile into the project-local build/ directory rather than
+;; The tree containing every component this build reads. In a checkout that is
+;; the repo root, one level above lsp/; the nix fileset reproduces the same
+;; shape, so the lookup is identical in both.
+(defparameter *source-root*
+  (let ((parent (make-pathname :directory (butlast (pathname-directory *here*)))))
+    (if (probe-file (merge-pathnames "conditions/clef-conditions.asd" parent))
+        parent
+        *here*)))
+
+;; Compile into a build/ directory inside the source tree rather than
 ;; ~/.cache/common-lisp/, matching load.lisp and test/run-tests.lisp so all
 ;; three entry points agree on where fasls land.
 ;;
@@ -34,15 +43,19 @@
 ;; source is a read-only store path and nothing can be written next to it. There
 ;; we fall through to ASDF's default cache, which is what that build already
 ;; relies on.
-(let ((build-dir (merge-pathnames "build/" *here*)))
+(let ((build-dir (merge-pathnames "build/" *source-root*)))
   (when (ignore-errors (ensure-directories-exist build-dir) t)
     (asdf:initialize-output-translations
      `(:output-translations
-       ((,*here* :**/ :*.*.*) (,*here* "build" :**/ :*.*.*))
+       ((,*source-root* :**/ :*.*.*) (,*source-root* "build" :**/ :*.*.*))
        :inherit-configuration))))
 
 ;; Keep build chatter off stdout so this is safe to run from a pipe.
 (let ((*standard-output* *error-output*))
+  ;; Sibling components first.
+  (let ((sibling (probe-file (merge-pathnames "conditions/clef-conditions.asd"
+                                              *source-root*))))
+    (when sibling (asdf:load-asd sibling)))
   (asdf:load-asd (merge-pathnames "clef-lsp.asd" *here*))
   (asdf:load-system :clef-lsp))
 

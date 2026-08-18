@@ -24,13 +24,17 @@
   "Create absolute path from project-relative path"
   (merge-pathnames relative-path *project-root*))
 
-;; Compile into the project-local build/ directory rather than
+(defparameter *repo-root*
+  (make-pathname :directory (butlast (pathname-directory *project-root*))))
+
+;; Compile into the repo-local build/ directory rather than
 ;; ~/.cache/common-lisp/, matching load.lisp. Without this the test run and the
 ;; normal build disagree about where fasls live, and the tests fail outright
-;; wherever the home cache is not writable.
+;; wherever the home cache is not writable. Rooted at the repo so sibling
+;; components are covered too.
 (asdf:initialize-output-translations
  `(:output-translations
-   ((,*project-root* :**/ :*.*.*) (,*project-root* "build" :**/ :*.*.*))
+   ((,*repo-root* :**/ :*.*.*) (,*repo-root* "build" :**/ :*.*.*))
    :inherit-configuration))
 
 ;; Require necessary dependencies
@@ -42,6 +46,7 @@
 
 ;; Load the main system
 (handler-bind ((warning #'muffle-warning))
+  (asdf:load-asd (merge-pathnames "conditions/clef-conditions.asd" *repo-root*))
   (asdf:load-asd (project-path "clef-lsp.asd"))
   (asdf:load-system :clef-lsp))
 

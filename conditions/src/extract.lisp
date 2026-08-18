@@ -40,10 +40,23 @@ server already works in."
   (source-form nil)
   (references nil))
 
+(defun unwrap (c)
+  "SBCL wraps read and compile-time errors in an encapsulating condition.
+
+This matters more than it looks: SB-C:COMPILER-ERROR is **not** a subtype of
+ERROR -- it is an ENCAPSULATED-CONDITION, i.e. a plain CONDITION. Code that
+filters on (or warning error) therefore drops read errors entirely and reports
+nothing at all for a file with a bad package prefix. Unwrapping recovers the real
+condition underneath, which is an ERROR and classifies properly."
+  #+sbcl (if (typep c 'sb-int:encapsulated-condition)
+             (or (ignore-errors (sb-int:encapsulated-condition c)) c)
+             c)
+  #-sbcl c)
+
 (defun condition-severity (c)
   "Classify C by condition type alone. Type is authoritative here; nothing is
 being guessed from text."
-  (typecase c
+  (typecase (unwrap c)
     (style-warning :style-warning)
     (warning :warning)
     (error :error)
@@ -175,7 +188,7 @@ signalled. The compiler error context is dynamic state, not carried on the
 condition object, so it is gone once the handler returns -- which is precisely
 why this is awkward to expose as a plain condition-to-string function, and
 plausibly part of why nobody has."
-  (multiple-value-bind (kind symbol) (classify c)
+  (multiple-value-bind (kind symbol) (classify (unwrap c))
     (let ((loc (context-location (compiler-context))))
       (make-diagnostic
        :severity (condition-severity c)

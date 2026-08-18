@@ -50,7 +50,7 @@
        (close stream)
        (handler-bind ((condition
                         (lambda (c)
-                          (when (typep c '(or warning error))
+                          (when (typep c '(or warning error sb-c:compiler-error))
                             (push (clef-conditions:extract c) out)))))
          (let ((*error-output* (make-broadcast-stream))
                (*standard-output* (make-broadcast-stream)))
@@ -134,6 +134,21 @@
     (check "runtime error keeps its message"
            (clef-conditions:diagnostic-message d) "plain runtime error")
     (check "runtime error kind" (clef-conditions:diagnostic-kind d) :unknown))
+
+  ;; Read errors arrive wrapped in SB-C:COMPILER-ERROR, which is NOT a subtype
+  ;; of ERROR -- it is an encapsulated condition. Filtering on (or warning error)
+  ;; drops it silently and a file with a bad package prefix reports nothing at
+  ;; all. This pins both the unwrapping and the severity.
+  (format t "~&encapsulated read errors~%")
+  (let* ((diags (collect-diagnostics "(defun f () (no-such-pkg-xyz:g 1))"))
+         (d (first diags)))
+    (check-true "read error is reported at all" d)
+    (when d
+      (check "  severity is error, not note"
+             (clef-conditions:diagnostic-severity d) :error)
+      (check-true "  message names the package"
+                  (search "NO-SUCH-PKG-XYZ"
+                          (string-upcase (clef-conditions:diagnostic-message d))))))
 
   (run-render-tests)
 

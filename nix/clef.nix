@@ -39,16 +39,18 @@ let
   # Only what the build reads. Keeps the source -- which stays in the runtime
   # closure, since the image points into it for the grammar -- down to the
   # system itself rather than the whole working tree.
-  # Rooted at lsp/ rather than the repo root, so the store layout stays flat --
-  # clef-lsp.asd, build.lisp and src/ sit directly in $src, exactly as they did
-  # before the monorepo split. That keeps the patchelf and build paths below
-  # unchanged.
+  # Rooted at the repo, because the language server now depends on a sibling
+  # component and a fileset root has to contain every member. build.lisp finds
+  # that sibling by looking one level up from itself, which is the same shape
+  # here as in a checkout.
   sources = lib.fileset.toSource {
-    root = ../lsp;
+    root = ../.;
     fileset = lib.fileset.unions [
       ../lsp/clef-lsp.asd
       ../lsp/build.lisp
       ../lsp/src
+      ../conditions/clef-conditions.asd
+      ../conditions/src
     ];
   };
 
@@ -68,7 +70,7 @@ let
       runHook preInstall
       mkdir -p $out
       cp -r . $out
-      patchelf --set-rpath ${stdenv.cc.libc}/lib $out/src/parser/tree-sitter-commonlisp.so
+      patchelf --set-rpath ${stdenv.cc.libc}/lib $out/lsp/src/parser/tree-sitter-commonlisp.so
       runHook postInstall
     '';
 
@@ -92,7 +94,7 @@ stdenv.mkDerivation {
     export HOME=$(mktemp -d)
     export CLEF_OUTPUT=$PWD/clef
 
-    ${sbclWithDeps}/bin/sbcl --noinform --non-interactive --load $src/build.lisp
+    ${sbclWithDeps}/bin/sbcl --noinform --non-interactive --load $src/lsp/build.lisp
 
     runHook postBuild
   '';

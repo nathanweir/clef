@@ -22,16 +22,22 @@
       *load-verbose* nil
       *load-print* nil)
 
-;; Compile into a project-local build/ directory rather than
-;; ~/.cache/common-lisp/, matching build.lisp and test/run-tests.lisp so every
-;; entry point agrees on where fasls land.
+(defparameter *repo-root*
+  (make-pathname :directory (butlast (pathname-directory *clef-lsp-root*))))
+
+;; Compile into a repo-local build/ directory rather than ~/.cache/common-lisp/.
+;; Rooted at the repo rather than at lsp/ so sibling components land here too --
+;; anchoring it at the component was enough while there was only one.
 (asdf:initialize-output-translations
  `(:output-translations
-   ((,*clef-lsp-root* :**/ :*.*.*) (,*clef-lsp-root* "build" :**/ :*.*.*))
+   ((,*repo-root* :**/ :*.*.*) (,*repo-root* "build" :**/ :*.*.*))
    ;; Keep default behavior for everything else (system libraries, quicklisp, etc.)
    :inherit-configuration))
 
-;; Register this directory with ASDF
+;; Register the sibling components this one depends on, then itself. Done
+;; explicitly rather than by relying on ASDF's source registry, so the load works
+;; the same from a checkout, a nix build, and an editor launched anywhere.
+(asdf:load-asd (merge-pathnames "conditions/clef-conditions.asd" *repo-root*))
 (asdf:load-asd (merge-pathnames "clef-lsp.asd" *clef-lsp-root*))
 
 ;; Load the system with style warnings suppressed (third-party libs)

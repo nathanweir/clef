@@ -18,15 +18,22 @@
        (dict "start" (make-position start-line start-char)
              "end" (make-position end-line end-char)))
 
+;;; ---------------------------------------------------------------------------
+;;; Syntax errors come from tree-sitter, not from SBCL.
+;;;
+;;; Deliberate: reader errors carry no usable position. A truncated form signals
+;;; END-OF-FILE with a NIL file-position, so there is nothing to report against.
+;;; Tree-sitter, being error-tolerant, locates them precisely. See
+;;; docs/surveys/w0-conditions.md.
+;;; ---------------------------------------------------------------------------
+
 (defun get-syntax-errors (input-text)
        "Parse Lisp source code and emit a Diagnostic for each syntax error."
        (let* ((tree (clef-parser/parser:parse-string input-text))
               (errors (collect-error-nodes tree))
               (diagnostics '()))
              (dolist (err errors)
-                     (slog :debug "Err is ~A" err)
                      (destructuring-bind ((start-col start-line) (end-col end-line)) (cdr err)
-                                         (slog :debug "[textDocument/diagnostic] Found syntax error from ~A:~A to ~A:~A" start-line start-col end-line end-col)
                                          (push (dict "range" (make-range start-col start-line end-line end-col)
                                                      "severity" +diagnostic-severity-error+
                                                      "message" "Syntax error")
@@ -51,7 +58,6 @@
                                        (href (clef-jsonrpc/types:request-params message)
                                              "text-document"
                                              "uri"))
-             ;; (slog :debug "[textDocument/diagnostic] Skipping diagnostics for .asd file")
              (return-from handle-text-document-diagnostic
                           (dict "kind" "full" "items" #())))
 
@@ -60,130 +66,134 @@
                                   "uri"))
               (document-text (gethash document-uri ctx:documents))
               (syntax-errors (get-syntax-errors document-text))
-              (compile-errors (debounced-sb-collect-diagnostics document-text document-uri))
+              (compile-errors (collect-compile-diagnostics document-text))
               (items (append syntax-errors compile-errors)))
-             ;; (slog :debug "[textDocument/diagnostic] Reporting ~A diagnostics for ~A" (length items) document-uri)
-             ;; (slog :debug "[textDocument/diagnostic] Items: ~A" items)
              (dict "kind" "full"
                    "items" (if items items #()))))
 
-;; The below is extremely sloppy and dubious LLM-driven code for compiling documents and extracting their errors.
-;; Could use a full rewrite
-(defun debounced-sb-collect-diagnostics (input-text file-uri)
-       "Uses SBCL to get diagnostics for a given file. TODO: Debounce this to 500ms"
-       (let* ((tree (clef-parser/parser:parse-string input-text))
-              (symbol-map (build-symbol-index tree input-text)))
-             ;; (maphash (lambda (k v)
-             ;;              (format t "symbol-map: ~A => ~A~%" k v))
-             ;;          symbol-map)
+;;; ---------------------------------------------------------------------------
+;;; Semantic diagnostics, via clef-conditions.
+;;;
+;;; This used to regex-scrape SBCL's printed English to recover the offending
+;;; symbol, then search the raw source text for every substring match. That was
+;;; wrong in three ways: "FOO" matched inside "FOO-BAR", occurrences inside
+;;; strings and comments were flagged, and the search covered the whole file even
+;;; though the condition belongs to one top-level form.
+;;;
+;;; Now: clef-conditions:extract gives the symbol as data and the enclosing
+;;; top-level form as an index, and we find the symbol's actual token nodes
+;;; within that form's subtree.
+;;;
+;;; Reporting EVERY occurrence is intentional and tested -- a symbol that is
+;;; undefined is undefined at each of its uses.
+;;; ---------------------------------------------------------------------------
 
-             ;; print all values of the symbol-map hash table
-             ;; (slog :debug "[textDocument/diagnostic] Built symbol map with ~A entries" (clef-util:shallow-hash-vals symbol-map))
-             (compile-and-collect-diagnostics symbol-map input-text tree file-uri)))
+(defun node-kind (node)
+       "Tree-sitter node kinds arrive either bare (:LIST-LIT) or paired with a
+field name ((:VALUE :SYM-LIT)). Normalise to the kind."
+       (let ((k (first node)))
+            (if (consp k) (second k) k)))
 
-(defun compile-and-collect-diagnostics (symbol-map source-string tree file-uri)
-       (let* ((source-package (or (clef-parser/utils:find-package-declaration tree source-string)
-                                  *package*))
-              (*package* source-package)
-              (output (make-string-output-stream))
-              (diagnostics '())
-              ;; Track symbols we've already created diagnostics for to avoid duplicates
-              ;; SBCL reports errors per-call-site, but we want one diagnostic per occurrence
-              (processed-symbols (make-hash-table :test 'equal))
-              (compiler-output nil))
-             (block compile-block
-                    (unwind-protect
-                      (handler-bind
-                        ((warning
-                           (lambda (c)
-                                   (when (not (filter-condition c))
-                                         (let ((sym (extract-symbol-from-condition c)))
-                                              ;; Only process each symbol once (if we can extract a symbol name)
-                                              ;; If no symbol extracted, always create the diagnostic
-                                              (when (or (null sym)
-                                                        (not (gethash sym processed-symbols)))
-                                                    (when sym (setf (gethash sym processed-symbols) t))
-                                                    (setf diagnostics
-                                                          (nconc diagnostics
-                                                                 (make-diagnostics-from-condition c +diagnostic-severity-warning+ symbol-map source-string))))))))
-                         (condition
-                           (lambda (c)
-                                   (when (not (filter-condition c))
-                                         (let ((sym (extract-symbol-from-condition c)))
-                                              ;; Only process each symbol once (if we can extract a symbol name)
-                                              ;; If no symbol extracted, always create the diagnostic
-                                              (when (or (null sym)
-                                                        (not (gethash sym processed-symbols)))
-                                                    (when sym (setf (gethash sym processed-symbols) t))
-                                                    (setf diagnostics
-                                                          (nconc diagnostics
-                                                                 (make-diagnostics-from-condition c +diagnostic-severity-error+ symbol-map source-string)))))))))
-                        (uiop:call-with-temporary-file
-                          (lambda (stream temp-path)
-                                  (write-string source-string stream)
-                                  (force-output stream)
-                                  (close stream)
+(defun toplevel-forms (tree)
+       "Top-level forms in TREE, excluding comments.
 
-                                  (let ((*standard-output* output)
-                                        (*error-output* output)
-                                        (*trace-output* output))
-                                       (let ((fasl-path (compile-file temp-path :verbose t :print 2)))
-                                            (when (and fasl-path (probe-file fasl-path))
-                                                  (delete-file fasl-path)))))
-                          :want-stream-p t
-                          :want-pathname-p t
-                          :type "lisp"
-                          :keep nil))))
-             ;; This ALWAYS executes, even if return-from is called
-             (setf compiler-output (get-output-stream-string output))
-             ;; Verbose output of all compile-file text; re-enable for debug
-             (slog :debug "compile-file output for ~A: ~%~A" file-uri compiler-output)
-             diagnostics))
+Comments are children of :SOURCE but are not forms, and SBCL's source path
+indexes forms as read -- so counting comments would misalign every index."
+       (remove-if (lambda (n) (eq (node-kind n) :comment))
+                  (ts:node-children tree)))
 
+(defun toplevel-index (source-path)
+       "SBCL's ORIGINAL-SOURCE-PATH is innermost-first, so its LAST element is the
+index of the top-level form. The earlier elements walk down into the form; we
+deliberately do not follow them -- see the note in
+docs/surveys/w0-conditions.md."
+       (when (and source-path (listp source-path))
+             (let ((last (car (last source-path))))
+                  (when (integerp last) last))))
 
+(defun symbol-nodes-in (node symbol-name source)
+       "Every :SYM-LIT node under NODE whose text names SYMBOL-NAME.
 
+Matching whole tokens rather than substrings, which is what makes this immune to
+the FOO/FOO-BAR confusion, and it never looks inside strings or comments because
+those are different node kinds."
+       (let ((found '())
+             (target (string-upcase symbol-name)))
+            (labels ((walk (n)
+                           (when n
+                                 (when (eq (node-kind n) :sym-lit)
+                                       (let ((text (ignore-errors
+                                                    (clef-parser/parser:node-text n source))))
+                                            (when (and text
+                                                       (string= (string-upcase
+                                                                 (strip-package-prefix text))
+                                                                target))
+                                                  (push n found))))
+                                 (dolist (child (ts:node-children n))
+                                         (walk child)))))
+                    (walk node))
+            (nreverse found)))
 
-(defun extract-range (node)
-       "Extract LSP range from a cl-tree-sitter node."
-       (when node
-             (make-range (clef-parser/parser:node-start-point-row node)
-                         (clef-parser/parser:node-start-point-column node)
-                         (clef-parser/parser:node-end-point-row node)
-                         (clef-parser/parser:node-end-point-column node))))
+(defun strip-package-prefix (text)
+       "FOO:BAR and FOO::BAR both name BAR."
+       (let ((colon (position #\: text :from-end t)))
+            (if colon (subseq text (1+ colon)) text)))
 
+(defun severity-for (extracted)
+       (ecase (clef-conditions:diagnostic-severity extracted)
+              (:error +diagnostic-severity-error+)
+              ;; Style warnings are warnings to an editor. Unused variables are
+              ;; the common case and a test pins them at severity 2.
+              ((:warning :style-warning) +diagnostic-severity-warning+)
+              (:note +diagnostic-severity-information+)))
 
-(defun make-diagnostics-from-condition (condition severity symbol-map source-string)
-       "Create diagnostics from a condition - one for EACH occurrence of the problematic symbol.
-Returns a list of diagnostic dicts."
-       (let* ((symbol-name (extract-symbol-from-condition condition))
-              (nodes (when symbol-name
-                           (find-nodes-for-symbol symbol-name symbol-map)))
-              (message (princ-to-string condition)))
+(defun node-to-range (node)
+       (make-range (clef-parser/parser:node-start-point-row node)
+                   (clef-parser/parser:node-start-point-column node)
+                   (clef-parser/parser:node-end-point-row node)
+                   (clef-parser/parser:node-end-point-column node)))
+
+(defun diagnostics-for (extracted tree source)
+       "Turn one extracted diagnostic into LSP diagnostics -- one per occurrence."
+       (let* ((severity (severity-for extracted))
+              (message (clef-conditions:diagnostic-message extracted))
+              (sym (clef-conditions:diagnostic-symbol extracted))
+              (index (toplevel-index (clef-conditions:diagnostic-source-path extracted)))
+              (forms (toplevel-forms tree))
+              (form (when (and index (< index (length forms))) (nth index forms))))
              (cond
-               ;; Best case: we found nodes in the symbol map - create diagnostic for each
-               (nodes
-                 (mapcar (lambda (node)
-                                (dict "range" (extract-range node)
-                                      "severity" severity
-                                      "message" message))
-                         nodes))
-               ;; Fallback: try to find all occurrences in source text
-               (symbol-name
-                 (let ((ranges (find-all-symbol-occurrences source-string symbol-name)))
-                      (if ranges
-                          (mapcar (lambda (range)
-                                         (dict "range" range
+               ;; Best case: we know the form and the symbol. Report each use.
+               ((and form sym)
+                (let ((nodes (symbol-nodes-in form (symbol-name sym) source)))
+                     (if nodes
+                         (mapcar (lambda (n)
+                                         (dict "range" (node-to-range n)
                                                "severity" severity
                                                "message" message))
-                                  ranges)
-                          ;; Ultimate fallback: single diagnostic at start of file
-                          (list (dict "range" (make-range 0 0 0 0)
-                                      "severity" severity
-                                      "message" message)))))
-               ;; No symbol extracted - single diagnostic at start of file
-               (t (list (dict "range" (make-range 0 0 0 0)
-                              "severity" severity
-                              "message" message))))))
+                                 nodes)
+                         ;; The symbol is not spelled in this form -- a macro
+                         ;; expansion, most likely. Fall back to the form.
+                         (list (dict "range" (node-to-range form)
+                                     "severity" severity
+                                     "message" message)))))
+               ;; We know the form but not which symbol. The form is honest.
+               (form
+                 (list (dict "range" (node-to-range form)
+                             "severity" severity
+                             "message" message)))
+               ;; No location at all: runtime conditions, reader errors.
+               (t
+                 (list (dict "range" (make-range 0 0 0 0)
+                             "severity" severity
+                             "message" message))))))
+
+(defun reportable-condition-p (c)
+       "Is C something the editor should hear about?
+
+Note SB-C:COMPILER-ERROR explicitly. It is what a read error arrives as -- an
+unknown package prefix, say -- and it is *not* a subtype of ERROR, so filtering
+on (or warning error) drops it and the file reports nothing at all."
+       (typep c '(or warning error sb-c:compiler-error)))
 
 (defun filter-condition (condition)
        "Filter out specific diagnostics conditions. Essentialy just a hardcoded whitelist. Returns true if the message should be filtered"
@@ -192,119 +202,52 @@ Returns a list of diagnostic dicts."
             (and (search "redefining" cond-text)
                  (search "DEFMACRO" cond-text))))
 
-(defun build-symbol-index (tree source)
-       "Build a hash table mapping symbol names to lists of ALL their tree-sitter node occurrences.
-Each symbol maps to a list of nodes, allowing us to highlight every usage of an undefined symbol."
-       (let ((symbol-map (make-hash-table :test 'equal)))
-            (labels ((visit-node (node)
-                                 (when node
-                                       (let ((kind (first node)))
-                                            (when (listp kind)
-                                                  (when (and (= (list-length kind) 2)
-                                                             (eq (second kind) :SYM-LIT))
-                                                        (let* ((text (and node (clef-parser/parser:node-text node source)))
-                                                               (upcased (when text (string-upcase text))))
-                                                             (when upcased
-                                                                   ;; Append this node to the list of occurrences
-                                                                   (push node (gethash upcased symbol-map))))))
-                                            (dolist (child (ts:node-children node))
-                                                    (when child (visit-node child)))))))
-                    (when tree (visit-node tree))
-                    ;; Reverse all lists so occurrences are in source order (first to last)
-                    (maphash (lambda (k v)
-                                    (setf (gethash k symbol-map) (nreverse v)))
-                             symbol-map)
-                    symbol-map)))
+(defun collect-compile-diagnostics (source-string)
+       "Compile SOURCE-STRING and report what the compiler complains about."
+       (let* ((tree (clef-parser/parser:parse-string source-string))
+              (source-package (or (clef-parser/utils:find-package-declaration tree source-string)
+                                  *package*))
+              (*package* source-package)
+              (output (make-string-output-stream))
+              (extracted '()))
+             ;; HANDLER-CASE outside, HANDLER-BIND inside, deliberately.
+             ;;
+             ;; A read error aborts the whole compilation unit -- a bad package
+             ;; prefix, say -- and SBCL signals it as a fatal COMPILER-ERROR.
+             ;; Letting that propagate would discard every diagnostic already
+             ;; collected, so the file with the mistake in it reports nothing at
+             ;; all. Nesting this way means the collecting handler still runs
+             ;; first (it is the more recently established), and only then does
+             ;; the outer form swallow the error and let us return what we have.
+             (handler-case
+               (unwind-protect
+                 (handler-bind
+                   ((condition
+                      (lambda (c)
+                              ;; Extraction must happen inside the handler: the
+                              ;; compiler's error context is dynamic state and is
+                              ;; gone the moment this returns.
+                              (when (and (reportable-condition-p c)
+                                         (not (filter-condition c)))
+                                    (push (clef-conditions:extract c) extracted)))))
+                   (uiop:call-with-temporary-file
+                     (lambda (stream temp-path)
+                             (write-string source-string stream)
+                             (force-output stream)
+                             (close stream)
+                             (let ((*standard-output* output)
+                                   (*error-output* output)
+                                   (*trace-output* output))
+                                  (let ((fasl-path (compile-file temp-path :verbose nil :print nil)))
+                                       (when (and fasl-path (probe-file fasl-path))
+                                             (delete-file fasl-path)))))
+                     :want-stream-p t
+                     :want-pathname-p t
+                     :type "lisp"
+                     :keep nil))
+                 (slog :debug "compile-file output: ~%~A" (get-output-stream-string output)))
+               (error (c)
+                      (slog :debug "compilation aborted: ~A" c)))
 
-(defun extract-symbol-from-condition (condition)
-       "Extract the problematic symbol name from SBCL condition."
-       ;; TODO: Many of these errors do contain line/char pos info of the form:
-       ;; Line: 60, Column: 78, File-Position: 4046 (etc)
-       ;; We should use that info instead of doing a symbol lookup after this
-       (let ((message (princ-to-string condition)))
-            ;; (format t "Message from condition is: ~A~%" message)
-            (cond
-              ;; Undefined function: FOO
-              ((search "undefined function" message)
-               (let* ((start (search ":" message))
-                      (symbol-str (when start
-                                        (string-trim '(#\Space #\Newline #\Tab)
-                                                     (subseq message (1+ start))))))
-                     (when symbol-str
-                           ;; Handle package-qualified names
-                           (let ((colon-pos (position #\: symbol-str :from-end t)))
-                                (if colon-pos
-                                    (subseq symbol-str (1+ colon-pos))
-                                    symbol-str)))))
-              ;; Undefined variable: BAR
-              ((search "undefined variable" message)
-               (let* ((start (search ":" message))
-                      (symbol-str (when start
-                                        (string-trim '(#\Space #\Newline #\Tab)
-                                                     (subseq message (1+ start))))))
-                     symbol-str))
-              ;; Wrong number of params; "The function <symbol> is called with"
-              ;; TODO: Can this cond be made wihtout repeating the func?
-              ((cl-ppcre:scan-to-strings "The function ([\\w\\-]+) is called with" message)
-               (let* ((matches (cl-ppcre:register-groups-bind (func-name)
-                                                              ("The function ([\\w\\-]+) is called with" message)
-                                                              func-name)))
-                     matches))
-              ;; Package <x> does not exist
-              ((cl-ppcre:scan-to-strings "Package ([\\w\\-]+) does not exist" message)
-               (let* ((matches (cl-ppcre:register-groups-bind (pkg-name)
-                                                              ("Package ([\\w\\-]+) does not exist" message)
-                                                              pkg-name)))
-                     matches))
-              ;; Symbol "SOURCES-BY-NAME" not found in the SB-INTROSPECT package
-              ((cl-ppcre:scan-to-strings "Symbol \"([\\w\\-]+)\" not found in the [\\w\\-]+ package" message)
-               (let* ((matches (cl-ppcre:register-groups-bind (sym-name)
-                                                              ("Symbol \"([\\w\\-]+)\" not found in the [\\w\\-]+ package" message)
-                                                              sym-name)))
-                     matches))
-              ;; The variable X is defined but never used
-              ((cl-ppcre:scan-to-strings "The variable ([\\w\\-\\*]+) is defined but never used" message)
-               (cl-ppcre:register-groups-bind (var-name)
-                                              ("The variable ([\\w\\-\\*]+) is defined but never used" message)
-                                              var-name))
-              ;; Type error patterns
-              ((search "type-error" (string-downcase message))
-               ;; Try to extract symbol from type error message
-               ;; This is trickier and may need custom parsing
-               nil)
-              (t nil))))
-
-(defun find-nodes-for-symbol (symbol-name symbol-map)
-       "Find ALL tree-sitter nodes for a given symbol name.
-Returns a list of nodes representing every occurrence of the symbol."
-       (gethash (string-upcase symbol-name) symbol-map))
-
-
-
-(defun find-all-symbol-occurrences (source-string symbol-name)
-       "Find ALL occurrences of symbol-name in source text and return list of ranges.
-Used as fallback when symbol-map lookup fails."
-       (when symbol-name
-             (let ((upcased-source (string-upcase source-string))
-                   (upcased-symbol (string-upcase symbol-name))
-                   (symbol-len (length symbol-name))
-                   (ranges '())
-                   (start 0))
-                  (loop
-                    (let ((pos (search upcased-symbol upcased-source :start2 start)))
-                         (unless pos (return (nreverse ranges)))
-                         (multiple-value-bind (line column)
-                                              (position-to-line-column source-string pos)
-                                              (push (make-range line column line (+ column symbol-len))
-                                                    ranges))
-                         (setf start (1+ pos)))))))
-
-(defun position-to-line-column (string pos)
-       "Convert character position to line/column."
-       (let ((line 0)
-             (column 0))
-            (dotimes (i pos)
-                     (if (char= (char string i) #\Newline)
-                         (progn (incf line) (setf column 0))
-                         (incf column)))
-            (values line column)))
+             (loop for e in (nreverse extracted)
+                   append (diagnostics-for e tree source-string))))
