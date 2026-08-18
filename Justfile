@@ -18,9 +18,11 @@ run:
     	--eval '(clef-root:start-server :output *lsp-stdout* :log-mode :file :log-file-path #P"/home/nathan/dev/clef/tmp/clef.log")' \
     	--quit
 
-# Run all LSP tests
+# Run all LSP tests. pipefail matters here: without it the exit status is
+# grep's, so a suite that fails -- or dies before running a single test --
+# still reports success.
 test:
-    @sbcl --noinform --non-interactive --load "test/run-tests.lisp" 2>&1 | grep --color=never -v "^make:"
+    @bash -o pipefail -c 'sbcl --noinform --non-interactive --load "test/run-tests.lisp" 2>&1 | grep --color=never -v "^make:"'
 
 # Run the old integration test (deprecated)
 test-old:

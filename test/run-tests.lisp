@@ -24,6 +24,15 @@
   "Create absolute path from project-relative path"
   (merge-pathnames relative-path *project-root*))
 
+;; Compile into the project-local build/ directory rather than
+;; ~/.cache/common-lisp/, matching load.lisp. Without this the test run and the
+;; normal build disagree about where fasls live, and the tests fail outright
+;; wherever the home cache is not writable.
+(asdf:initialize-output-translations
+ `(:output-translations
+   ((,*project-root* :**/ :*.*.*) (,*project-root* "build" :**/ :*.*.*))
+   :inherit-configuration))
+
 ;; Require necessary dependencies
 (require 'sb-posix)
 (require 'sb-introspect)

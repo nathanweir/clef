@@ -78,19 +78,27 @@ package convention we don't follow.
 
 ## 3. Coverage gaps
 
-Handlers registered in `src/lsp/server.lisp` with **no apparent dedicated
-tests**:
+> **Correction.** An earlier revision of this section listed `workspace/symbol`
+> as untested. That was wrong — it has three tests. The claim came from a
+> truncated listing that cut off at 60 of 74 entries. The list below is from the
+> complete set.
 
-- `workspace/symbol`
+Handlers registered in `src/lsp/server.lisp` with **no dedicated tests**:
+
 - `workspace/didChangeConfiguration`
-- `textDocument/didSave` (didOpen and didChange are both covered)
-- `exit`
+- `exit` (`shutdown` is covered by `test-shutdown-resets-state`)
+- `textDocument/didSave` — only incidentally exercised, by
+  `test-signature-help-did-save-structure`, which is a signature-help test that
+  happens to route through didSave
+- `textDocument/rename` — unregistered and unfinished, see §4
 
-Tested but possibly thinly — `hover` has only `returns-contents` and
-`response-structure`, i.e. shape assertions rather than correctness assertions.
-Given hover carries two unresolved TODOs (*"Get current package"*, *"Figure out
-why defun and some other symbols aren't being found"*), this is a real gap
-rather than a bookkeeping one.
+Tested but thinly — `hover` has only `returns-contents` and `response-structure`,
+i.e. shape assertions rather than correctness assertions. Given hover carries two
+unresolved TODOs (*"Get current package"*, *"Figure out why defun and some other
+symbols aren't being found"*), this is a real gap rather than a bookkeeping one.
+
+Coverage is heavily weighted toward `signature-help` (12 tests) and `diagnostic`
+(16) relative to everything else.
 
 ## 4. Dead and unfinished code
 
@@ -104,6 +112,37 @@ rather than a bookkeeping one.
   written.** Either finish it against the current context API or drop it; it
   should not sit in this state indefinitely.
 
+### `line-char-to-offset` is defined twice — a latent landmine
+
+Surfaced by a build warning, not by reading:
+
+```
+WARNING: redefining CLEF-LSP/DOCUMENT::LINE-CHAR-TO-OFFSET in DEFUN
+```
+
+Two different functions, same name, same package, **incompatible signatures**:
+
+| file | signature | expects |
+|---|---|---|
+| `did-change.lisp:21` | `(string line char)` | a string |
+| `signature-help.lisp:134` | `(lines line character)` | a list of lines |
+
+ASDF loads `signature-help` after `did-change`, so the list-of-lines version
+wins and did-change's version is silently discarded.
+
+**Currently latent, not live.** The only caller of the string version is
+`update-document-text`, which is referenced solely from a commented-out block at
+`did-change.lisp:75` — incremental sync is disabled and didChange does
+full-document replacement instead.
+
+But it is a trap laid for the next person: re-enable incremental sync and
+`update-document-text` immediately calls the wrong function with a string where
+a list is expected. Rename one of them regardless of whether incremental sync is
+ever restored.
+
+*Also note what this says about W4:* an `ftype` declamation on either function
+would have made this a compile-time error rather than a warning nobody read.
+
 ## 5. Notable TODOs worth resolving during W1
 
 - `definition.lisp:89` — *"Attempting to return this LocationLink did not work.
@@ -116,24 +155,57 @@ rather than a bookkeeping one.
   long-term. A dependency-risk question, not a code question.
 - `exit.lisp:3` — `exit` and `shutdown` are near-duplicates.
 
-## 6. Blocked: could not build
+## 6. Build and test verification
 
-`sbcl --load load.lisp` fails with:
+**Status: green.** `just build` succeeds and `just test` reports **74 passed, 0
+failed, 0 errors**.
 
-```
-Component "babel" not found, required by #<SYSTEM "clef">
-```
+Getting there required fixing four real defects, all found by trying to run the
+thing rather than by reading it.
 
-The Common Lisp dependencies come from the nix flake dev shell, which was not
-loaded because direnv's cache was stale and the nix daemon is unreachable from
-inside the agent sandbox. Not a code defect.
+### 6.1 Three entry points disagreed on where fasls go
 
-**Recorded here because it is also evidence for W0.** Extracting that single
-line of cause required filtering roughly sixty backtrace frames and several
-dozen `source-registry` warnings about SBCL's own contrib modules. The actual
-error is one line; the output was several hundred. This is
-[`motivation.md`](../motivation.md) §5.3 happening to us on the project's first
-real build, and it is a good first test case for the condition formatter.
+`load.lisp` redirects ASDF output into a project-local `build/` directory, with
+a comment explaining the intent — *"makes cleanup safer and project
+self-contained."* Neither `test/run-tests.lisp` nor `build.lisp` did the same, so
+both compiled into the global `~/.cache/common-lisp/`.
+
+Fixed in both. `build.lisp`'s version is deliberately **conditional**: that
+script also runs under the nix builder, where the source is a read-only store
+path and nothing can be written beside it, so it falls through to ASDF's default
+cache there.
+
+### 6.2 `just test` reported success on total failure
+
+The recipe piped SBCL through `grep`, so the recipe's exit status was grep's.
+A suite that died before running a single test still exited 0. Fixed with
+`bash -o pipefail`.
+
+*This one is worth dwelling on:* it means any prior "tests pass" signal from
+`just test` was unreliable. Not a hypothetical — it is exactly how the fasl
+misconfiguration above stayed invisible.
+
+### 6.3 Test fixtures collided with each other
+
+`write-temp-file` named files `/tmp/clef-test-<universal-time>.lisp`. Universal
+time has one-second resolution, so any tests running within the same second
+received **the same path**. Observed directly in a failing run: four tests got
+`...255`, twelve got `...256`.
+
+The cross-file tests are the dangerous case — they write `code-a` and `code-b`
+expecting two distinct files, and would silently alias them into one. Fixed with
+a serial counter; also moved off global `/tmp` into project-local `tmp/test/`.
+
+### 6.4 Evidence for W0
+
+Diagnosing 6.1 took three successive `grep` passes to extract a single line of
+cause (`Component "babel" not found`) from roughly sixty backtrace frames and
+several dozen `source-registry` warnings about SBCL's own contrib modules. The
+actual error was one line; the output was several hundred.
+
+That is [`motivation.md`](../motivation.md) §5.3 happening to us on the
+project's first real build, and it is a good first test case for the condition
+formatter.
 
 ## 7. Provisional W1 conclusions
 
@@ -151,7 +223,19 @@ real build, and it is a good first test case for the condition formatter.
 
 ## 8. Still to do for this survey
 
-- Run the test suite and record actual pass/fail
+- ~~Run the test suite and record actual pass/fail~~ — done, §6
 - Assess whether the tree-sitter-first design strains anywhere concrete
   (roadmap W1 open question)
 - Review `context.lisp` accessor design now that all state is consolidated
+- Decide the fate of `update-document-text` / incremental sync (§4)
+
+## 9. Meta-observation
+
+Every defect in §6 was found by **running** the project, not reading it. The
+static pass produced a good map of where the code smells, and missed four
+concrete breakages entirely — including one (§6.2) that had been actively
+concealing the others.
+
+Worth carrying into the remaining workstreams: the survey step in
+[`roadmap.md`](../roadmap.md) §3 should mean *survey by execution* wherever
+execution is possible, not survey by reading.

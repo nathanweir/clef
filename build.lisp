@@ -16,6 +16,21 @@
 (defparameter *here*
   (make-pathname :directory (pathname-directory *load-truename*)))
 
+;; Compile into the project-local build/ directory rather than
+;; ~/.cache/common-lisp/, matching load.lisp and test/run-tests.lisp so all
+;; three entry points agree on where fasls land.
+;;
+;; Conditional because this script also runs under the nix builder, where the
+;; source is a read-only store path and nothing can be written next to it. There
+;; we fall through to ASDF's default cache, which is what that build already
+;; relies on.
+(let ((build-dir (merge-pathnames "build/" *here*)))
+  (when (ignore-errors (ensure-directories-exist build-dir) t)
+    (asdf:initialize-output-translations
+     `(:output-translations
+       ((,*here* :**/ :*.*.*) (,*here* "build" :**/ :*.*.*))
+       :inherit-configuration))))
+
 ;; Keep build chatter off stdout so this is safe to run from a pipe.
 (let ((*standard-output* *error-output*))
   (asdf:load-asd (merge-pathnames "clef.asd" *here*))
