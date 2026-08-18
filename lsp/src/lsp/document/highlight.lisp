@@ -20,6 +20,7 @@ Returns all occurrences of the symbol under cursor in the current document."
     ;; Get the symbol at position (either a reference or definition)
     (multiple-value-bind (ref-name ref-scope)
         (get-ref-for-doc-pos document-uri line character)
+      (declare (ignore ref-scope))
 
       ;; If no reference at position, check if we're on a definition
       (let ((symbol-name ref-name))

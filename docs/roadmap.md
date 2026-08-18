@@ -171,10 +171,26 @@ Two halves:
   with source context, hierarchy, and the actual message first. Per motivation
   §5.3.
 
-*First questions:* Does a curated profile actually hold across every path that
-can drop you into the debugger — ASDF load, contrib signalling, test framework,
-full-warning compile? (Motivation §5.1 flags this as needing an empirical test
-rather than more assertion.) What already exists for condition prettying?
+**Gating experiment: RUN, 2026-08-18. Result: the flag is not sufficient.**
+`--disable-debugger` is implemented as a value in `*invoke-debugger-hook*`, so
+any library that dynamically rebinds that variable defeats it — and when
+defeated, the process reaches the debugger, hits EOF, and **exits 0**. An outer
+`handler-bind` on `serious-condition` survives both hostile rebinding and a
+hostile hook. Full results in [`motivation.md`](motivation.md) §5.1; probe in
+`docs/experiments/defaults/01-debugger-escape-paths.lisp`.
+
+**Design constraint that follows:** the runner establishes an outer
+`handler-bind`. Flags and hooks are belt-and-braces on top, never the mechanism.
+
+*Progress already made incidentally* (see `lsp/build.lisp`, `lsp/load.lisp`): a
+clean build went from 278 lines of output to 6 by silencing compiler progress
+chatter and clearing all six style warnings. What remains is one genuine warning
+(the `line-char-to-offset` redefinition), now impossible to miss. That is the
+whole argument for a zero-warning baseline in miniature.
+
+*Remaining first questions:* What already exists for condition prettying? How
+much of the profile can be a library the user loads, versus settings a runner
+must impose from outside?
 
 *Dependencies:* none. **Start here.**
 
@@ -264,11 +280,23 @@ Per motivation §B1's tiering. Tiers 0 and 1 are near-free and should land early
 tier 3 is a standing maintenance commitment and needs a deliberate decision, not
 momentum from the cheap tiers.
 
-**Gating experiment, currently the highest-upside unverified claim in the whole
-project:** does an externally-proclaimed `declaim ftype` against a library
-function you don't own actually produce call-site checking in SBCL, and what
-happens when it contradicts the real definition? If it works, "CL's
-DefinitelyTyped" is real and unilateral. If not, tier 3 collapses.
+**Gating experiment: PASSED, 2026-08-18.** Externally-proclaimed `declaim ftype`
+against a library function you don't own *does* produce call-site checking in
+SBCL — at compile time and, at `safety 3`, at runtime. It also propagates into
+inference for callers of the return value. Full results in
+[`motivation.md`](motivation.md) §B1; probe in
+`docs/experiments/typing/01-external-ftype.lisp`.
+
+**Tier 3 is therefore real and unilateral.** Two consequences for how it gets
+built:
+
+- A *wrong* declaration breaks correct code, since SBCL treats the proclamation
+  as authoritative over its own derived knowledge. The declaration set is
+  load-bearing and cannot be approximate.
+- SBCL emits a style-warning when a proclamation contradicts its derived type,
+  so **the set gets a CI gate for free**: load libraries, apply declarations,
+  fail on any mismatch. Build that gate before writing the second declaration,
+  not after the hundredth.
 
 *Also required:* a real Coalton evaluation. Current read (motivation §B1) is
 that HM's all-or-nothing module boundaries disqualify it as a base layer but
@@ -358,7 +386,20 @@ is built twice.
 
 ## 7. Immediate next steps
 
-1. Decide/confirm the repo restructure in §2, and cut a branch for it
-2. Run the two gating experiments — debugger-defaults (W0) and external
-   `ftype` (W4) — since both can invalidate substantial planned work cheaply
-3. Survey step for W1 (CLEF's actual current state and test coverage)
+1. ~~Repo restructure~~ — done, §2.
+2. ~~The two gating experiments~~ — done. Both settled, and they moved in
+   opposite directions: external `ftype` **works** (W4 tier 3 is real and gets a
+   free CI gate), and `--disable-debugger` **does not hold** (W0 must be built on
+   handlers, not flags).
+3. ~~Survey step for W1~~ — done, `surveys/clef-state.md`, though its coverage-gap
+   list needed correcting once the tests actually ran.
+
+**Now:** W0, with the design constraint already established — an outer
+`handler-bind` as the mechanism. Two concrete sub-tasks are already scoped:
+
+- Survey what exists for condition prettying before writing any (§3 rule).
+- Decide the fate of the `line-char-to-offset` duplicate, now the only warning
+  left in a clean build (`surveys/clef-state.md` §4).
+
+Also unblocked and independent, whenever it is wanted instead: `symbols/init.lisp`
+is the W1 hot spot, carrying a self-reported suspected bug in `let` handling.

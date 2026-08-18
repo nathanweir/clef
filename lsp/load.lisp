@@ -13,6 +13,15 @@
 (defparameter *clef-lsp-root*
   (make-pathname :directory (pathname-directory *load-truename*)))
 
+;; Quiet the compiler's running commentary. Warnings and errors still come
+;; through -- these only govern progress chatter. It matters more here than
+;; elsewhere: this file is loaded by the from-source server path, where anything
+;; reaching fd 1 corrupts the LSP protocol stream.
+(setf *compile-verbose* nil
+      *compile-print* nil
+      *load-verbose* nil
+      *load-print* nil)
+
 ;; Compile into a project-local build/ directory rather than
 ;; ~/.cache/common-lisp/, matching build.lisp and test/run-tests.lisp so every
 ;; entry point agrees on where fasls land.

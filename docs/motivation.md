@@ -110,8 +110,48 @@ version: fixable, but "fixable" means a curated profile pinning behaviour across
 ASDF + runner + test framework + LSP compile path. **Which is exactly what a
 golden path is.**
 
-**Action:** empirically test this rather than continuing to trade assertions.
-An hour of actually trying it settles it.
+##### VERIFIED — Nathan was right, and the mechanism is now proven
+
+Tested 2026-08-18 on SBCL 2.6.7. Probe:
+`docs/experiments/defaults/01-debugger-escape-paths.lisp`, which runs each path
+in a subprocess with stdin at EOF.
+
+| # | setup | result |
+|---|---|---|
+| 1 | plain error, nothing configured | debugger invoked |
+| 2 | `*invoke-debugger-hook*` set | hook ran, exit 7 |
+| 3 | `--disable-debugger` | clean unhandled-condition exit, code 1 |
+| 4 | hook + intervening `handler-bind` that declines | hook still ran, exit 7 |
+| 5 | hook set, then library code `let`-binds it to `nil` | **debugger invoked** |
+| 6 | **`--disable-debugger`**, then library `let`-binds hook to `nil` | **debugger invoked** |
+| 7 | error inside an ASDF operation, `--disable-debugger` | clean exit, code 1 |
+
+**Path 6 is the finding.** `--disable-debugger` is *not* a floor. It is
+implemented as a value in `*invoke-debugger-hook*`, so any code that
+dynamically rebinds that variable — a REPL, a test framework, a contrib, any
+library at all — silently defeats it. The flag protects you exactly until
+something rebinds it.
+
+**And the failure is silent.** In paths 5 and 6 the process reached the
+debugger, hit EOF on stdin, and **exited 0**. A CI job whose build fell into the
+debugger reports success. This is the same shape as the `just test` pipefail bug
+found in §W1 — a failure mode that reports as a pass — and it is worth treating
+as a category to hunt for, not a one-off.
+
+##### The recipe: handlers beat hooks
+
+| # | setup | result |
+|---|---|---|
+| 8 | outer `handler-bind` on `serious-condition`, library rebinds hook to `nil` | **handler ran, exit 9** |
+| 9 | outer `handler-bind`, library installs its *own* hostile hook | **handler ran, exit 9** |
+
+A handler runs *before* the debugger is ever reached, so hostile manipulation of
+`*invoke-debugger-hook*` is irrelevant to it. **The golden path's runner must
+establish an outer `handler-bind`, not rely on the flag or the hook.** That is a
+concrete, tested design constraint rather than a preference — and CLEF's own
+`main` already does roughly the right thing with `handler-case`.
+
+**Action:** ~~empirically test this~~ — done.
 
 **Disposition:** `build` (a defaults profile) · **Leverage:** `unilateral`
 
@@ -454,10 +494,60 @@ in somebody else's library without editing their source.
 
 A curated set of **external type declarations for the golden-path library set**
 is therefore a real, unilateral artifact — CL's DefinitelyTyped, without needing
-a single upstream maintainer to agree to anything. *Verify:* exact SBCL
-behaviour on call-site checking against externally proclaimed ftypes, and what
-happens on conflict with the real definition. This one matters enough to test
-before we build on it.
+a single upstream maintainer to agree to anything.
+
+##### VERIFIED — the gate passes
+
+Tested 2026-08-18 on SBCL 2.6.7 against a real dependency (`cl-ppcre`), without
+touching its source. Probe: `docs/experiments/typing/01-external-ftype.lisp`.
+
+| scenario | result |
+|---|---|
+| bad call, **no** proclamation | **no warning** — SBCL alone does not catch it (derived arg type is `T`) |
+| bad call, **with** external proclamation | **`TYPE-WARNING`** at compile time |
+| good call, with external proclamation | no warning — no false positives |
+| result misused downstream (`(1+ (quote-meta-chars s))`) | **`TYPE-WARNING`** — the declaration propagates into inference for callers |
+| contradictory proclamation, then a correct call | breaks the correct call |
+| bad call at `(optimize (safety 3))`, executed | **`SIMPLE-TYPE-ERROR` signalled at runtime** |
+
+**Three findings that matter:**
+
+1. **It works, compile-time and runtime.** The mechanism is real and needs no
+   upstream cooperation.
+2. **It propagates.** An external declaration doesn't only check the call — it
+   improves inference for everything downstream of the return value. That is
+   more leverage per declaration than expected.
+3. **SBCL is authoritative to the proclamation, so a *wrong* declaration breaks
+   correct code.** Declaring `scan-to-strings` as one-argument made a correct
+   two-argument call fail to compile. This is the real risk of shipping a
+   declaration set.
+
+##### The validation gate falls out for free
+
+Risk 3 is manageable, because **SBCL warns at proclamation time when a
+declaration contradicts what it derived**:
+
+```
+STYLE-WARNING:
+   The new FTYPE proclamation for CL-PPCRE:QUOTE-META-CHARS
+     (FUNCTION (STRING) STRING)
+   does not match the derived return type
+     (FUNCTION (T &KEY (:START T) (:END T)) ...)
+```
+
+That fired on our own *nearly*-correct declaration — `quote-meta-chars` accepts
+`:start`/`:end` keywords we had omitted. So the check is strict enough to be
+useful.
+
+**This gives the declaration set a CI story on day one:** load the libraries,
+apply the declarations, and fail the build on any proclamation-mismatch
+style-warning. A declaration set that drifts from its libraries becomes a test
+failure rather than silent breakage in users' code.
+
+*Also noted for W0:* the compile-time warning for a bad **argument** is worded
+in terms of the *return* type (*"Derived type of (42) ... conflicting with the
+declared function return type STRING"*), which is actively misleading. More
+material for the condition formatter.
 
 ##### "The runner mandates checking" — cheaper than it sounds
 

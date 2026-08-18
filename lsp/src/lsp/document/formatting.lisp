@@ -20,6 +20,9 @@
               (document-text (gethash file-uri ctx:documents))
               (pos (href params "position"))
               (options (href params "options")))
+             ;; Bound but unused: formatting is whole-file, and the options are
+             ;; not honoured yet -- see the TODO above.
+             (declare (ignore pos options))
              ;; Format the entire file with cl-indentify
              (slog :debug "About to do formatting on ~A" file-uri)
              (let ((output (make-string-output-stream)))

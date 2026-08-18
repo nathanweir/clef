@@ -16,6 +16,16 @@
 (defparameter *here*
   (make-pathname :directory (pathname-directory *load-truename*)))
 
+;; Quiet the compiler's running commentary. A clean build emitted 278 lines, of
+;; which ~270 were "; compiling file" / "; wrote" / "; compilation finished".
+;; Warnings and errors still come through -- these variables only govern
+;; progress chatter. (test/run-tests.lisp already does this; load.lisp now does
+;; too.)
+(setf *compile-verbose* nil
+      *compile-print* nil
+      *load-verbose* nil
+      *load-print* nil)
+
 ;; Compile into the project-local build/ directory rather than
 ;; ~/.cache/common-lisp/, matching load.lisp and test/run-tests.lisp so all
 ;; three entry points agree on where fasls land.
