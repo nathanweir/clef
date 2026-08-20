@@ -131,13 +131,70 @@ a full rewrite."*
   of a symbol in the file, so one undefined function call underlines every
   mention of that name, including correct ones.
 
-### Reader errors are the exception
+### Reader errors are ~~the exception~~ located too
 
-A truncated form gave `END-OF-FILE` with no usable position (`file-position` was
-`NIL` on a string stream). So **reader/syntax errors carry nothing useful**,
-which vindicates clef's existing choice to get syntax errors from tree-sitter
-instead. That split should stay: tree-sitter for syntax, SBCL conditions for
-semantics.
+> **Correction.** This section originally read: *"A truncated form gave
+> `END-OF-FILE` with no usable position (`file-position` was `NIL` on a string
+> stream). So reader/syntax errors carry nothing useful."* **That was wrong.** It
+> was measured against a *string* stream, which has no file to have a position
+> in. Through `compile-file` — which is how clef actually sees these — the
+> position is there.
+>
+> The printed message gave it away: `Line: 2, Column: 32, File-Position: 45` is
+> far too precise to be a guess.
+
+Probes: `docs/experiments/conditions/02-reader-error-position.lisp`,
+`03-reader-error-api.lisp`.
+
+**A reader error arrives wrapped twice**, and this is the detail everything else
+turns on:
+
+```
+SB-C:COMPILER-ERROR                    ; NOT a subtype of ERROR
+  -> SB-C::INPUT-ERROR-IN-COMPILE-FILE ; itself encapsulating
+    -> the real reader condition       ; SIMPLE-READER-PACKAGE-ERROR, END-OF-FILE, ...
+```
+
+Peeling only the outer layer lands on something that is not a `SIMPLE-CONDITION`,
+so classification degrades to `:unknown` and the message keeps SBCL's trailer.
+`unwrap` has to loop.
+
+**Three position sources, and none of them works alone:**
+
+| source | bad package prefix | unclosed form | stray `)` |
+|---|---|---|---|
+| `INPUT-ERROR-IN-COMPILE-FILE` `POSITION` / `LINE/COL` | `NIL` | `16` / `(2 . 0)` | `NIL` |
+| `SB-IMPL::STREAM-ERROR-POSITION-INFO` | line 2, col 37 | **line 3, col 512** (garbage — past EOF of a 2-line file) | line 2, col 39 |
+| **`FORM-TRACKING-STREAM-FORM-START-BYTE-POS`** | **16** | **16** | **34** |
+
+The first two are mirror images of each other's failures. The third was correct
+in every case measured — and for the stray close paren, `34` *is* that paren.
+
+So: **use the form start.** It is also the same unit and the same contract as
+`compiler-error-context-file-position`, which puts reader errors and compiler
+errors in one coordinate system instead of two.
+
+**And the message gets much better.** SBCL's report for a bad package prefix is
+
+```
+READ error during COMPILE-FILE:
+  Package NO-SUCH-PKG-XYZ does not exist.
+    Line: 2, Column: 37
+    Stream: #<SB-INT:FORM-TRACKING-STREAM for "file /tmp/x.lisp" {1202B155D3}>
+```
+
+Applying `format-control` to `format-arguments` on the innermost condition gives
+`"Package NO-SUCH-PKG-XYZ does not exist."` — the position is carried
+structurally already, and the stream's address interests nobody. `END-OF-FILE`
+has no format control and prints as `end of file on #<...>`, which does not say
+what is wrong; since the kind already establishes a form was left open, the
+renderer says *"Unexpected end of file: a form opened here is never closed."*
+
+**The tree-sitter split still stands, for a different reason.** Not because SBCL
+cannot locate syntax errors, but because **the reader stops at the first one and
+tree-sitter does not.** One unbalanced paren ends SBCL's view of the file;
+tree-sitter reports that error and everything after it. In a buffer being typed
+into, that difference is the whole game.
 
 ## 3. Library or runner?
 
@@ -183,11 +240,65 @@ pinning plus a test that fails fast on SBCL upgrade. The `format-control` /
 This is now an accepted cost rather than an open risk: **the project is
 SBCL-only by decision** (motivation §8b).
 
+## 4b. `original-source-path` resolved — it is a real tree path
+
+> Answers the first open question below, which asked whether the path could
+> narrow within a form. **It can.** Probes:
+> `docs/experiments/conditions/04-source-path-shape.lisp`, `07-undefined-grouping.lisp`.
+
+Measured with errors placed at deliberately asymmetric indices so the ordering
+could not be read two ways:
+
+- **Innermost-first.** `(3 3 5)` means top-level form 5, its element 3, then
+  *that* element's element 3.
+- **Positional, operator at index 0** — exactly how `nth` would index the form as
+  read. `(1 3 6)` → form 6 → `(list (no-such-a) 2 3 (no-such-b))` → `(no-such-a)`.
+- **Macroexpansion injects nothing.** A path for an error inside an expansion
+  stops at the macro *call site* in the original source, so every index it
+  contains addresses real source text. This was the risk that would have sunk
+  the idea; it does not materialise.
+
+**The catch is on clef's side, not SBCL's.** The tree-sitter grammar does not
+parse every form as a flat list, so the Nth child is not always the Nth element:
+
+- A top-level `(defun ...)` is a `:LIST-LIT` wrapping a single `:DEFUN` spanning
+  the same text — a transparent wrapper.
+- `:DEFUN` bundles keyword, name and lambda list into a `:DEFUN-HEADER`, where
+  SBCL counts them as plain elements 0, 1, 2. The header has to be flattened
+  back out. (This also covers `defmacro`, `defmethod`, `lambda`; for `lambda`
+  the name is simply absent from the header, which keeps indices aligned by
+  itself.)
+- `'x` is one node with one child but reads as `(QUOTE X)`, two elements. `LOOP`
+  has a whole clause grammar of its own. Reader conditionals may read as nothing.
+  **These are refused rather than indexed into** — a wrong index points at the
+  wrong code silently, which is worse than falling back.
+- `:COMMENT` appears as a child inside lists and must be skipped.
+
+### And a grouping fact that changes what "narrow" should mean
+
+`07-undefined-grouping.lisp` measured how many conditions SBCL signals per
+undefined name:
+
+| code | conditions | path points at |
+|---|---|---|
+| 3 calls to one undefined fn, same `defun` | **1** | the *first* call only |
+| the same 3 calls across 3 `defun`s | **3** | one per form |
+| 3 references to one undefined var in one form | **1** | the enclosing `(list ...)`, no use at all |
+| 2 wrong-arity calls to one fn in one form | **2** | each call site, exactly |
+
+So **undefined names are scoped to the top-level form, not the call site.**
+Narrowing them to the subform the path names would silently drop the second and
+third use. Wrong-arity and friends *are* per-site and should be narrowed.
+
+The rule that falls out: search for the symbol within the narrowest region SBCL
+actually blamed — the subform for per-site kinds, the top-level form for
+per-form kinds — and mark every occurrence in it, because within that region
+every occurrence really is wrong.
+
 ## 5. Open questions
 
-- Does `original-source-path` give a reliable way to narrow within a form, or is
-  `file-position` alone enough? (Byte offset points at the form start; marking a
-  sub-expression may need the path.)
+- ~~Does `original-source-path` give a reliable way to narrow within a form?~~
+  **Answered in §4b: yes, it is a genuine tree path.**
 - How much does this hold for conditions signalled at **runtime** rather than
   compile time, where there is no compiler context?
 - Colour: worth it, and how does it interact with the LSP protocol stream, which

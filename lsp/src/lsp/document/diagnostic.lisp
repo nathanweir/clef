@@ -15,10 +15,19 @@
 ;;; ---------------------------------------------------------------------------
 ;;; Syntax errors come from tree-sitter, not from SBCL.
 ;;;
-;;; Deliberate: reader errors carry no usable position. A truncated form signals
-;;; END-OF-FILE with a NIL file-position, so there is nothing to report against.
-;;; Tree-sitter, being error-tolerant, locates them precisely. See
-;;; docs/surveys/w0-conditions.md.
+;;; The reason is NOT that SBCL cannot locate them. An earlier version of this
+;;; comment said reader errors carry no usable position; that was wrong, and
+;;; clef-conditions now extracts one -- see
+;;; docs/experiments/conditions/03-reader-error-api.lisp.
+;;;
+;;; The reason is that the reader stops at the first error and tree-sitter does
+;;; not. One unbalanced paren ends SBCL's view of the file; tree-sitter, being
+;;; error-tolerant, reports that error AND everything after it. For a buffer
+;;; being typed into, that difference is the whole game.
+;;;
+;;; SBCL's reader errors still reach the editor through the compile path below,
+;;; where they now arrive with a location and a message free of SBCL's
+;;; "Stream: #<FORM-TRACKING-STREAM ...>" trailer.
 ;;; ---------------------------------------------------------------------------
 
 (defun get-syntax-errors (input-text)
@@ -101,12 +110,91 @@ indexes forms as read -- so counting comments would misalign every index."
 
 (defun toplevel-index (source-path)
        "SBCL's ORIGINAL-SOURCE-PATH is innermost-first, so its LAST element is the
-index of the top-level form. The earlier elements walk down into the form; we
-deliberately do not follow them -- see the note in
-docs/surveys/w0-conditions.md."
+index of the top-level form."
        (when (and source-path (listp source-path))
              (let ((last (car (last source-path))))
                   (when (integerp last) last))))
+
+;;; ---------------------------------------------------------------------------
+;;; Walking ORIGINAL-SOURCE-PATH into the tree
+;;;
+;;; The path's earlier elements walk down into the form, and following them is
+;;; what gets the exact subexpression rather than the whole definition. Measured
+;;; in docs/experiments/conditions/04-source-path-shape.lisp:
+;;;
+;;;   - It is innermost-first. (3 3 5) means top-level form 5, its element 3,
+;;;     then that element's element 3.
+;;;   - Indices are positional within the enclosing list, counting the operator
+;;;     as element 0 -- exactly how NTH would index the form as read.
+;;;   - Macroexpansion does not inject phantom entries. The path for an error
+;;;     inside a macroexpansion stops at the macro *call site* in the original
+;;;     source, so every index it contains addresses real source text.
+;;;
+;;; The catch is that this grammar does not parse every form as a flat list, so
+;;; the Nth child is not always the Nth element. See FORM-ELEMENTS.
+;;; ---------------------------------------------------------------------------
+
+(defparameter +opaque-node-kinds+
+  '(:loop-macro :quoting-lit :syn-quoting-lit :unquoting-lit :unquote-splicing-lit
+    :var-quoting-lit :meta-lit :old-meta-lit :dis-expr :read-cond-lit
+    :splicing-read-cond-lit :include-reader-macro)
+  "Nodes whose children do not correspond 1:1 to the elements SBCL read.
+
+A quote is the clearest case: 'X is one grammar node with one child, but reads as
+(QUOTE X), two elements. LOOP has a whole clause grammar of its own where the
+read form is a flat list of symbols. Reader conditionals may read as nothing at
+all. Indexing into any of these would silently point at the wrong thing, so the
+walk stops and the caller falls back.")
+
+(defun form-elements (node)
+       "The positional elements of the form at NODE, in the order SBCL indexes
+them, or NIL when this node has no 1:1 correspondence to a read form.
+
+Two grammar shapes need undoing. A top-level (defun ...) parses as a :LIST-LIT
+wrapping a single :DEFUN that spans the same text, so the wrapper is transparent.
+And :DEFUN bundles the keyword, name and lambda list into a :DEFUN-HEADER child,
+where SBCL counts them as plain elements 0, 1 and 2 -- so the header is flattened
+back out. The same shape covers DEFMACRO, DEFMETHOD and LAMBDA; for LAMBDA the
+name is simply absent from the header, which keeps the indices aligned by itself."
+       (let ((kind (node-kind node)))
+            (cond
+              ((member kind +opaque-node-kinds+) nil)
+              ((eq kind :defun)
+               (loop for child in (ts:node-children node)
+                     unless (eq (node-kind child) :comment)
+                       append (if (eq (node-kind child) :defun-header)
+                                  (remove :comment (ts:node-children child)
+                                          :key #'node-kind)
+                                  (list child))))
+              ((member kind '(:list-lit :vec-lit))
+               (let ((children (remove :comment (ts:node-children node)
+                                       :key #'node-kind)))
+                    (if (and (= 1 (length children))
+                             (member (node-kind (first children))
+                                     '(:defun :loop-macro)))
+                        (form-elements (first children))
+                        children)))
+              ;; Atoms, and anything the grammar shapes in a way we have not
+              ;; verified. Better to fall back than to index into a guess.
+              (t nil))))
+
+(defun resolve-source-path (tree source-path)
+       "The tree-sitter node for the exact subform SOURCE-PATH names, or NIL.
+
+NIL is a normal outcome, not a failure: it means the path led somewhere this
+grammar shapes differently, and the caller should fall back to the whole form."
+       (let ((path (reverse source-path)))
+            (when (and path (integerp (first path)))
+                  (let ((forms (toplevel-forms tree)))
+                       (when (< (first path) (length forms))
+                             (let ((node (nth (first path) forms)))
+                                  (dolist (index (rest path) node)
+                                          (let ((elements (when (integerp index)
+                                                                (form-elements node))))
+                                               (unless (and elements
+                                                            (< index (length elements)))
+                                                       (return nil))
+                                               (setf node (nth index elements))))))))))
 
 (defun symbol-nodes-in (node symbol-name source)
        "Every :SYM-LIT node under NODE whose text names SYMBOL-NAME.
@@ -144,39 +232,68 @@ those are different node kinds."
               ((:warning :style-warning) +diagnostic-severity-warning+)
               (:note +diagnostic-severity-information+)))
 
+(defparameter +form-scoped-kinds+
+  '(:undefined :undefined-function :undefined-variable :undefined-type)
+  "Kinds SBCL signals once per top-level form rather than once per occurrence.
+
+Measured in docs/experiments/conditions/07-undefined-grouping.lisp. Three calls
+to one undefined function inside a single DEFUN produce ONE condition, whose
+source path names only the first call. Spread the same three calls across three
+DEFUNs and there are three conditions, one each. So the warning's real scope is
+the top-level form, and narrowing to the subform the path names would silently
+drop the second and third use.
+
+Undefined variables group the same way, and their path does not even reach a use
+-- three references inside one LIST call gave a path pointing at the LIST call.
+
+Everything else is per-site and should be narrowed: two bad-arity calls to the
+same function in one form produced two conditions with two distinct paths.")
+
 (defun diagnostics-for (extracted tree source)
-       "Turn one extracted diagnostic into LSP diagnostics -- one per occurrence."
+       "Turn one extracted diagnostic into LSP diagnostics.
+
+The scope to search is the narrowest region SBCL actually blamed -- which is the
+subform its source path names, except for the kinds it reports per top-level form
+(see +FORM-SCOPED-KINDS+). Within that scope every occurrence of the symbol is
+marked, because within it every occurrence really is wrong.
+
+Each step below is a genuine fallback, not a guess dressed up as one:
+
+  1. Mark the symbol's token(s) inside the scope. This is the error and nothing
+     but the error.
+  2. The symbol is not spelled in the scope -- a macroexpansion, most likely --
+     so mark the scope itself.
+  3. No symbol at all (reader errors, unclassified conditions): the scope.
+  4. No location at all: the head of the file, since a diagnostic still has to
+     be reported somewhere."
        (let* ((severity (severity-for extracted))
               (message (clef-conditions:diagnostic-message extracted))
               (sym (clef-conditions:diagnostic-symbol extracted))
-              (index (toplevel-index (clef-conditions:diagnostic-source-path extracted)))
+              (kind (clef-conditions:diagnostic-kind extracted))
+              (source-path (clef-conditions:diagnostic-source-path extracted))
+              (index (toplevel-index source-path))
               (forms (toplevel-forms tree))
-              (form (when (and index (< index (length forms))) (nth index forms))))
-             (cond
-               ;; Best case: we know the form and the symbol. Report each use.
-               ((and form sym)
-                (let ((nodes (symbol-nodes-in form (symbol-name sym) source)))
-                     (if nodes
-                         (mapcar (lambda (n)
-                                         (dict "range" (node-to-range n)
-                                               "severity" severity
-                                               "message" message))
-                                 nodes)
-                         ;; The symbol is not spelled in this form -- a macro
-                         ;; expansion, most likely. Fall back to the form.
-                         (list (dict "range" (node-to-range form)
-                                     "severity" severity
-                                     "message" message)))))
-               ;; We know the form but not which symbol. The form is honest.
-               (form
-                 (list (dict "range" (node-to-range form)
-                             "severity" severity
-                             "message" message)))
-               ;; No location at all: runtime conditions, reader errors.
-               (t
-                 (list (dict "range" (make-range 0 0 0 0)
-                             "severity" severity
-                             "message" message))))))
+              (form (when (and index (< index (length forms))) (nth index forms)))
+              (subform (resolve-source-path tree source-path))
+              (scope (if (member kind +form-scoped-kinds+)
+                         (or form subform)
+                         (or subform form))))
+             (flet ((diag (node)
+                          (dict "range" (node-to-range node)
+                                "severity" severity
+                                "message" message)))
+                   (cond
+                     ((and scope sym)
+                      (let ((nodes (symbol-nodes-in scope (symbol-name sym) source)))
+                           (if nodes
+                               (mapcar #'diag nodes)
+                               ;; The symbol is not spelled here -- a macro
+                               ;; expansion, most likely. Mark what we do have.
+                               (list (diag scope)))))
+                     (scope (list (diag scope)))
+                     (t (list (dict "range" (make-range 0 0 0 0)
+                                    "severity" severity
+                                    "message" message)))))))
 
 (defun reportable-condition-p (c)
        "Is C something the editor should hear about?

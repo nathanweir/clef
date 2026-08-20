@@ -150,6 +150,55 @@
                   (search "NO-SUCH-PKG-XYZ"
                           (string-upcase (clef-conditions:diagnostic-message d))))))
 
+  ;; Reader errors DO carry position, contrary to what the survey first recorded.
+  ;; The chain is COMPILER-ERROR -> INPUT-ERROR-IN-COMPILE-FILE -> real condition,
+  ;; so UNWRAP has to loop; stopping after one layer lands on something that is
+  ;; not a SIMPLE-CONDITION and loses both the classification and the message.
+  ;;
+  ;; Each case below pins a position that was measured, not assumed --
+  ;; docs/experiments/conditions/03-reader-error-api.lisp.
+  (format t "~&reader error positions~%")
+  (let* ((src "(defun ok () 1)
+(defun bad () (no-such-pkg-xyz:g 1))
+")
+         (d (first (collect-diagnostics src))))
+    (check-true "package prefix: located" (and d (clef-conditions:diagnostic-file-position d)))
+    (when d
+      (check "  kind" (clef-conditions:diagnostic-kind d) :package-not-found)
+      ;; 16 is the start of line 2 -- the top-level form being read, the same
+      ;; contract COMPILER-ERROR-CONTEXT-FILE-POSITION follows.
+      (check "  position is the form start" (clef-conditions:diagnostic-file-position d) 16)
+      (check-true "  file is known" (clef-conditions:diagnostic-file d))
+      ;; The whole point of unwrapping twice: no "Stream: #<FORM-TRACKING-STREAM
+      ;; for ...>" trailer, no "READ error during COMPILE-FILE" preamble.
+      (check "  message is just the message"
+             (clef-conditions:diagnostic-message d)
+             "Package NO-SUCH-PKG-XYZ does not exist.")))
+
+  (let* ((src "(defun ok () 1)
+(defun truncated () (+ 1 2)
+")
+         (d (first (collect-diagnostics src))))
+    (check-true "truncated form: located" (and d (clef-conditions:diagnostic-file-position d)))
+    (when d
+      (check "  kind" (clef-conditions:diagnostic-kind d) :unclosed-form)
+      (check "  position is the unclosed form" (clef-conditions:diagnostic-file-position d) 16)
+      ;; END-OF-FILE has no format control and prints as "end of file on
+      ;; #<SB-INT:FORM-TRACKING-STREAM ...>", which does not say what is wrong.
+      (check-true "  message says what is actually wrong"
+                  (search "never closed" (clef-conditions:diagnostic-message d)))))
+
+  (let* ((src "(defun ok () 1)
+(defun extra () 1))
+(defun after () 2)
+")
+         (d (first (collect-diagnostics src))))
+    (check-true "unmatched paren: located" (and d (clef-conditions:diagnostic-file-position d)))
+    (when d
+      (check "  kind" (clef-conditions:diagnostic-kind d) :unmatched-paren)
+      ;; 34 is the stray paren itself, not the form -- exact.
+      (check "  position is the paren" (clef-conditions:diagnostic-file-position d) 34)))
+
   (run-render-tests)
 
   (format t "~&~%~A checks, ~A failure(s)~%" *checks* (length *failures*))

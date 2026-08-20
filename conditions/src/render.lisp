@@ -74,9 +74,10 @@ and 0-based for column, measured in bytes."
 ;;; structural path into the form ((2) vs (3 2)).
 ;;;
 ;;; Resolving that path properly means re-reading the form with position
-;;; tracking, or mapping the path onto a syntax tree -- which is exactly what
-;;; clef's language server can do with its tree-sitter tree, and what this
-;;; standalone renderer cannot.
+;;; tracking, or mapping the path onto a syntax tree. The language server does
+;;; the latter -- it walks the path into its tree-sitter tree and gets the exact
+;;; subexpression. This standalone renderer has no tree and does not want to
+;;; grow a parser, so it does the cheap thing below.
 ;;;
 ;;; So: scan forward from the top-level form for the symbol we already know from
 ;;; FORMAT-ARGUMENTS. Bounded by the form, this is accurate for ordinary code and
@@ -84,6 +85,16 @@ and 0-based for column, measured in bytes."
 ;;; the whole file, which is what clef's old diagnostics did -- that flagged
 ;;; every occurrence of the name anywhere in the file, correct uses included.
 ;;; ---------------------------------------------------------------------------
+
+(defparameter *exactly-located-kinds* '(:unclosed-form :unmatched-paren)
+  "Kinds whose FILE-POSITION is already the exact answer.
+
+For everything else the position names the enclosing top-level form and the
+renderer says so, rather than letting a caret imply a precision it does not have.
+But a reader error is different in kind: the caret for an unmatched close paren
+sits on that very paren, and for an unclosed form it sits on the open paren that
+was never closed -- which is not a fallback, it is the thing to point at.
+Measured in docs/experiments/conditions/03-reader-error-api.lisp.")
 
 (defun char-eq-ci (a b)
   (let ((ca (code-char a)) (cb (code-char b)))
@@ -171,7 +182,8 @@ shows the message and whatever context it has."
                               ctx))))
               ;; When we could not pin the symbol down, say so rather than
               ;; letting a caret on the form's first character imply precision.
-              (unless precise
+              (unless (or precise
+                          (member (diagnostic-kind diag) *exactly-located-kinds*))
                 (format stream "~A = ~A~%" pad
                         "(location is the enclosing form; exact position unavailable)"))
               (dolist (ref (diagnostic-references diag))

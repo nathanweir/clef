@@ -475,6 +475,100 @@ why bounds checking alone does not catch it, but pointing at the wrong line."
                       (format nil "Should have exactly 3 diagnostics for undefined-xyz, got ~A"
                               (length undef-items)))))))
 
+;;; Source-path walking
+;;;
+;;; These pin the behaviour that walking SBCL's ORIGINAL-SOURCE-PATH into the
+;;; tree buys, and the behaviour it must not break. See
+;;; docs/experiments/conditions/04-source-path-shape.lisp and 07-undefined-grouping.lisp.
+
+(deftest test-diagnostic-narrows-to-the-offending-call
+  "Two bad calls in one form get two exact locations, not two copies of both"
+  (with-direct-handler-test
+    (init-server)
+    ;; Both calls name the same function, so a search bounded only by the
+    ;; enclosing DEFUN would match both tokens for both conditions -- four
+    ;; diagnostics instead of two. The source path distinguishes them: SBCL
+    ;; reports wrong arity per call site, with a distinct path each time.
+    (let ((code "(defun two-args (a b) (list a b))
+(defun caller ()
+  (list (two-args 1 2 3)
+        (two-args 1 2 3 4)))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/arity-sites.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/arity-sites.lisp"))))
+             (items (get-diagnostic-items response))
+             (arity (remove-if-not
+                      (lambda (item)
+                              (search "IS CALLED WITH"
+                                      (string-upcase (gethash "message" item))))
+                      items)))
+        (assert-equal 2 (length arity)
+                      (format nil "Expected one diagnostic per bad call site, got ~A"
+                              (length arity)))
+        ;; One on each line, and each marking the call it belongs to.
+        (let ((lines (sort (mapcar #'diagnostic-range-start-line arity) #'<)))
+          (assert-equal '(2 3) lines
+                        (format nil "Diagnostics should sit on lines 2 and 3, got ~A" lines)))))))
+
+(deftest test-diagnostic-undefined-name-scoped-to-its-own-form
+  "An undefined name used in two defuns is reported per use, not per pair"
+  (with-direct-handler-test
+    (init-server)
+    ;; SBCL signals one condition per TOP-LEVEL FORM for an undefined name, so
+    ;; there are two conditions here. Each marks every use within its own form:
+    ;; 2 + 1 = 3. If the search were not bounded by the form, each condition
+    ;; would match all three uses and report 6.
+    (let ((code "(defun a ()
+  (list (undefined-zzz 1) (undefined-zzz 2)))
+(defun b ()
+  (undefined-zzz 3))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/scoped-undef.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/scoped-undef.lisp"))))
+             (items (get-diagnostic-items response))
+             (undef (remove-if-not
+                      (lambda (item)
+                              (search "UNDEFINED-ZZZ"
+                                      (string-upcase (gethash "message" item))))
+                      items)))
+        (assert-equal 3 (length undef)
+                      (format nil "Expected one diagnostic per use, got ~A" (length undef)))))))
+
+(deftest test-diagnostic-falls-back-when-path-is-unwalkable
+  "A grammar shape the walk cannot follow degrades to the enclosing form"
+  (with-direct-handler-test
+    (init-server)
+    ;; LOOP has its own clause grammar in tree-sitter, so its children do not
+    ;; line up with the elements SBCL read and the walk deliberately refuses it.
+    ;; The diagnostic must still land on the symbol, via the form-bounded search.
+    (let ((code "(defun foo ()
+  (loop for i from 1 to 3
+        do (undefined-loop-fn i)))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/loop-fallback.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/loop-fallback.lisp"))))
+             (items (get-diagnostic-items response))
+             (diag (find-diagnostic-with-message items "UNDEFINED-LOOP-FN")))
+        (assert-not-nil diag "Should still report the undefined function inside LOOP")
+        (when diag
+          (assert-equal 2 (diagnostic-range-start-line diag)
+                        "Should mark the call on line 2, not the whole defun"))))))
+
 ;;; Unused variable warning test
 
 (deftest test-diagnostic-unused-variable-is-warning
