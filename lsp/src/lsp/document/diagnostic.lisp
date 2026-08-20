@@ -9,14 +9,8 @@
 (defconstant +diagnostic-severity-information+ 3 "Reports an information.")
 (defconstant +diagnostic-severity-hint+ 4 "Reports a hint.")
 
-;; Utils; need to be place elsewhere and long-term turned into classes/structs/Coalton types (something)
-
-(defun make-position (line char)
-       (dict "line" line "character" char))
-
-(defun make-range (start-line start-char end-line end-char)
-       (dict "start" (make-position start-line start-char)
-             "end" (make-position end-line end-char)))
+;; MAKE-POSITION, MAKE-RANGE and NODE-TO-RANGE used to be defined here. They now
+;; live in :clef-lsp/types/basic and are imported -- see the note there.
 
 ;;; ---------------------------------------------------------------------------
 ;;; Syntax errors come from tree-sitter, not from SBCL.
@@ -29,24 +23,27 @@
 
 (defun get-syntax-errors (input-text)
        "Parse Lisp source code and emit a Diagnostic for each syntax error."
-       (let* ((tree (clef-parser/parser:parse-string input-text))
-              (errors (collect-error-nodes tree))
-              (diagnostics '()))
-             (dolist (err errors)
-                     (destructuring-bind ((start-col start-line) (end-col end-line)) (cdr err)
-                                         (push (dict "range" (make-range start-col start-line end-line end-col)
-                                                     "severity" +diagnostic-severity-error+
-                                                     "message" "Syntax error")
-                                               diagnostics)))
-             diagnostics))
+       (let ((tree (clef-parser/parser:parse-string input-text))
+             (diagnostics '()))
+            (dolist (node (collect-error-nodes tree))
+                    (push (dict "range" (node-to-range node)
+                                "severity" +diagnostic-severity-error+
+                                "message" "Syntax error")
+                          diagnostics))
+            diagnostics))
 
 (defun collect-error-nodes (node)
-       "Return a list of (TYPE RANGE) for all error nodes in the tree."
+       "Every :ERROR and :MISSING node in the tree.
+
+Returns the nodes themselves, not their ranges. Ranges are built by
+NODE-TO-RANGE at the point of use: cl-tree-sitter's raw ranges are
+column-first, and destructuring them here is what used to put the column in
+the range's \"line\" and the line in its \"character\"."
        (let ((results '()))
             (labels ((walk (n)
                            (let ((type (ts:node-type n)))
                                 (when (or (eql type :error) (eql type :missing))
-                                      (push (cons type (ts:node-range n)) results))
+                                      (push n results))
                                 (dolist (child (ts:node-children n))
                                         (walk child)))))
                     (walk node))
@@ -146,12 +143,6 @@ those are different node kinds."
               ;; the common case and a test pins them at severity 2.
               ((:warning :style-warning) +diagnostic-severity-warning+)
               (:note +diagnostic-severity-information+)))
-
-(defun node-to-range (node)
-       (make-range (clef-parser/parser:node-start-point-row node)
-                   (clef-parser/parser:node-start-point-column node)
-                   (clef-parser/parser:node-end-point-row node)
-                   (clef-parser/parser:node-end-point-column node)))
 
 (defun diagnostics-for (extracted tree source)
        "Turn one extracted diagnostic into LSP diagnostics -- one per occurrence."

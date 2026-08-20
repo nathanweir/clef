@@ -108,7 +108,7 @@ Returns the range of the symbol that would be renamed, or null if rename is not 
 
         ;; Return the range and placeholder text
         (if symbol-node
-            (dict "range" (node-to-lsp-range symbol-node)
+            (dict "range" (node-to-range symbol-node)
                   "placeholder" symbol-name)
             ;; Fallback: just return the placeholder
             (dict "placeholder" symbol-name))))))

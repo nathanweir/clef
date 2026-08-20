@@ -134,7 +134,7 @@ This is a workaround since cl-interval doesn't expose a direct iteration method.
   "Convert a symbol-reference struct to an LSP Location dict."
   (let ((node (clef-symbols:symbol-reference-node ref)))
     (dict "uri" (format nil "file://~A" file-path)
-          "range" (node-to-lsp-range node))))
+          "range" (node-to-range node))))
 
 (defun symbol-definition-to-location (def)
   "Convert a symbol-definition struct to an LSP Location dict."
@@ -142,4 +142,4 @@ This is a workaround since cl-interval doesn't expose a direct iteration method.
          (file-path (clef-symbols:location-file-path location))
          (node (clef-symbols:symbol-definition-node def)))
     (dict "uri" (format nil "file://~A" file-path)
-          "range" (node-to-lsp-range node))))
+          "range" (node-to-range node))))

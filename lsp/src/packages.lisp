@@ -208,11 +208,17 @@ through their own defparameters.")
 (defpackage :clef-lsp/types/basic
             (:use :cl :clef-log)
             (:import-from :clef-lsp/types/base :uinteger)
+            (:import-from :serapeum :dict)
             ;; TODO: Just how dangerous is this?
             (:shadow :position)
             (:export :position
                      :position-line
-                     :position-character))
+                     :position-character
+                     ;; Range/Position as wire dicts. The single definition --
+                     ;; every handler that reports a location goes through these.
+                     :make-position
+                     :make-range
+                     :node-to-range))
 
 (defpackage :clef-lsp/lifecycle
             (:use :cl :clef-log)
@@ -239,6 +245,7 @@ through their own defparameters.")
               (:ctx :clef-context)
               (:ts :cl-tree-sitter/high-level))
             (:import-from :serapeum :dict :href)
+            (:import-from :clef-lsp/types/basic :make-range :node-to-range)
             (:export
               handle-text-document-completion
               handle-text-document-definition
@@ -257,6 +264,7 @@ through their own defparameters.")
             (:local-nicknames
               (:ctx :clef-context))
             (:import-from :serapeum :dict :href)
+            (:import-from :clef-lsp/types/basic :node-to-range)
             (:export handle-workspace-diagnostic
                      handle-workspace-did-change-configuration
                      handle-workspace-symbol))

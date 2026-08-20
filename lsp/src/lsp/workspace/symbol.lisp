@@ -79,10 +79,5 @@ Returns symbols matching the query from across the workspace."
     (:special-operator +symbol-kind-operator+)
     (otherwise +symbol-kind-variable+)))
 
-(defun node-to-range (node)
-  "Convert a tree-sitter node to an LSP Range dict."
-  (when node
-    (dict "start" (dict "line" (clef-parser/parser:node-start-point-row node)
-                        "character" (clef-parser/parser:node-start-point-column node))
-          "end" (dict "line" (clef-parser/parser:node-end-point-row node)
-                      "character" (clef-parser/parser:node-end-point-column node)))))
+;; NODE-TO-RANGE was defined here too. It is now imported from
+;; :clef-lsp/types/basic, which is where the one copy lives.

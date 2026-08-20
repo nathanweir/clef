@@ -28,6 +28,7 @@
                                               (:file "lsp/types/base/types")
                                               (:file "lsp/types/base/error-codes")
                                               (:file "lsp/types/basic/position")
+                                              (:file "lsp/types/basic/range")
                                               (:file "symbols/types")
                                               (:file "symbols/init")
                                               (:file "lsp/server-capabilities")

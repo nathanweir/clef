@@ -52,15 +52,9 @@ Returns the first match, or nil if not found."
                   ;; Return the first match (could be enhanced to handle multiple definitions)
                   (first defs))))
 
-;; TODO: This will definitely be used elsewhere
-(defun node-to-lsp-range (node)
-       "Convert byte offsets to an LSP Range dict."
-       (multiple-value-bind (start-line start-char end-line end-char)
-                            (clef-parser/parser:node-range node)
-                            (dict "start" (dict "line" start-line
-                                                "character" start-char)
-                                  "end" (dict "line" end-line
-                                              "character" end-char))))
+;; The TODO that used to sit here -- "this will definitely be used elsewhere" --
+;; came true three times over, twice as a copy rather than a call. NODE-TO-RANGE
+;; now lives in :clef-lsp/types/basic and is imported.
 
 (defun make-goto-definition-response (symbol-def)
        (unless symbol-def
@@ -80,7 +74,7 @@ Returns the first match, or nil if not found."
              (if uri
                  ;; Just return one Location for now
                  (dict "uri" uri
-                       "range" (node-to-lsp-range
+                       "range" (node-to-range
                                  (symbol-definition-node symbol-def)))
                  (progn
                   (slog :debug "[make-goto-definition-response] No usable file URI for ~A"
@@ -89,8 +83,8 @@ Returns the first match, or nil if not found."
 ;; TODO: Attempting to return this LocationLink did not work. Revisit.
 ;; (dict "targetUri" (format nil "file://~A" (location-file-path
 ;;                                             (symbol-definition-location symbol-def)))
-;;       "targetRange" (node-to-lsp-range (lexical-scope-node scope))
-;;       "targetSelectionRange" (node-to-lsp-range (symbol-definition-node symbol-def)))))
+;;       "targetRange" (node-to-range (lexical-scope-node scope))
+;;       "targetSelectionRange" (node-to-range (symbol-definition-node symbol-def)))))
 
 
 ;; "targetRange" (byte-offsets-to-lsp-range

@@ -45,9 +45,28 @@
         (when end
           (gethash "line" end))))))
 
+(defun diagnostic-range-end-char (diagnostic)
+  "Get the end character from a diagnostic's range"
+  (let ((range (gethash "range" diagnostic)))
+    (when range
+      (let ((end (gethash "end" range)))
+        (when end
+          (gethash "character" end))))))
+
 (defun diagnostic-severity (diagnostic)
   "Get the severity from a diagnostic"
   (gethash "severity" diagnostic))
+
+(defun split-source-lines (source)
+  "SOURCE split on newlines, so a test can check a position really exists."
+  (let ((lines '())
+        (start 0))
+    (loop for i = (position #\Newline source :start start)
+          while i
+          do (push (subseq source start i) lines)
+             (setf start (1+ i)))
+    (push (subseq source start) lines)
+    (nreverse lines)))
 
 ;;; Syntax error tests (detected by tree-sitter)
 
@@ -122,10 +141,84 @@
       (let* ((response (call-handler "textDocument/diagnostic"
                                      (dict "textDocument" (dict "uri" "file:///tmp/syntax-test.lisp"))))
              (items (get-diagnostic-items response)))
-        (when (and items (> (length items) 0))
-          (let ((first-diag (first items)))
-            (assert-not-nil (gethash "range" first-diag) "Diagnostic should have range")
-            (assert-not-nil (diagnostic-range-start-line first-diag) "Range should have start line")))))))
+        (assert-true (and items (> (length items) 0))
+                     "Should produce at least one diagnostic")
+        (let ((first-diag (first items)))
+          (assert-not-nil (gethash "range" first-diag) "Diagnostic should have range")
+          (assert-not-nil (diagnostic-range-start-line first-diag) "Range should have start line"))))))
+
+;;; The node -> Range conversion is shared by every handler that reports a
+;;; location (definition, references, highlight, diagnostics, workspace/symbol).
+;;; It used to be copied into three files, and get-syntax-errors additionally
+;;; built its own ranges by destructuring cl-tree-sitter's raw output -- which is
+;;; column-first -- so the column landed in "line" and the line in "character".
+;;;
+;;; These two tests pin the orientation at the one place it is now decided, and
+;;; then check the property end-to-end through the diagnostic handler.
+
+(deftest test-node-to-range-is-line-first
+  "node-to-range reports line before character, at both ends.
+
+Hand-checked against the source below rather than against whatever the parser
+happens to emit: line 1 is \"(beta gamma)\", which starts at column 0 and is 12
+characters long. A transposed conversion would report line 0 / character 1."
+  (let* ((code (format nil "(alpha)~%(beta gamma)"))
+         (tree (clef-parser/parser:parse-string code))
+         (forms (clef-lsp/document::toplevel-forms tree))
+         (second-form (second forms)))
+    (assert-not-nil second-form "Source should have a second top-level form")
+    (let* ((range (clef-lsp/types/basic:node-to-range second-form))
+           (start (gethash "start" range))
+           (end (gethash "end" range)))
+      (assert-not-nil range "Should produce a range")
+      (assert-equal 1 (gethash "line" start) "Start line should be 1")
+      (assert-equal 0 (gethash "character" start) "Start character should be 0")
+      (assert-equal 1 (gethash "line" end) "End line should be 1")
+      (assert-equal 12 (gethash "character" end) "End character should be 12"))))
+
+(deftest test-node-to-range-nil-node
+  "node-to-range returns nil for a nil node rather than erroring.
+
+workspace/symbol relied on this guard in its own copy; the shared one keeps it."
+  (assert-nil (clef-lsp/types/basic:node-to-range nil)
+              "nil node should give nil range"))
+
+(deftest test-diagnostic-syntax-error-range-covers-the-offending-line
+  "A syntax error is reported over the line that actually holds the bad form.
+
+The end-to-end form of the transposition guard. The unclosed form is the whole
+of line 1, \"(defun bar () (+ 1 2\", which is 20 characters starting at column
+0 -- so the range is (1,0)-(1,20). Reading the parser's column-first pairs in
+arrival order instead reports a start of (0,1): still inside the file, which is
+why bounds checking alone does not catch it, but pointing at the wrong line."
+  (with-direct-handler-test
+    (init-server)
+    (let* ((code "(defun foo () 1)
+(defun bar () (+ 1 2")
+           (lines (split-source-lines code)))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" "file:///tmp/syntax-test.lisp"
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" code))
+                    :id nil)
+      (let* ((response (call-handler "textDocument/diagnostic"
+                                     (dict "textDocument" (dict "uri" "file:///tmp/syntax-test.lisp"))))
+             (items (get-diagnostic-items response))
+             (syntax-errors (remove-if-not
+                             (lambda (d) (equal "Syntax error" (gethash "message" d)))
+                             items)))
+        (assert-equal 1 (length syntax-errors)
+                      "Unclosed form should produce exactly one syntax error")
+        (let ((diag (first syntax-errors)))
+          (assert-equal 1 (diagnostic-range-start-line diag)
+                        "Syntax error should start on line 1, where the bad form is")
+          (assert-equal 0 (diagnostic-range-start-char diag)
+                        "Syntax error should start at column 0")
+          (assert-equal 1 (diagnostic-range-end-line diag)
+                        "Syntax error should end on line 1")
+          (assert-equal (length (nth 1 lines)) (diagnostic-range-end-char diag)
+                        "Syntax error should end at the end of line 1"))))))
 
 ;;; Compile-time error tests (detected by SBCL)
 

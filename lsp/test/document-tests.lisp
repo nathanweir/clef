@@ -890,6 +890,53 @@ which silently aliased file-a and file-b in the cross-file tests.")
                     (assert-not-nil (gethash "location" symbol-info) "Should have location")))))))
       (when temp-path (delete-temp-file temp-path)))))
 
+(deftest test-workspace-symbol-location-range-is-line-first
+  "Workspace symbol ranges are line-first and stay inside the file.
+
+workspace/symbol used to carry its own copy of the node -> Range conversion.
+Now that it shares one with the document handlers, this pins the behaviour that
+copy provided: the definition lives on the single line of a one-line file, so
+every line number in the range must be 0 and every column must fall within it."
+  (let ((temp-path nil))
+    (unwind-protect
+        (with-direct-handler-test
+          (init-server)
+          ;; One line, 27 characters. Any line number other than 0 means a
+          ;; column was reported where a line belongs.
+          (let ((code "(defun ws-range-func () 42)"))
+            (setf temp-path (write-temp-file code))
+            (let ((file-uri (format nil "file://~A" temp-path)))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" file-uri
+                                                       "languageId" "lisp"
+                                                       "version" 1
+                                                       "text" code))
+                            :id nil)
+              (call-handler "textDocument/didChange"
+                            (dict "textDocument" (dict "uri" file-uri "version" 2)
+                                  "contentChanges" (vector (dict "text" code)))
+                            :id nil)
+              (let* ((response (call-handler "workspace/symbol"
+                                             (dict "query" "ws-range-func")))
+                     (result (response-result-safe response)))
+                (assert-true (and (vectorp result) (> (length result) 0))
+                             "Should find ws-range-func")
+                (let* ((location (gethash "location" (aref result 0)))
+                       (range (gethash "range" location))
+                       (start (gethash "start" range))
+                       (end (gethash "end" range)))
+                  (assert-not-nil range "Location should carry a range")
+                  (assert-equal 0 (gethash "line" start)
+                                "Start line should be 0 in a one-line file")
+                  (assert-equal 0 (gethash "line" end)
+                                "End line should be 0 in a one-line file")
+                  (assert-true (<= (gethash "character" start)
+                                   (gethash "character" end))
+                               "Start character should not follow end character")
+                  (assert-true (<= (gethash "character" end) (length code))
+                               "End character should fall within the line"))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
 ;;; Signature help tests
 
 (deftest test-signature-help-returns-nil-outside-function

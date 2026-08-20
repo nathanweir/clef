@@ -71,5 +71,5 @@ Returns all occurrences of the symbol under cursor in the current document."
 
 (defun make-highlight (node kind)
   "Create an LSP DocumentHighlight dict from a tree-sitter node."
-  (dict "range" (node-to-lsp-range node)
+  (dict "range" (node-to-range node)
         "kind" kind))
