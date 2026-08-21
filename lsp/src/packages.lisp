@@ -145,6 +145,10 @@ through their own defparameters.")
                      symbol-definition-kind
                      symbol-reference-node
                      symbol-reference-symbol-name
+                     ;; Needed to resolve a reference to the binding it actually
+                     ;; names, rather than to everything sharing its spelling.
+                     symbol-reference-usage-scope
+                     symbol-reference-location
                      ;; system-info struct and accessors
                      system-info
                      make-system-info

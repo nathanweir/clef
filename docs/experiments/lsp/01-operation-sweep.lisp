@@ -209,11 +209,15 @@
                                       "context" (dict "includeDeclaration" t))
                                 1)))
          (n (count-items r))
-         (lines (when (vectorp r)
-                  (sort (map 'list (lambda (loc)
-                                     (gethash "line" (gethash "start" (gethash "range" loc))))
-                             r)
-                        #'<))))
+         ;; Full ranges, not just line numbers. Comparing lines alone called two
+         ;; genuine occurrences on one line a duplicate -- and line 32 really
+         ;; does contain AREA twice, as the FLET parameter and its use.
+         (ranges (when (vectorp r)
+                   (map 'list (lambda (loc)
+                                (let ((s (gethash "start" (gethash "range" loc))))
+                                  (list (gethash "line" s) (gethash "character" s))))
+                        r)))
+         (lines (sort (mapcar #'first ranges) #'<)))
     (note :info "references to the LET-bound AREA" (format nil "~A result(s) on lines ~A" n lines))
     (let ((string-line (line-of *specimen* "the STRING"))
           (comment-line (line-of *specimen* "in a comment")))
@@ -221,8 +225,16 @@
         (note :bug "references" "includes the occurrence inside a STRING"))
       (when (member comment-line lines)
         (note :bug "references" "includes the occurrence inside a COMMENT"))
-      (when (and lines (/= (length lines) (length (remove-duplicates lines))))
-        (note :bug "references" "returns duplicate locations")))))
+      (when (and ranges (/= (length ranges)
+                            (length (remove-duplicates ranges :test #'equal))))
+        (note :bug "references" "returns duplicate locations"))
+      ;; The shadowing case, called out separately because it is the one thing
+      ;; scope resolution cannot yet get right: FLET and LABELS create no scope,
+      ;; so their parameters resolve to the outer binding.
+      (let ((flet-line (line-of *specimen* "(flet ((scale (area)")))
+        (when (member flet-line lines)
+          (note :gap "references"
+                "includes the shadowing FLET parameter (flet/labels create no scope)"))))))
 
 (defun probe-simple (call label method params &key expect-nonempty)
   (let* ((response (handler-case (funcall call method params 1)

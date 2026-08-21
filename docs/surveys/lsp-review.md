@@ -120,7 +120,7 @@ referenced.
 *Found by* the new protocol test, not by reading — the constant is visually
 plausible and sits among a dozen correct ones.
 
-### 1.2 `findReferences` ignores lexical scope — **severe**
+### 1.2 `findReferences` ignores lexical scope — **severe** — ***MOSTLY FIXED***
 
 Reported references for a `let`-bound variable include bindings that are not it.
 
@@ -149,14 +149,88 @@ whose scope is three lines — returned **73 results across 16 files**, includin
 conflates the local with `CL:SYMBOL-NAME`.
 
 *Note:* `documentHighlight` returned the same 7 results for the same position and
-almost certainly shares the defect and the fix.
+shares the defect. It has **not** been fixed — it still walks the interval trees
+by name. Recorded, not scoped.
 
-### 1.3 Duplicate locations in results — **moderate**
+#### Root cause, found by reading
 
-The same location is returned more than once: lines 29 and 32 each appear twice
-in the table above, and `highlight.lisp Line 26:14` appeared twice in the
-workspace-scale run. Definitions and references are probably being collected from
-two indexes without a merge step.
+The scope-aware design was already there and was never connected.
+`lexical-scope` has a `symbol-references` slot meant for exactly this. The code
+that fills it (`symbols/init.lisp:635`) reads:
+
+```lisp
+(let ((scope-references-list (gethash name (lexical-scope-symbol-references *current-scope*))))
+  (if (not scope-references-list)
+      (setf scope-references-list '()))
+  (push symbol-reference scope-references-list))
+```
+
+`push` onto a `let` variable mutates the local binding and never writes back to
+the hash table, so **the slot is always empty** — and nothing in the tree ever
+reads it. Designed, written, dead.
+
+#### The fix
+
+Rather than revive a per-scope cache, each candidate reference is resolved up its
+*own* scope chain and compared by identity against the definition the cursor
+resolved to. That reuses the path go-to-definition already takes, so the two
+cannot disagree, and shadowing falls out without special-casing.
+
+Top-level definitions keep the workspace-wide name-matching path, which is
+correct for them.
+
+*Measured after the fix,* same probe: **7 results → 5**. The `defclass` slot is
+gone, and so is the duplicated declaration.
+
+#### What is still wrong: `flet` and `labels` create no scope
+
+The remaining 2 of 5 are the shadowing `(flet ((scale (area) (* area 2))))`
+parameter and its use. They survive because **nothing in the indexer handles
+`flet` or `labels`** — so the inner `area` has no definition anywhere, resolves
+up to the outer `let` binding, and is correctly-by-its-own-logic included.
+
+`+scope-kinds+` in `symbols/types.lisp` lists `:flet` and `:labels`. Nothing ever
+constructs a scope with either kind. Another declared-but-unimplemented thing.
+
+**The walk runs exactly four checks**: `in-package`, `defun`, `let`/`let*`, and
+`defparameter`/`defconstant`/`defvar`. Every other binding form in Common Lisp is
+invisible:
+
+`flet`, `labels`, `macrolet`, `symbol-macrolet`, `destructuring-bind`,
+`multiple-value-bind`, `do`/`do*`, `dotimes`, `dolist`, `loop`'s `with`/`for`,
+`handler-case` and `handler-bind` condition variables, `restart-case`,
+`with-slots`, `with-accessors`, and every binding introduced by a user macro.
+
+That last one is the hard limit of a tree-sitter-first design and is worth
+stating plainly: without macroexpansion, bindings introduced by macros cannot be
+seen at all. `sb-introspect` and a live image can, which is the
+[`motivation.md`](../motivation.md) §8.1 tension.
+
+*Priority for a follow-up:* `flet`/`labels` first — most common by far, and the
+implementation is parallel to the existing `check-for-let-binding`. Then
+`multiple-value-bind` and `destructuring-bind`.
+
+### 1.2b Duplicate scope insertion
+
+`check-for-defun` calls `store-scope-on-interval-tree` **twice** on the same
+scope (`symbols/init.lisp:460` and `:499`), so every function scope is inserted
+into the interval tree twice. Harmless for correctness where callers take the
+first match, wasteful everywhere, and a duplicate-results hazard for anything
+that iterates. Recorded, not fixed.
+
+### 1.3 Duplicate locations in results — **moderate** — ***FIXED***
+
+The declaration was reported twice: once because it sits in the reference index
+like any other occurrence of the symbol, and again because `includeDeclaration`
+pushed it explicitly. Visible as `highlight.lisp Line 26:14` appearing twice in
+the workspace-scale run. Now deduplicated by `(uri, range)`.
+
+> **Correction to an earlier draft of this entry.** It also claimed line 32 was a
+> duplicate. It is not — line 32 of the specimen contains `area` *twice*, as the
+> `flet` parameter and as its use. The first version of the probe compared line
+> numbers rather than full ranges and called two genuine occurrences a duplicate.
+> Same lesson as §0: a measurement can be wrong in the direction that flatters
+> the finding.
 
 ### 1.4 `didOpen` does not build the symbol map — **moderate**
 
@@ -198,6 +272,79 @@ nothing.
 
 This is the largest single gap in usefulness. CLOS and structures are not a
 corner of Common Lisp.
+
+### 1.7 Hover scrapes `describe` output — **the W0 anti-pattern, still present**
+
+`lsp/src/lsp/document/hover.lisp:96` calls `(describe sym str)` into a string and
+then recovers everything it needs with five regexes over SBCL's English prose:
+
+```lisp
+(defparameter *name-regex*   "(\\S+) names a compiled function")
+(defparameter *params-regex* "Lambda-list:\\s+\\((.*?)\\)")
+(defparameter *types-regex*  "Declared\\stype:\\s+\\(FUNCTION\\s+\\((.*?)\\)\\s+\\(VALUES\\s+(.*?)\\)")
+(defparameter *doc-regex*    "Documentation:\\s+(.*?)\\s+Source")
+(defparameter *file-regex*   "Source\\s+file:\\s+(.*)\\s*")
+```
+
+This is **exactly** what W0 removed from diagnostics: parsing prose that SBCL
+formats for humans, when the same information is available as data. `describe`'s
+output format is not a stable interface.
+
+**Every one of these has a structured equivalent, and the file already knows
+about them:**
+
+| scraped | structured |
+|---|---|
+| `Lambda-list:` | `sb-introspect:function-lambda-list` — **already used**, at line 118 |
+| `Declared type:` | `(sb-int:info :function :type sym)`, or `sb-introspect:function-type` |
+| `Documentation:` | `(documentation sym 'function)` — standard CL |
+| `Source file:` | `sb-introspect:find-definition-sources-by-name` — **commented out**, at line 87 |
+| `names a compiled function` | `fboundp` / `macro-function` / `special-operator-p` |
+
+The author reached the structured API twice and still routed the main path
+through prose.
+
+#### The falling-out bug: the param/type zip is positional
+
+`get-params-code` splits the lambda list on spaces, splits the ftype's argument
+list on spaces, and zips them pairwise. Lambda-list markers have no counterpart
+in the type list, so alignment is coincidence. Hovering `serapeum:href` produces
+
+```lisp
+(defun href ;; => T BOOLEAN &OPTIONAL
+    (table  ;; HASH-TABLE
+     &rest  ;; &REST
+     keys) ;; T
+```
+
+which happens to line up, because `(table &rest keys)` and `(hash-table &rest t)`
+have the same shape. It breaks as soon as they do not — `(x &optional (y 5))`
+splits into four tokens (`x`, `&optional`, `(y`, `5)`) against a two-element type
+list, and every annotation after the first is wrong.
+
+Other defects in the same function:
+
+- `(apply #'max (mapcar #'length params-list))` — `apply` over a list of
+  arbitrary length risks `call-arguments-limit`; `(reduce #'max ... )` has no
+  such limit. It also errors on an empty list, guarded only by an earlier
+  `string=` check that a whitespace-only params string would slip past.
+- With no type information at all it fills in `"T"` for every parameter. `;; T`
+  on every line is pure noise — it looks like an annotation and carries nothing.
+
+#### Why this is worth keeping, not deleting
+
+The *intent* is right and is worth more than the implementation. Showing declared
+types at the point of use is a direct answer to
+[`motivation.md`](../motivation.md) §7's typing thread, and it is the one place
+clef already consumes SBCL's type knowledge. The W4 gating experiment established
+that external `declaim ftype` works against libraries you do not own — which
+means this hover is the natural surface for that whole workstream.
+
+So: **rebuild on the structured APIs, keep the presentation idea.** The rendered
+code-block-with-annotations is a good design; the way it is populated is not.
+
+*Recorded, not scoped for this pass* — it is a rewrite of one file rather than a
+bug fix, and it wants doing alongside W4 rather than before it.
 
 ---
 

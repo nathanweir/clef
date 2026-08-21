@@ -142,6 +142,87 @@
                   "Document should be gone after didClose"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Reference scoping
+;;; ---------------------------------------------------------------------------
+
+(defun reference-positions (response)
+  "Sorted (line . character) pairs from a textDocument/references response.
+
+Takes the response rather than a position because CALL-HANDLER is an FLET bound
+by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
+  (let ((result (response-result-safe response)))
+    (when (vectorp result)
+      (sort (map 'list (lambda (loc)
+                         (let ((s (gethash "start" (gethash "range" loc))))
+                           (cons (gethash "line" s) (gethash "character" s))))
+                 result)
+            (lambda (a b) (or (< (car a) (car b))
+                              (and (= (car a) (car b)) (< (cdr a) (cdr b)))))))))
+
+(defun references-params (uri line character)
+  (dict "textDocument" (dict "uri" uri)
+        "position" (dict "line" line "character" character)
+        "context" (dict "includeDeclaration" t)))
+
+(deftest test-references-to-a-let-binding-stay-in-scope
+  "References to a LET-bound variable must not include unrelated same-named symbols"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; TOTAL appears as a defclass slot, as a LET binding, and as two uses
+           ;; of that binding. Only the binding and its uses are references to it.
+           (let* ((code "(defclass boxed ()
+  ((total :initarg :total :accessor boxed-total)))
+
+(defun compute (n)
+  (let ((total (* n 2)))
+    (list total total)))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let ((lines (mapcar #'car
+                                  (reference-positions
+                                   (call-handler "textDocument/references"
+                                                 (references-params uri 4 11))))))
+               (assert-not-nil lines "Should find references to the LET binding")
+               ;; Line 1 is the defclass slot. It shares only a name.
+               (assert-nil (member 1 lines)
+                           "Must not report the defclass slot of the same name")
+               ;; Every result must be inside the DEFUN, which starts at line 3.
+               (assert-true (every (lambda (l) (>= l 3)) lines)
+                            "Every reference must fall inside the binding's scope"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-references-are-not-duplicated
+  "The declaration must not be reported twice when includeDeclaration is set"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun holder ()
+  (let ((item 1))
+    item))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let ((refs (reference-positions
+                          (call-handler "textDocument/references"
+                                        (references-params uri 1 9)))))
+               (assert-not-nil refs "Should find references")
+               (assert-equal (length refs) (length (remove-duplicates refs :test #'equal))
+                             "No location should be reported more than once"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

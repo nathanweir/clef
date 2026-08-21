@@ -34,21 +34,30 @@ Returns all locations where the symbol at the given position is referenced."
 
         (slog :debug "[textDocument/references] Symbol name: ~A" symbol-name)
 
-        ;; Find all references across all files
-        (let ((all-references (find-all-symbol-references symbol-name)))
-          (slog :debug "[textDocument/references] Found ~A reference(s)" (length all-references))
+        ;; Resolve what the symbol at point actually names, then ask for
+        ;; references to THAT, not to everything sharing its spelling.
+        (let* ((definition (or definition-at-point
+                               (search-up-for-symbol-def ref-scope symbol-name)))
+               (lexical (and definition
+                             (lexical-binding-scope-p
+                              (clef-symbols:symbol-definition-defining-scope definition))))
+               (all-references
+                 (if lexical
+                     (find-references-to-binding definition symbol-name)
+                     (find-all-symbol-references symbol-name))))
+          (slog :debug "[textDocument/references] ~A binding, found ~A reference(s)"
+                (if lexical "lexical" "top-level") (length all-references))
 
           ;; Optionally include the definition
           (when include-declaration
-            (let ((definition (or definition-at-point
-                                  (search-up-for-symbol-def ref-scope symbol-name))))
-              (when (and definition (clef-symbols:symbol-definition-location definition))
-                (push (symbol-definition-to-location definition) all-references))))
+            (when (and definition (clef-symbols:symbol-definition-location definition))
+              (push (symbol-definition-to-location definition) all-references)))
 
           ;; Convert to LSP Location array
-          (if all-references
-              (coerce all-references 'vector)
-              #()))))))
+          (let ((unique (dedupe-locations all-references)))
+            (if unique
+                (coerce unique 'vector)
+                #())))))))
 
 (defun find-definition-at-position (document-uri line character)
   "Find a symbol definition at the given position.
@@ -90,9 +99,88 @@ This handles the case where the cursor is on a function/variable name in a defin
     ;; Within range
     (t t)))
 
+;;; ---------------------------------------------------------------------------
+;;; Resolving references to a binding, rather than matching a name
+;;;
+;;; Matching by name alone answered "where else does this word appear", which is
+;;; not the question. Asking for references to the `area' bound by
+;;; (let ((area ...))) returned a defclass slot called `area', a shadowing FLET
+;;; parameter called `area', and -- at workspace scale -- every same-named
+;;; binding in every other file: 73 results across 16 files for a binding whose
+;;; scope was three lines.
+;;;
+;;; The machinery to do better was already designed. LEXICAL-SCOPE has a
+;;; SYMBOL-REFERENCES slot intended for exactly this, but the code filling it
+;;; pushed onto a LET variable instead of onto the hash-table entry, so it was a
+;;; no-op, and nothing ever read the slot. Rather than revive a per-scope cache,
+;;; resolve each candidate up its own scope chain and compare identity -- the
+;;; same path go-to-definition already takes, so the two cannot disagree.
+;;;
+;;; See docs/surveys/lsp-review.md §1.2.
+;;; ---------------------------------------------------------------------------
+
+(defun lexical-binding-scope-p (scope)
+  "Is SCOPE a binding form, rather than a whole file or the workspace?
+
+A lexical binding's references are bounded by its scope. A top-level definition's
+genuinely are workspace-wide, so those keep the name-matching path."
+  (and scope
+       (member (clef-symbols:lexical-scope-kind scope)
+               '(:let :flet :labels :lambda :defun :defmacro))
+       t))
+
+(defun binding-of (ref)
+  "The definition REF actually refers to, resolved up REF's own scope chain."
+  (search-up-for-symbol-def (clef-symbols:symbol-reference-usage-scope ref)
+                            (clef-symbols:symbol-reference-symbol-name ref)))
+
+(defun find-references-to-binding (definition symbol-name)
+  "Locations of every reference that resolves to DEFINITION.
+
+Resolving each candidate independently is what makes shadowing correct: an inner
+parameter of the same name resolves to a different definition and drops out,
+without needing any special-case knowledge of what shadows what."
+  (let ((locations '()))
+    (maphash (lambda (file-path refs-tree)
+               (when refs-tree
+                 (dolist (interval (get-all-intervals-from-tree refs-tree))
+                   (let ((ref (clef-symbols::clef-interval-data interval)))
+                     (when (and ref
+                                (string= (clef-symbols:symbol-reference-symbol-name ref)
+                                         symbol-name)
+                                (eq (binding-of ref) definition))
+                       (push (symbol-reference-to-location ref file-path) locations))))))
+             ctx:symbol-refs)
+    locations))
+
+(defun dedupe-locations (locations)
+  "Remove locations naming the same range of the same file.
+
+The declaration is reported twice without this: once because it is in the
+reference index like any other occurrence of the symbol, and again because
+includeDeclaration pushes it explicitly."
+  (let ((seen (make-hash-table :test 'equal))
+        (result '()))
+    (dolist (loc locations)
+      (let* ((range (gethash "range" loc))
+             (start (and range (gethash "start" range)))
+             (end (and range (gethash "end" range)))
+             (key (list (gethash "uri" loc)
+                        (and start (gethash "line" start))
+                        (and start (gethash "character" start))
+                        (and end (gethash "line" end))
+                        (and end (gethash "character" end)))))
+        (unless (gethash key seen)
+          (setf (gethash key seen) t)
+          (push loc result))))
+    (nreverse result)))
+
 (defun find-all-symbol-references (symbol-name)
   "Find all references to SYMBOL-NAME across all files in the workspace.
-Returns a list of LSP Location dicts."
+Returns a list of LSP Location dicts.
+
+Name-based, and correct only for top-level definitions. Lexical bindings go
+through FIND-REFERENCES-TO-BINDING instead."
   (let ((locations '()))
     ;; Search through all files' symbol reference trees
     (maphash (lambda (file-path refs-tree)
