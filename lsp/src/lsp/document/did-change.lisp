@@ -31,23 +31,23 @@
        ;; Unpack the params into the document uri and range/text data
        (let* ((params (clef-jsonrpc/types:request-params message))
               (document-uri (href params "text-document" "uri"))
-              (content-changes (href params "content-changes"))
-              (documents ctx:documents))
+              (content-changes (href params "content-changes")))
              (slog :debug "[textDocument/didChange] Document: ~A" document-uri)
 
-             (dotimes (i (length content-changes))
-                      (let* ((content-change (aref content-changes i))
-                             (new-document-text (href content-change "text")))
-                            (setf (gethash document-uri documents) new-document-text)))
-
-             ;; Reprocess the symbol-map. This is terribly jank and inefficient to do on every single change; needs debounced at the very least
-             (slog :debug "[textDocument/didChange] Rebuilding symbol map for document: ~A..." document-uri)
-             (let ((start-time (get-internal-real-time)))
-                  (clef-symbols:build-file-symbol-map
-                    (clef-util:cleanup-path document-uri)
-                    (gethash document-uri documents))
-                  (slog :debug "[textDocument/didChange] Rebuilt symbol map in ~A ms."
-                        (/ (- (get-internal-real-time) start-time) 1000.0)))))
+             ;; Sync is Full (textDocumentSync change = 1), so each change carries
+             ;; the whole document and the last one wins. Looping and assigning
+             ;; each in turn reached the same answer but read as though it were
+             ;; applying a sequence of edits, which it is not.
+             (when (plusp (length content-changes))
+                   (let ((text (href (aref content-changes (1- (length content-changes)))
+                                     "text"))
+                         (start-time (get-internal-real-time)))
+                        (index-document document-uri text)
+                        ;; Still a full reparse on every keystroke. Debouncing is
+                        ;; the obvious fix and is recorded rather than done here;
+                        ;; see docs/surveys/lsp-review.md.
+                        (slog :debug "[textDocument/didChange] Rebuilt symbol map in ~A ms."
+                              (/ (- (get-internal-real-time) start-time) 1000.0))))))
 
 
 

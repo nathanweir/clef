@@ -261,6 +261,7 @@ through their own defparameters.")
               handle-text-document-references
               handle-text-document-diagnostic
               handle-text-document-did-open
+              handle-text-document-did-close
               handle-text-document-did-change
               handle-text-document-did-save
               handle-text-document-formatting

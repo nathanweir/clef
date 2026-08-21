@@ -205,35 +205,9 @@
   (my-add 1 2))"
   "Code with a function definition and a call to test go-to-definition")
 
-(defun test-temp-dir ()
-  "Project-local scratch directory for test fixtures.
-
-Global /tmp is deliberately avoided: it is not writable under sandboxed
-environments, and keeping scratch inside the project makes cleanup safe and the
-checkout self-contained."
-  (let ((dir (asdf:system-relative-pathname :clef-lsp "tmp/test/")))
-    (ensure-directories-exist dir)
-    dir))
-
-(defvar *temp-file-counter* 0
-  "Serial number for fixture files. get-universal-time alone has one-second
-resolution, so tests running within the same second collided on a single path --
-which silently aliased file-a and file-b in the cross-file tests.")
-
-(defun write-temp-file (content)
-  "Write content to a fresh temp file and return its path"
-  (let ((path (namestring
-               (merge-pathnames (format nil "clef-test-~D-~D.lisp"
-                                        (get-universal-time)
-                                        (incf *temp-file-counter*))
-                                (test-temp-dir)))))
-    (with-open-file (out path :direction :output :if-exists :supersede)
-      (write-string content out))
-    path))
-
-(defun delete-temp-file (path)
-  "Delete a temp file"
-  (ignore-errors (delete-file path)))
+;; TEST-TEMP-DIR, *TEMP-FILE-COUNTER*, WRITE-TEMP-FILE and DELETE-TEMP-FILE
+;; moved to framework.lisp -- fixture scaffolding that more than one test file
+;; needs. See the note there about load order.
 
 (deftest test-definition-finds-local-function
   "Test that go-to-definition on a function call finds the function definition"

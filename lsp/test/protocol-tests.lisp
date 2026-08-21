@@ -89,6 +89,59 @@
       (assert-nil response "An unknown notification must be dropped silently"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Document lifecycle
+;;; ---------------------------------------------------------------------------
+
+(deftest test-did-open-alone-builds-the-symbol-map
+  "didOpen must index the file, without needing a didChange first"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun open-indexed-fn (x) (+ x 1))
+(defun open-caller () (open-indexed-fn 2))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             ;; Deliberately NO didChange. Every other test in the suite sends
+             ;; one straight after didOpen, which is exactly what hid the fact
+             ;; that didOpen did not index at all.
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri
+                                                      "languageId" "lisp"
+                                                      "version" 1
+                                                      "text" code))
+                           :id nil)
+             ;; Line 1 char 22 is inside the call to OPEN-INDEXED-FN.
+             (let* ((response (call-handler "textDocument/definition"
+                                            (dict "textDocument" (dict "uri" uri)
+                                                  "position" (dict "line" 1 "character" 22))))
+                    (result (response-result-safe response)))
+               (assert-not-nil result
+                               "didOpen alone should be enough to resolve a definition"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-did-close-drops-the-document
+  "didClose must evict the document text"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/proto-close.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri
+                                               "languageId" "lisp"
+                                               "version" 1
+                                               "text" "(defun closing () 1)"))
+                    :id nil)
+      (assert-not-nil (gethash uri clef-context:documents)
+                      "Document should be present after didOpen")
+      (let ((response (call-handler "textDocument/didClose"
+                                    (dict "textDocument" (dict "uri" uri))
+                                    :id nil)))
+        (assert-nil response "didClose is a notification and must not be answered"))
+      (assert-nil (gethash uri clef-context:documents)
+                  "Document should be gone after didClose"))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

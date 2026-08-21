@@ -117,6 +117,7 @@
        (sethandler "textDocument/references" 'clef-lsp/document:handle-text-document-references)
        (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open)
        (sethandler "textDocument/didChange" 'clef-lsp/document:handle-text-document-did-change)
+       (sethandler "textDocument/didClose" 'clef-lsp/document:handle-text-document-did-close)
        (sethandler "textDocument/didSave" 'clef-lsp/document:handle-text-document-did-save)
        (sethandler "textDocument/formatting" 'clef-lsp/document:handle-text-document-formatting)
        (sethandler "textDocument/diagnostic" 'clef-lsp/document:handle-text-document-diagnostic)
