@@ -120,7 +120,7 @@ referenced.
 *Found by* the new protocol test, not by reading — the constant is visually
 plausible and sits among a dozen correct ones.
 
-### 1.2 `findReferences` ignores lexical scope — **severe** — ***MOSTLY FIXED***
+### 1.2 `findReferences` ignores lexical scope — **severe** — ***FIXED***
 
 Reported references for a `let`-bound variable include bindings that are not it.
 
@@ -149,8 +149,10 @@ whose scope is three lines — returned **73 results across 16 files**, includin
 conflates the local with `CL:SYMBOL-NAME`.
 
 *Note:* `documentHighlight` returned the same 7 results for the same position and
-shares the defect. It has **not** been fixed — it still walks the interval trees
-by name. Recorded, not scoped.
+shared the defect. It has since been rewritten onto the same resolution path, so
+the three operations cannot disagree about what a symbol refers to. It also
+deduplicates: a binding's name node is recorded both as a definition and as a
+reference, so it was highlighted twice, with two different kinds.
 
 #### Root cause, found by reading
 
@@ -182,15 +184,28 @@ correct for them.
 *Measured after the fix,* same probe: **7 results → 5**. The `defclass` slot is
 gone, and so is the duplicated declaration.
 
-#### What is still wrong: `flet` and `labels` create no scope
+#### `flet` and `labels` created no scope — ***FIXED***
 
-The remaining 2 of 5 are the shadowing `(flet ((scale (area) (* area 2))))`
-parameter and its use. They survive because **nothing in the indexer handles
-`flet` or `labels`** — so the inner `area` has no definition anywhere, resolves
-up to the outer `let` binding, and is correctly-by-its-own-logic included.
+The remaining 2 of 5 were the shadowing `(flet ((scale (area) (* area 2))))`
+parameter and its use. They survived because **nothing in the indexer handled
+`flet` or `labels`** — the inner `area` had no definition anywhere, resolved up
+to the outer `let` binding, and was correctly-by-its-own-logic included.
+`+scope-kinds+` listed `:flet` and `:labels` while nothing ever constructed
+either: the same declared-but-unimplemented pattern as everything else here.
 
-`+scope-kinds+` in `symbols/types.lisp` lists `:flet` and `:labels`. Nothing ever
-constructs a scope with either kind. Another declared-but-unimplemented thing.
+Now handled, at two levels, because they have two extents: the local function
+names belong to the whole form, each binding's parameters only to that binding.
+`macrolet` binds the same way and goes through the same path.
+
+One consequence worth recording. The tree walk sets the *current* scope per node,
+and it never descends into a per-binding parameter scope — so a reference in an
+`flet` body carries the `flet`'s scope, not the parameter's. `binding-of` now
+resolves a reference from its **position** rather than from the scope recorded on
+it, which gets the innermost scope that actually contains it and matches how
+go-to-definition already worked.
+
+**Measured, end to end:** references to the `let`-bound `area` went 73 across 16
+files → 7 → 5 → **3, all correct** — the binding and its two genuine uses.
 
 **The walk runs exactly four checks**: `in-package`, `defun`, `let`/`let*`, and
 `defparameter`/`defconstant`/`defvar`. Every other binding form in Common Lisp is

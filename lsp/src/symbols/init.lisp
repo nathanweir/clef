@@ -249,6 +249,7 @@ Note that symbol-ref can be nil if none is at the location"
                                   ;; and relevant symbol-definition's
                                   (check-for-defun n node-type file-path file-source)
                                   (check-for-let-binding n node-type file-path file-source)
+                                  (check-for-local-function-binding n node-type file-path file-source)
                                   (check-for-simple-define n node-type file-path file-source)
                                   ;; Type-defining forms. All plain :LIST-LITs,
                                   ;; unlike DEFUN which has a grammar node.
@@ -522,6 +523,94 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                              :end (location-end (lexical-scope-location scope)))))
             (setf (clef-interval-data new-interval) scope)
             (interval:insert scopes-tree new-interval)))
+
+(defun check-for-local-function-binding (node node-type file-path source)
+       "FLET, LABELS and MACROLET: local function names and their parameters.
+
+Nothing handled these, so +SCOPE-KINDS+ advertised :flet and :labels while
+nothing ever constructed either. A parameter shadowing an outer binding
+therefore resolved to the outer one, because the inner binding did not exist:
+
+    (let ((area (* radius radius)))
+      (flet ((scale (area) (* area 2)))   ; a DIFFERENT binding named AREA
+        ...))
+
+Two levels of scope, because they have different extents. The local function
+names belong to the whole form; each binding's parameters belong only to that
+binding. See docs/surveys/lsp-review.md §1.2."
+       (unless (equal node-type '(:value :list-lit))
+               (return-from check-for-local-function-binding nil))
+       (let* ((children (ts:node-children node))
+              (head (first children))
+              (kind (when (and head (equal (ts:node-type head) '(:value :sym-lit)))
+                          (let ((text (fast-node-text head source file-path)))
+                               (cond ((string-equal text "flet") :flet)
+                                     ((string-equal text "labels") :labels)
+                                     ;; MACROLET binds the same way; it defines
+                                     ;; macros rather than functions, and clef
+                                     ;; does not distinguish the two.
+                                     ((string-equal text "macrolet") :flet)
+                                     (t nil))))))
+             (unless kind (return-from check-for-local-function-binding nil))
+             (let ((bindings (ts:node-children (second children)))
+                   (scope (make-lexical-scope
+                            :kind kind
+                            :location (location-for-node file-path node)
+                            :parent-scope *current-scope*
+                            :symbol-definitions '()
+                            :symbol-references (make-hash-table)
+                            :child-scopes '()
+                            :node node)))
+                  (setf *current-scope* scope)
+                  (store-scope-on-interval-tree scope file-path)
+                  (dolist (binding bindings)
+                          (when (equal (ts:node-type binding) '(:value :list-lit))
+                                (let* ((parts (ts:node-children binding))
+                                       (name-node (first parts))
+                                       (lambda-list (second parts)))
+                                      ;; The local function's own name, visible
+                                      ;; throughout the form.
+                                      (when (and name-node
+                                                 (equal (ts:node-type name-node)
+                                                        '(:value :sym-lit)))
+                                            (push (make-symbol-definition
+                                                    :symbol-name (fast-node-text name-node source file-path)
+                                                    :package-name *current-package*
+                                                    :kind :function
+                                                    :location (location-for-node file-path name-node)
+                                                    :defining-scope scope
+                                                    :node name-node
+                                                    :form-node binding)
+                                                  (lexical-scope-symbol-definitions scope)))
+                                      ;; Its parameters, in a scope covering only
+                                      ;; this binding, which is what makes the
+                                      ;; shadowing come out right.
+                                      (when (and lambda-list
+                                                 (equal (ts:node-type lambda-list)
+                                                        '(:value :list-lit)))
+                                            (let ((param-scope
+                                                    (make-lexical-scope
+                                                      :kind :lambda
+                                                      :location (location-for-node file-path binding)
+                                                      :parent-scope scope
+                                                      :symbol-definitions '()
+                                                      :symbol-references (make-hash-table)
+                                                      :child-scopes '()
+                                                      :node binding)))
+                                                 (dolist (param (ts:node-children lambda-list))
+                                                         (when (equal (ts:node-type param)
+                                                                      '(:value :sym-lit))
+                                                               (push (make-symbol-definition
+                                                                       :symbol-name (fast-node-text param source file-path)
+                                                                       :package-name *current-package*
+                                                                       :kind :variable
+                                                                       :location (location-for-node file-path param)
+                                                                       :defining-scope param-scope
+                                                                       :node param
+                                                                       :form-node binding)
+                                                                     (lexical-scope-symbol-definitions param-scope))))
+                                                 (store-scope-on-interval-tree param-scope file-path))))))
+                  scope)))
 
 (defun check-for-let-binding (node node-type file-path source)
        "Check for 'let' or 'let*' bindings that create new lexical scopes and variable definitions."

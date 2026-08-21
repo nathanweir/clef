@@ -5,9 +5,35 @@
 (defconstant +highlight-kind-read+ 2 "Read-access of a symbol, like reading a variable.")
 (defconstant +highlight-kind-write+ 3 "Write-access of a symbol, like writing to a variable.")
 
+(defun dedupe-highlights (highlights)
+  "Drop highlights covering the same range.
+
+The name node of a binding is recorded both as a definition and as a reference,
+so without this it is highlighted twice -- and with two different kinds, which
+some clients render as an overlapping mess."
+  (let ((seen (make-hash-table :test 'equal))
+        (result '()))
+    (dolist (h highlights)
+      (let* ((range (gethash "range" h))
+             (start (gethash "start" range))
+             (end (gethash "end" range))
+             (key (list (gethash "line" start) (gethash "character" start)
+                        (gethash "line" end) (gethash "character" end))))
+        (unless (gethash key seen)
+          (setf (gethash key seen) t)
+          (push h result))))
+    (nreverse result)))
+
 (defun handle-text-document-highlight (message)
   "Handle a textDocument/documentHighlight request.
-Returns all occurrences of the symbol under cursor in the current document."
+
+Every occurrence *of the binding* under the cursor, within this file.
+
+Resolution goes through the same path as find-references and go-to-definition,
+which is the point: highlighting used to match by name, so putting the cursor on
+a LET-bound variable lit up every same-named symbol in the file including a
+DEFCLASS slot and a shadowing FLET parameter. Sharing the resolution means the
+three cannot disagree about what a symbol refers to."
   (let* ((params (clef-jsonrpc/types:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
@@ -15,59 +41,52 @@ Returns all occurrences of the symbol under cursor in the current document."
          (character (href position "character"))
          (file-path (clef-util:cleanup-path document-uri)))
     (slog :debug "[textDocument/documentHighlight] Document: ~A" document-uri)
-    (slog :debug "[textDocument/documentHighlight] Position: line ~A, char ~A" line character)
 
-    ;; Get the symbol at position (either a reference or definition)
-    (multiple-value-bind (ref-name ref-scope)
+    (multiple-value-bind (ref-name ref-scope ref-package)
         (get-ref-for-doc-pos document-uri line character)
-      (declare (ignore ref-scope))
-
-      ;; If no reference at position, check if we're on a definition
-      (let ((symbol-name ref-name))
-        (unless symbol-name
-          (let ((def (find-definition-at-position document-uri line character)))
-            (when def
-              (setf symbol-name (clef-symbols:symbol-definition-symbol-name def))
-              (slog :debug "[textDocument/documentHighlight] Found definition at point: ~A" symbol-name))))
-
+      (let* ((definition (or (when ref-name
+                               (search-up-for-symbol-def ref-scope ref-name ref-package))
+                             (find-definition-at-position document-uri line character)))
+             (symbol-name (or ref-name
+                              (when definition
+                                (clef-symbols:symbol-definition-symbol-name definition)))))
         (unless symbol-name
           (slog :debug "[textDocument/documentHighlight] No symbol at position")
           (return-from handle-text-document-highlight #()))
 
-        (slog :debug "[textDocument/documentHighlight] Symbol: ~A" symbol-name)
-
-        ;; Find all occurrences in this file
-        (let ((highlights '()))
-          ;; Add all references in this file
+        (let* ((lexical (and definition
+                             (lexical-binding-scope-p
+                              (clef-symbols:symbol-definition-defining-scope definition))))
+               (highlights '()))
+          ;; Uses, from this file only -- documentHighlight is per-document.
           (let ((refs-tree (gethash file-path ctx:symbol-refs)))
             (when refs-tree
-              (let ((all-refs (get-all-intervals-from-tree refs-tree)))
-                (dolist (interval all-refs)
-                  (let ((ref (clef-symbols::clef-interval-data interval)))
-                    (when (and ref
-                               (string= (clef-symbols:symbol-reference-symbol-name ref)
-                                        symbol-name))
-                      (push (make-highlight (clef-symbols:symbol-reference-node ref)
-                                            +highlight-kind-read+)
-                            highlights)))))))
+              (dolist (interval (get-all-intervals-from-tree refs-tree))
+                (let ((ref (clef-symbols::clef-interval-data interval)))
+                  (when (and ref
+                             (string= (clef-symbols:symbol-reference-symbol-name ref)
+                                      symbol-name)
+                             ;; A lexical binding's occurrences are only those
+                             ;; that actually resolve to it. A top-level name
+                             ;; keeps the name match, which is right for it.
+                             (or (not lexical)
+                                 (eq (binding-of ref file-path) definition)))
+                    (push (make-highlight (clef-symbols:symbol-reference-node ref)
+                                          +highlight-kind-read+)
+                          highlights))))))
 
-          ;; Add definitions in this file
-          (let ((scopes-tree (gethash file-path ctx:lexical-scopes)))
-            (when scopes-tree
-              (let ((all-scopes (get-all-intervals-from-tree scopes-tree)))
-                (dolist (scope-interval all-scopes)
-                  (let ((scope (clef-symbols::clef-interval-data scope-interval)))
-                    (when scope
-                      (dolist (def (clef-symbols:lexical-scope-symbol-definitions scope))
-                        (when (string= (clef-symbols:symbol-definition-symbol-name def)
-                                       symbol-name)
-                          (let ((node (clef-symbols:symbol-definition-node def)))
-                            (when node
-                              (push (make-highlight node +highlight-kind-write+)
-                                    highlights)))))))))))
+          ;; The binding itself, when it lives in this file.
+          (when definition
+            (let ((node (clef-symbols:symbol-definition-node definition))
+                  (location (clef-symbols:symbol-definition-location definition)))
+              (when (and node location
+                         (string= (clef-symbols:location-file-path location) file-path))
+                (push (make-highlight node +highlight-kind-write+) highlights))))
 
-          (slog :debug "[textDocument/documentHighlight] Found ~A highlights" (length highlights))
-          (coerce (nreverse highlights) 'vector))))))
+          (let ((unique (dedupe-highlights (nreverse highlights))))
+            (slog :debug "[textDocument/documentHighlight] Found ~A highlight(s)"
+                  (length unique))
+            (coerce unique 'vector)))))))
 
 (defun make-highlight (node kind)
   "Create an LSP DocumentHighlight dict from a tree-sitter node."

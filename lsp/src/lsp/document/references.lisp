@@ -129,11 +129,31 @@ genuinely are workspace-wide, so those keep the name-matching path."
                '(:let :flet :labels :lambda :defun :defmacro))
        t))
 
-(defun binding-of (ref)
-  "The definition REF actually refers to, resolved up REF's own scope chain."
-  (search-up-for-symbol-def (clef-symbols:symbol-reference-usage-scope ref)
-                            (clef-symbols:symbol-reference-symbol-name ref)
-                            (clef-symbols:symbol-reference-package-name ref)))
+(defun innermost-scope-at (file-path offset)
+  "The innermost scope containing OFFSET in FILE-PATH, or NIL.
+
+Mirrors what GET-REF-FOR-DOC-POS does for a line/character position."
+  (let ((scopes (ignore-errors
+                 (interval:find-all (gethash file-path ctx:lexical-scopes) offset))))
+    (when scopes
+      (clef-symbols::clef-interval-data (first (last scopes))))))
+
+(defun binding-of (ref file-path)
+  "The definition REF actually refers to.
+
+Resolved from REF's *position* rather than from the scope recorded on it. Those
+differ for bindings whose scope the tree walk never descends into: an FLET
+parameter's scope covers one binding, but the walk has FLET's own scope current
+while it visits that binding's body, so a reference there carries the outer
+scope. Going by position gets the innermost scope that actually contains the
+reference, and matches how go-to-definition resolves."
+  (let* ((location (clef-symbols:symbol-reference-location ref))
+         (scope (or (when location
+                      (innermost-scope-at file-path (clef-symbols:location-start location)))
+                    (clef-symbols:symbol-reference-usage-scope ref))))
+    (search-up-for-symbol-def scope
+                              (clef-symbols:symbol-reference-symbol-name ref)
+                              (clef-symbols:symbol-reference-package-name ref))))
 
 (defun find-references-to-binding (definition symbol-name)
   "Locations of every reference that resolves to DEFINITION.
@@ -149,7 +169,7 @@ without needing any special-case knowledge of what shadows what."
                      (when (and ref
                                 (string= (clef-symbols:symbol-reference-symbol-name ref)
                                          symbol-name)
-                                (eq (binding-of ref) definition))
+                                (eq (binding-of ref file-path) definition))
                        (push (symbol-reference-to-location ref file-path) locations))))))
              ctx:symbol-refs)
     locations))

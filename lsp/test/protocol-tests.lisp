@@ -714,6 +714,130 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (dolist (p paths) (when p (delete-temp-file p))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; FLET and LABELS shadowing
+;;; ---------------------------------------------------------------------------
+
+(defparameter *shadowing-code* "(defun outer (radius)
+  (let ((area (* radius radius)))
+    (flet ((scale (area) (* area 2)))
+      (list area (scale 1)))))")
+
+(deftest test-flet-parameter-shadows-an-outer-binding
+  "References to an outer LET binding must exclude a shadowing FLET parameter"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; Line 1 char 9 is AREA in the LET binding.
+             (let ((lines (mapcar #'car
+                                  (reference-positions
+                                   (call-handler "textDocument/references"
+                                                 (references-params uri 1 9))))))
+               (assert-not-nil lines "Should find references to the LET binding")
+               (assert-true (member 3 lines)
+                            "Should include the genuine use on line 3")
+               ;; Line 2 holds the FLET parameter AREA and its use. Both belong
+               ;; to a different binding entirely.
+               (assert-nil (member 2 lines)
+                           "Must NOT include the shadowing FLET parameter or its use"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-flet-parameter-has-its-own-references
+  "References to the FLET parameter must exclude the outer binding"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; Line 2 char 19 is AREA as the FLET parameter -- char 18 is the
+             ;; opening paren of the lambda list.
+             (let ((lines (mapcar #'car
+                                  (reference-positions
+                                   (call-handler "textDocument/references"
+                                                 (references-params uri 2 19))))))
+               (assert-not-nil lines "Should find references to the FLET parameter")
+               (assert-nil (member 1 lines)
+                           "Must NOT include the outer LET binding")
+               (assert-nil (member 3 lines)
+                           "Must NOT include the outer binding's use"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-local-function-name-resolves
+  "Go-to-definition on a call to an FLET-bound function finds the binding"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; Line 3 char 18 is the call to SCALE.
+             (let ((result (response-result-safe
+                            (call-handler "textDocument/definition"
+                                          (dict "textDocument" (dict "uri" uri)
+                                                "position" (dict "line" 3 "character" 18))))))
+               (assert-not-nil result "A local function call should resolve")
+               (when (hash-table-p result)
+                 (assert-equal 2 (gethash "line" (gethash "start" (gethash "range" result)))
+                               "Should point at the FLET binding on line 2")))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-document-highlight-respects-shadowing
+  "documentHighlight must agree with find-references about what a symbol is"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; Line 1 char 9 is AREA in the LET binding.
+             (let* ((result (response-result-safe
+                             (call-handler "textDocument/documentHighlight"
+                                           (dict "textDocument" (dict "uri" uri)
+                                                 "position" (dict "line" 1 "character" 9)))))
+                    (lines (when (vectorp result)
+                             (map 'list (lambda (h)
+                                          (gethash "line" (gethash "start" (gethash "range" h))))
+                                  result))))
+               (assert-not-nil lines "Should highlight something")
+               (assert-true (member 3 lines) "Should highlight the genuine use on line 3")
+               (assert-nil (member 2 lines)
+                           "Must NOT highlight the shadowing FLET parameter")
+               ;; And no range twice: the binding's name node is recorded both as
+               ;; a definition and as a reference.
+               (let ((ranges (when (vectorp result)
+                               (map 'list (lambda (h)
+                                            (let ((s (gethash "start" (gethash "range" h))))
+                                              (list (gethash "line" s) (gethash "character" s))))
+                                    result))))
+                 (assert-equal (length ranges)
+                               (length (remove-duplicates ranges :test #'equal))
+                               "No range should be highlighted twice")))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 
