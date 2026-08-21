@@ -253,12 +253,24 @@ the sweep:
 |---|---|
 | `defun` | ✓ |
 | `defmacro` | ✓ |
+| `defgeneric` / `defmethod` | ✓ — both, as separate entries |
 | `defvar`, `defparameter`, `defconstant` | ✓ |
 | `defclass` — the class, its slots, its `:accessor`/`:reader`/`:writer` | ✗ |
 | `defstruct` — the type, its constructor, its generated accessors | ✗ |
 | `define-condition` and its accessors | ✗ |
 | `deftype` | ✗ |
-| `defgeneric` / `defmethod` | ✗ |
+
+> **Correction.** An earlier draft of this table had `defgeneric`/`defmethod` in
+> the not-indexed row. They are indexed — `documentSymbol` lists both the
+> `defgeneric` and its `defmethod` as separate entries, which is the right answer
+> for Common Lisp. The mistaken row came from a probe that asked for
+> go-to-definition **at a definition site** rather than at a use site, which is a
+> different question with a legitimately different answer. The `defclass`,
+> `defstruct` and `deftype` rows were probed at use sites and stand.
+>
+> Third bad probe of the review. The pattern is consistent enough to state as a
+> rule: **a negative result is only a finding once the probe has been shown to
+> produce a positive result for a case that works.**
 
 The recognised set is hardcoded in `symbols/init.lisp` — `defun` via the
 grammar's `:defun` node (which also covers `defmacro`), and
@@ -272,6 +284,45 @@ nothing.
 
 This is the largest single gap in usefulness. CLOS and structures are not a
 corner of Common Lisp.
+
+### 1.8 Identical scope intervals collide, and one is silently dropped — **moderate**
+
+Scopes are stored in a per-file interval tree keyed by `(start . end)`. When two
+scopes have **identical** extents the tree keeps only one.
+
+That is not a corner case. A file consisting of one top-level `defun` has a defun
+scope whose extent equals the document scope's, so **the defun scope vanishes**.
+Measured:
+
+```
+;; one form, defun spans the whole file
+all scopes in the tree:
+   :DOCUMENT  [0 54]          <- the :DEFUN scope is simply absent
+
+;; same file plus a trailing (defvar *after* 1)
+all scopes in the tree:
+   :DOCUMENT  [0 73]
+   :DEFUN     [0 54]          <- now it survives
+```
+
+Consequences beyond the outline: inside such a file, any position-based scope
+lookup finds only the document scope, so go-to-definition on a **parameter**
+fails and local reference scoping falls back. Small single-function files — and
+every file while its first function is being written — are affected.
+
+*Worked around* for `documentSymbol` by recording the defining form's node on the
+`symbol-definition` at index time (`form-node`) instead of recovering it from the
+tree. **The underlying collision is not fixed** and should be: either make the
+stored intervals distinct, or stop using an interval tree as the only record of
+what scopes exist.
+
+Related: `check-for-defun` inserts the same scope into the tree **twice**
+(`symbols/init.lisp:460` and `:499`). Harmless only because the tree deduplicates
+identical intervals — the same behaviour that causes the bug above.
+
+Also dead in the same area: `lexical-scope-child-scopes` is only ever pushed to
+for the document scope itself (`init.lisp:228`). No `check-for-*` links a child
+scope to its parent, so the slot cannot be used to walk the scope tree downward.
 
 ### 1.7 Hover scrapes `describe` output — **the W0 anti-pattern, still present**
 
@@ -356,8 +407,8 @@ bug fix, and it wants doing alongside W4 rather than before it.
 
 | method | why it matters |
 |---|---|
-| `textDocument/documentSymbol` | The outline. Every editor's symbol pane, breadcrumb and fuzzy in-file jump. **Claude Code's LSP client calls it and gets `Method not found`.** Largest single win available. |
-| `textDocument/didClose` | **Advertised** — `openClose: true` is in the capabilities — but unhandled. Documents are never evicted from `ctx:documents`; the map only grows, and stale text is served for closed files. |
+| ~~`textDocument/documentSymbol`~~ | ***IMPLEMENTED.*** The outline — every editor's symbol pane, breadcrumb and in-file jump, and the first thing an agent asks for. Returns `DocumentSymbol[]`, with `range` spanning the whole definition and `selectionRange` the name. |
+| ~~`textDocument/didClose`~~ | ***IMPLEMENTED.*** |
 | `textDocument/prepareCallHierarchy` + `callHierarchy/{incoming,outgoing}Calls` | Who calls this / what does this call. Available to Claude Code; currently `Method not found`. |
 | `textDocument/rename` + `prepareRename` | `rename.lisp` exists as unregistered WIP and references a variable that no longer exists. Either finish or delete. |
 

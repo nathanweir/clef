@@ -123,6 +123,7 @@
        (sethandler "textDocument/diagnostic" 'clef-lsp/document:handle-text-document-diagnostic)
        (sethandler "textDocument/hover" 'clef-lsp/document:handle-text-document-hover)
        (sethandler "textDocument/documentHighlight" 'clef-lsp/document:handle-text-document-highlight)
+       (sethandler "textDocument/documentSymbol" 'clef-lsp/document:handle-text-document-document-symbol)
        (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
        (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)

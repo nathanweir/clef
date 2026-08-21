@@ -469,7 +469,9 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                                         :location (location-for-node file-path (first defun-header-children))
                                         ;; :defining-scope nil)))
                                         :defining-scope *current-scope*
-                                        :node defun-name-n)))
+                                        :node defun-name-n
+                                        ;; The whole (defun ... ) form.
+                                        :form-node node)))
                          ;; (slog :debug "Found ~A named: ~A" defun-type defun-name)
                          (push symbol-def (lexical-scope-symbol-definitions *current-scope*))
                          ;; Add top-level definitions to workspace index for cross-file lookup
@@ -604,7 +606,9 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                             :location (location-for-node file-path name-node)
                             ;; :defining-scope nil)))
                             :defining-scope *current-scope*
-                            :node name-node)))
+                            :node name-node
+                            ;; The whole (defparameter ... ) form.
+                            :form-node node)))
              ;; (slog :debug "Found ~A named: ~A" define-type var-name)
              (push symbol-def (lexical-scope-symbol-definitions *current-scope*))
              ;; Add top-level definitions to workspace index for cross-file lookup

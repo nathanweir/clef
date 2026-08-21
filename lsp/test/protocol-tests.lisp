@@ -223,6 +223,92 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; documentSymbol
+;;; ---------------------------------------------------------------------------
+
+(deftest test-document-symbol-lists-top-level-definitions
+  "documentSymbol must report the file's top-level definitions"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defvar *tally* 0)
+
+(defun add-one (n)
+  (let ((local 1))
+    (+ n local)))
+
+(defmacro twice (form)
+  `(progn ,form ,form))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let* ((response (call-handler "textDocument/documentSymbol"
+                                            (dict "textDocument" (dict "uri" uri))))
+                    (result (response-result-safe response))
+                    (names (when (vectorp result)
+                             (map 'list (lambda (s) (gethash "name" s)) result))))
+               (assert-true (answered-p response) "documentSymbol must answer")
+               (assert-not-nil names "Should report symbols")
+               (assert-true (member "*tally*" names :test #'string=) "Should list the defvar")
+               (assert-true (member "add-one" names :test #'string=) "Should list the defun")
+               (assert-true (member "twice" names :test #'string=) "Should list the defmacro")
+               ;; An outline listing every local binding would be unreadable, and
+               ;; no editor presents them that way.
+               (assert-nil (member "local" names :test #'string=)
+                           "Should NOT list LET-bound locals"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-document-symbol-range-contains-selection-range
+  "The spec requires selectionRange to be contained within range"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun spans-several-lines (a b)
+  (list a
+        b))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let* ((response (call-handler "textDocument/documentSymbol"
+                                            (dict "textDocument" (dict "uri" uri))))
+                    (result (response-result-safe response))
+                    (sym (when (and (vectorp result) (plusp (length result)))
+                           (aref result 0))))
+               (assert-not-nil sym "Should report the function")
+               (when sym
+                 (let ((r-start (gethash "line" (gethash "start" (gethash "range" sym))))
+                       (r-end (gethash "line" (gethash "end" (gethash "range" sym))))
+                       (s-start (gethash "line" (gethash "start" (gethash "selectionRange" sym)))))
+                   (assert-true (and (<= r-start s-start) (<= s-start r-end))
+                                "selectionRange must fall inside range")
+                   ;; And range must span the whole definition, not just the
+                   ;; name -- that is what gives an editor its breadcrumb.
+                   (assert-true (> r-end r-start)
+                                "range should cover the whole multi-line definition"))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-document-symbol-on-unknown-file-answers-empty
+  "documentSymbol for a file with no symbol map must answer, with an empty array"
+  (with-direct-handler-test
+    (init-server)
+    (let ((response (call-handler "textDocument/documentSymbol"
+                                  (dict "textDocument"
+                                        (dict "uri" "file:///tmp/never-opened.lisp")))))
+      (assert-true (answered-p response) "Must still answer")
+      (assert-true (vectorp (response-result-safe response))
+                   "Empty is an array, not null -- the file simply has no symbols"))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

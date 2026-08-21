@@ -1,32 +1,9 @@
 (in-package :clef-lsp/workspace)
 
-;; SymbolKind constants (LSP spec)
-(defconstant +symbol-kind-file+ 1)
-(defconstant +symbol-kind-module+ 2)
-(defconstant +symbol-kind-namespace+ 3)
-(defconstant +symbol-kind-package+ 4)
-(defconstant +symbol-kind-class+ 5)
-(defconstant +symbol-kind-method+ 6)
-(defconstant +symbol-kind-property+ 7)
-(defconstant +symbol-kind-field+ 8)
-(defconstant +symbol-kind-constructor+ 9)
-(defconstant +symbol-kind-enum+ 10)
-(defconstant +symbol-kind-interface+ 11)
-(defconstant +symbol-kind-function+ 12)
-(defconstant +symbol-kind-variable+ 13)
-(defconstant +symbol-kind-constant+ 14)
-(defconstant +symbol-kind-string+ 15)
-(defconstant +symbol-kind-number+ 16)
-(defconstant +symbol-kind-boolean+ 17)
-(defconstant +symbol-kind-array+ 18)
-(defconstant +symbol-kind-object+ 19)
-(defconstant +symbol-kind-key+ 20)
-(defconstant +symbol-kind-null+ 21)
-(defconstant +symbol-kind-enum-member+ 22)
-(defconstant +symbol-kind-struct+ 23)
-(defconstant +symbol-kind-event+ 24)
-(defconstant +symbol-kind-operator+ 25)
-(defconstant +symbol-kind-type-parameter+ 26)
+;; The SymbolKind constants and LISP-KIND-TO-LSP-KIND used to be defined here.
+;; They now live in :clef-lsp/types/basic alongside NODE-TO-RANGE, since
+;; textDocument/documentSymbol needs the same mapping and a second copy of a
+;; lookup table is how two copies drift.
 
 (defun handle-workspace-symbol (message)
   "Handle a workspace/symbol request.
@@ -65,19 +42,5 @@ Returns symbols matching the query from across the workspace."
           "location" (dict "uri" (format nil "file://~A" file-path)
                            "range" (node-to-range node)))))
 
-(defun lisp-kind-to-lsp-kind (kind)
-  "Convert internal symbol kind to LSP SymbolKind."
-  (case kind
-    (:function +symbol-kind-function+)
-    (:macro +symbol-kind-function+)  ; No macro kind in LSP, use function
-    (:variable +symbol-kind-variable+)
-    (:constant +symbol-kind-constant+)
-    (:parameter +symbol-kind-variable+)
-    (:class +symbol-kind-class+)
-    (:struct +symbol-kind-struct+)
-    (:method +symbol-kind-method+)
-    (:special-operator +symbol-kind-operator+)
-    (otherwise +symbol-kind-variable+)))
-
-;; NODE-TO-RANGE was defined here too. It is now imported from
-;; :clef-lsp/types/basic, which is where the one copy lives.
+;; NODE-TO-RANGE and LISP-KIND-TO-LSP-KIND are imported from
+;; :clef-lsp/types/basic, which is where the one copy of each lives.

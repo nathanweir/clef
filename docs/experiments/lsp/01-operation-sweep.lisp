@@ -280,12 +280,35 @@
                                          "character" (col-of *specimen* "(let ((area (* radius radius" "area")))
                   :expect-nonempty t)))
 
+(defun probe-document-symbol (call)
+  (format t "~&~%== documentSymbol, the file outline ==~%")
+  (let* ((r (result-of (funcall call "textDocument/documentSymbol"
+                                (dict "textDocument" (dict "uri" *uri*))
+                                1))))
+    (if (or (null r) (zerop (length r)))
+        (note :gap "documentSymbol" "returned nothing")
+        (progn
+          (note :ok "documentSymbol" (format nil "~A symbol(s)" (length r)))
+          (map nil (lambda (s)
+                     (let* ((range (gethash "range" s))
+                            (sel (gethash "selectionRange" s))
+                            (rl (gethash "line" (gethash "start" range)))
+                            (re (gethash "line" (gethash "end" range)))
+                            (sl (gethash "line" (gethash "start" sel))))
+                       ;; The spec requires selectionRange to be inside range.
+                       (unless (and (<= rl sl) (<= sl re))
+                         (note :bug "documentSymbol"
+                               (format nil "~A: selectionRange outside range"
+                                       (gethash "name" s))))
+                       (format t "      ~2D-~2D  kind ~2D  ~A~%"
+                               rl re (gethash "kind" s) (gethash "name" s))))
+               r)))))
+
 (defun probe-unregistered-methods (call)
   (format t "~&~%== methods a client will ask for ==~%")
   ;; What an editor or agent sends whether or not we advertise it. Anything
   ;; unhandled should at least fail cleanly rather than take the server down.
-  (dolist (method '("textDocument/documentSymbol"
-                    "textDocument/didClose"
+  (dolist (method '("textDocument/didClose"
                     "textDocument/rename"
                     "textDocument/prepareRename"
                     "textDocument/codeAction"
@@ -317,6 +340,7 @@
       (probe-definition-forms #'call)
       (probe-reference-scoping #'call)
       (probe-other-operations #'call)
+      (probe-document-symbol #'call)
       (probe-unregistered-methods #'call)))
 
   (format t "~&~%========================================~%")

@@ -45,7 +45,23 @@
            (location nil :type (or null location))
            (defining-scope nil :type lexical-scope)
            ;; The AST node. TODO: This might be an AWFUL idea
-           (node nil))
+           (node nil)
+           ;; The node of the whole defining FORM, where NODE is just the name.
+           ;;
+           ;; (defun foo (x) ...)
+           ;;  ^--------------^   form-node
+           ;;         ^-^         node
+           ;;
+           ;; Recorded at index time rather than recovered later, because
+           ;; recovering it from the scope interval tree does not work: a scope
+           ;; whose extent is identical to an existing one is silently dropped by
+           ;; the tree, so a file consisting of a single top-level DEFUN has no
+           ;; DEFUN scope at all. See docs/surveys/lsp-review.md §1.8.
+           ;;
+           ;; textDocument/documentSymbol needs this to give a DocumentSymbol a
+           ;; `range' covering the whole definition while `selectionRange' covers
+           ;; the name -- which is what puts "inside FOO" in an editor breadcrumb.
+           (form-node nil))
 
 (defstruct symbol-reference
            "A reference (usage) of a symbol in the workspace."

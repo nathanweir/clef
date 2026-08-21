@@ -142,6 +142,7 @@ through their own defparameters.")
                      location-end
                      lexical-scope-node
                      symbol-definition-node
+                     symbol-definition-form-node
                      symbol-definition-kind
                      symbol-reference-node
                      symbol-reference-symbol-name
@@ -231,7 +232,10 @@ through their own defparameters.")
                      ;; every handler that reports a location goes through these.
                      :make-position
                      :make-range
-                     :node-to-range))
+                     :node-to-range
+                     ;; SymbolKind, shared by workspace/symbol and
+                     ;; textDocument/documentSymbol.
+                     :lisp-kind-to-lsp-kind))
 
 (defpackage :clef-lsp/lifecycle
             (:use :cl :clef-log)
@@ -258,12 +262,14 @@ through their own defparameters.")
               (:ctx :clef-context)
               (:ts :cl-tree-sitter/high-level))
             (:import-from :serapeum :dict :href)
-            (:import-from :clef-lsp/types/basic :make-range :node-to-range)
+            (:import-from :clef-lsp/types/basic
+                          :make-range :node-to-range :lisp-kind-to-lsp-kind)
             (:export
               handle-text-document-completion
               handle-text-document-definition
               handle-text-document-references
               handle-text-document-diagnostic
+              handle-text-document-document-symbol
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change
@@ -278,7 +284,7 @@ through their own defparameters.")
             (:local-nicknames
               (:ctx :clef-context))
             (:import-from :serapeum :dict :href)
-            (:import-from :clef-lsp/types/basic :node-to-range)
+            (:import-from :clef-lsp/types/basic :node-to-range :lisp-kind-to-lsp-kind)
             (:export handle-workspace-diagnostic
                      handle-workspace-did-change-configuration
                      handle-workspace-symbol))
