@@ -799,6 +799,91 @@ one real file; six deliberately-chosen files should do better.
 - Concurrency: nothing tests overlapping requests, though the server is
   single-threaded per connection today
 
+## 3e. The corpus pass — what it found
+
+The bounded pass recommended in §3d, carried out. It behaved exactly as
+predicted: **more bugs, immediately.**
+
+### What was built
+
+`docs/experiments/lsp/corpus/` — six realistic files, ~450 lines, deliberately
+spanning the matrix that had no coverage:
+
+| file | covers |
+|---|---|
+| `01-packages.lisp` | `defpackage`, exports, nicknames, `pkg:name` and `pkg::name` references across two packages |
+| `02-bindings.lisp` | `let`/`let*`, `flet`, `labels`, `destructuring-bind`, `multiple-value-bind`, `dolist`, `dotimes`, `loop` with clauses, `lambda`, `handler-case` — with deliberate shadowing at several depths |
+| `03-clos.lisp` | inheritance, `:accessor`/`:reader`/`:writer`, `defgeneric` with `&key`, `defmethod` with `:around`/`:before`, an `eql` specialiser, `define-condition` with `:report`, `print-object` |
+| `04-macros.lisp` | `&body`/`&rest`/`&key`, backquote and nested backquote, gensyms, `macrolet`, `symbol-macrolet`, and **a macro that defines functions** |
+| `05-types-and-declarations.lisp` | `deftype` including a parameterised one, `declaim ftype`/`inline`, `declare` in bodies, `defstruct` with `:conc-name`/`:constructor`/`:include`, `define-symbol-macro` |
+| `06-lexical-edges.lisp` | reader conditionals, character literals including `#\(` and `#\λ`, `\|escaped names\|`, block comments containing code, strings containing code, and **multi-byte characters throughout** |
+
+`docs/experiments/lsp/03-corpus-sweep.lisp` drives them. Unlike the specimen
+sweep it asserts **invariants that hold for any file**, so it keeps working as
+the corpus grows:
+
+1. Every request is answered — at *every* symbol position, not chosen ones.
+2. Every range lies inside the file.
+3. `selectionRange` lies inside `range`.
+4. **The text under a `selectionRange` equals the symbol's name.** This is the
+   one with teeth: it fails the instant byte and character offsets are confused,
+   which is why the corpus contains a file full of multi-byte characters.
+5. Every reference range covers text matching the symbol asked about.
+
+Scale: ~10,900 requests per run.
+
+### Three bugs, none of which 98 tests had noticed
+
+**3e.1 Hover errored on roughly half of all positions** — `find-symbol-at-position`
+carries `(declaim (ftype (function (string integer integer) string) ...))` but
+returns `NIL` when the position is not on a symbol. Whitespace, comments and
+parens are most of a file, so most hovers produced *"Internal server error: The
+value NIL is not of type STRING"*.
+
+Worth noting for [`roadmap.md`](../roadmap.md) W4: the declaration was **wrong,
+and SBCL enforced it**. That is the typing workstream's thesis demonstrated
+against this codebase — the fix is to state the truth, not to delete the
+declaration.
+
+**3e.2 Hover on `+` or `*` crashed** — the symbol's name is passed to
+`cl-ppcre:regex-replace-all` as a *pattern*. `+` and `*` are invalid regexes and
+are also two of the most common symbols in the language: *"Quantifier '+' not
+allowed"*. Anything containing `( ) [ ] | \ ? .` was equally live. Fixed with
+`quote-meta-chars`.
+
+A third variant of the same shape: `get-params-code` is declaimed to take two
+strings and the call site guarded only the second argument, so a `describe`
+output that did not match the params regex produced *"NIL is not of type STRING
+when binding PARAMS-TEXT"*.
+
+**3e.3 Go-to-definition on any builtin returned an internal error** —
+`symbol-definition`'s `location` slot is nullable and the struct says so
+outright: *"Shouldn't be null for a local file but likely will be for built-ins
+or external references."* `make-goto-definition-response` dereferenced it
+unguarded, and `location-file-path` is a type-checked struct accessor. So
+go-to-definition on `format`, `length`, or any symbol resolving to CL or a loaded
+library answered with an error instead of "no definition here".
+
+### Result
+
+**~1,500 error responses → 0.** The final run reports **no findings**: every one
+of ~10,900 requests answered, no handler signalled, every invariant held —
+including exact `selectionRange` text on the multi-byte file, which means the
+byte/character offset handling is correct for unicode after all.
+
+Three regression tests added, at 101 LSP tests.
+
+### What this says about the method
+
+Every one of these is a *robustness* bug — the operation failing on ordinary
+input — and none is subtle. They survived 98 tests because the tests only ever
+asked about positions that were known to work. The invariant approach found them
+in one run, because "answer every request at every position" is a question the
+old suite could not express.
+
+**A fuller corpus is still wanted.** Six files is enough to catch this class; it
+is not enough to characterise correctness. Deferred as recorded in §3d.
+
 ## 4. Scope for this pass
 
 Agreed: **confirmed bugs plus the highest-value missing methods.** Everything

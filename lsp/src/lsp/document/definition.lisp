@@ -61,11 +61,16 @@ Returns the first match, or nil if not found."
                (slog :warn "[make-goto-definition-response] No symbol definition provided.")
                ;; TODO: I'm not 100% sure this is valid; do I need to do #() to serialize to nil?
                (return-from make-goto-definition-response #()))
-       ;; Put in dummy values for now
+       ;; LOCATION is nullable, and the struct says so: "Shouldn't be null for a
+       ;; local file but likely will be for built-ins or external references."
+       ;; Dereferencing it unguarded meant LOCATION-FILE-PATH -- a type-checked
+       ;; struct accessor -- signalled on NIL, so go-to-definition on any symbol
+       ;; resolving to a builtin or an external package answered with "Internal
+       ;; server error" instead of "no definition here".
        (let* ((scope (symbol-definition-defining-scope symbol-def))
-              (file-path (location-file-path
-                           (symbol-definition-location symbol-def)))
-              (uri (clef-util:path-to-file-uri file-path)))
+              (location (symbol-definition-location symbol-def))
+              (file-path (when location (location-file-path location)))
+              (uri (when file-path (clef-util:path-to-file-uri file-path))))
              (declare (ignorable scope))
 
              ;; Definitions inside SBCL itself resolve to a logical pathname we

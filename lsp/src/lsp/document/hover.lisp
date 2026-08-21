@@ -1,7 +1,18 @@
 (in-package :clef-lsp/document)
 
 ;; (declaim (ftype (function (cons) null) ignore-msg))
-(declaim (ftype (function (string integer integer) string) find-symbol-at-position))
+;; Returns NIL when the position is not on a symbol -- whitespace, a comment, a
+;; paren -- which is the common case, not an edge case. The return type was
+;; declared as STRING, so SBCL's safety check turned every such hover into
+;; "Internal server error: The value NIL is not of type STRING". Roughly half of
+;; all positions in a normal file are not on a symbol, so roughly half of all
+;; hovers failed.
+;;
+;; Worth noting as evidence for the typing workstream (roadmap W4): the declaim
+;; was wrong, and SBCL enforced it rather than letting the lie stand. The fix is
+;; to state the truth, not to remove the declaration.
+(declaim (ftype (function (string integer integer) (or string null))
+                find-symbol-at-position))
 (defun find-symbol-at-position (document-text line char)
        "Finds the symbol within some text at a given position"
        (let* ((tree (clef-parser/parser:parse-string document-text))
@@ -199,8 +210,28 @@
 
        (destructuring-bind (full-name function-name params-text params-type-text ret-types description source-file)
                            (regex-desc-parts text)
-                           (let* ((backticked-full-name (cl-ppcre:regex-replace-all function-name full-name (format nil "`~A`" function-name)))
-                                  (params-code (get-params-code params-text (if params-type-text params-type-text "")))
+                           ;; QUOTE-META-CHARS, because FUNCTION-NAME is a Common
+                           ;; Lisp symbol name being used as a regular
+                           ;; expression. Plenty of them are not valid patterns:
+                           ;; hovering + or * -- two of the most common symbols
+                           ;; in the language -- signalled "Quantifier '+' not
+                           ;; allowed" and the client got an internal error
+                           ;; instead of documentation. Anything containing
+                           ;; ( ) [ ] | \ ? or . was equally live.
+                           (let* ((backticked-full-name
+                                    (cl-ppcre:regex-replace-all
+                                      (cl-ppcre:quote-meta-chars function-name)
+                                      full-name
+                                      (format nil "`~A`" function-name)))
+                                  ;; Both arguments guarded, not just the second.
+                                  ;; GET-PARAMS-CODE is declaimed to take two
+                                  ;; strings, and REGEX-DESC-PARTS returns NIL
+                                  ;; for any field its regex did not match --
+                                  ;; which happens for a describe output shaped
+                                  ;; even slightly differently. Guarding one
+                                  ;; argument and not the other is the whole bug.
+                                  (params-code (get-params-code (or params-text "")
+                                                                (or params-type-text "")))
                                   (output (format nil "```lisp~%(defun ~A ;; => ~A~%~A~%```~%~%~A~%~%---~%~A~%~%*~A*"
                                                   (string-downcase function-name)
                                                   (if ret-types ret-types "T")

@@ -505,6 +505,96 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Robustness at ordinary positions
+;;;
+;;; Each of these was found by driving every operation at every symbol position
+;;; across a corpus of realistic files -- roughly 1,500 error responses across
+;;; six files, none of which the suite noticed. See docs/surveys/lsp-review.md
+;;; §3e.
+;;; ---------------------------------------------------------------------------
+
+(deftest test-hover-off-a-symbol-does-not-error
+  "Hover on whitespace, a comment or a paren must answer, not fail"
+  (with-direct-handler-test
+    (init-server)
+    (let ((code ";; a comment line
+(defun spaced   (x)
+  x)")
+          (uri "file:///tmp/hover-nonsym.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" code))
+                    :id nil)
+      ;; Roughly half the positions in any real file are not on a symbol, so
+      ;; this was not an edge case -- it was most hovers.
+      (dolist (probe '((0 3 "inside a comment")
+                       (1 12 "whitespace between tokens")
+                       (1 0 "an opening paren")
+                       (2 2 "end of a line")))
+        (destructuring-bind (line character what) probe
+          (let ((response (call-handler
+                           "textDocument/hover"
+                           (dict "textDocument" (dict "uri" uri)
+                                 "position" (dict "line" line
+                                                  "character" character)))))
+            (assert-true (answered-p response)
+                         (format nil "Hover ~A should be answered" what))
+            (assert-true (not (response-is-error-p response))
+                         (format nil "Hover ~A must not be an error" what))))))))
+
+(deftest test-hover-on-regex-metacharacter-symbols
+  "Hover on + and * must not treat the symbol name as a regular expression"
+  (with-direct-handler-test
+    (init-server)
+    (let ((code "(defun arithmetic (a b)
+  (list (+ a b)
+        (* a b)))")
+          (uri "file:///tmp/hover-meta.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" code))
+                    :id nil)
+      ;; These signalled "Quantifier '+' not allowed" -- the symbol's name was
+      ;; being compiled as a pattern. Two of the most common symbols in Lisp.
+      (dolist (probe '((1 9 "+") (2 9 "*")))
+        (destructuring-bind (line character name) probe
+          (let ((response (call-handler
+                           "textDocument/hover"
+                           (dict "textDocument" (dict "uri" uri)
+                                 "position" (dict "line" line
+                                                  "character" character)))))
+            (assert-true (answered-p response)
+                         (format nil "Hover on ~A should be answered" name))
+            (assert-true (not (response-is-error-p response))
+                         (format nil "Hover on ~A must not be an error" name))))))))
+
+(deftest test-definition-on-a-builtin-does-not-error
+  "Go-to-definition on a standard CL symbol must answer, not fail"
+  (with-direct-handler-test
+    (init-server)
+    (let ((code "(defun uses-builtins (items)
+  (format nil \"~A\" (length items)))")
+          (uri "file:///tmp/def-builtin.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" code))
+                    :id nil)
+      ;; A builtin's symbol-definition has a NIL location -- the struct says so
+      ;; explicitly -- and LOCATION-FILE-PATH is a type-checked accessor, so
+      ;; dereferencing it unguarded turned every such lookup into an internal
+      ;; error rather than "no definition here".
+      (dolist (probe '((1 3 "format") (1 20 "length")))
+        (destructuring-bind (line character name) probe
+          (let ((response (call-handler "textDocument/definition"
+                                        (dict "textDocument" (dict "uri" uri)
+                                              "position" (dict "line" line
+                                                               "character" character)))))
+            (assert-true (answered-p response)
+                         (format nil "Definition of ~A should be answered" name))
+            (assert-true (not (response-is-error-p response))
+                         (format nil "Definition of ~A must not be an error" name))))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 
