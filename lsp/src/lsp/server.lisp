@@ -24,39 +24,51 @@
 
 (defun handle-lsp-request (id request)
        (let ((captured-backtrace nil))
-            (handler-case
-              (handler-bind
-                ((error (lambda (e)
-                          (declare (ignore e))
-                          (setf captured-backtrace (capture-backtrace)))))
-                (let* ((endpoint-name (clef-jsonrpc/types:request-method request)))
-                      (let ((handler (gethash endpoint-name ctx:handlers)))
-                           (if handler
-                               (let ((message (funcall handler request)))
-                                    (if (null message)
-                                        nil
-                                        (make-instance 'clef-jsonrpc/types:jsonrpc-response
-                                                       :result message
-                                                       :id id)))
-                               (progn
-                                 (slog :error "[~A] No handler found" endpoint-name)
-                                 (error 'clef-lsp/types/base:method-not-found-error :endpoint endpoint-name))))))
-              (clef-lsp/types/base:lsp-error (e)
-                                             (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                                                            :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
-                                                                                  :code (clef-lsp/types/base:lsp-error-code e)
-                                                                                  :message (clef-lsp/types/base:lsp-error-message e)
-                                                                                  :data (ignore-errors (clef-lsp/types/base:lsp-error-data e)))
-                                                            :id id))
-              (error (e)
-                     (slog :error "[~A] Internal error: ~A" (clef-jsonrpc/types:request-method request) e)
-                     (when captured-backtrace
-                           (slog :error "Backtrace:~%~A" captured-backtrace))
-                     (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                                    :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
-                                                          :code clef-jsonrpc/types:+internal-error+
-                                                          :message (format nil "Internal server error: ~A" e))
-                                    :id id)))))
+            (flet ((respond (result)
+                            ;; NIL result is not silence -- it serialises to
+                            ;; "result": null, which is the correct answer to a
+                            ;; request that found nothing.
+                            (unless (clef-jsonrpc/types:notification-p request)
+                                    (make-instance 'clef-jsonrpc/types:jsonrpc-response
+                                                   :result result
+                                                   :id id)))
+                   (respond-error (code message &optional data)
+                                  ;; Notifications get nothing back even when the
+                                  ;; handler fails. Previously an unknown method
+                                  ;; or an uninitialised server produced an error
+                                  ;; response carrying a null id, which is itself
+                                  ;; a protocol violation.
+                                  (unless (clef-jsonrpc/types:notification-p request)
+                                          (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
+                                                         :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
+                                                                               :code code
+                                                                               :message message
+                                                                               :data data)
+                                                         :id id))))
+                  (handler-case
+                    (handler-bind
+                      ((error (lambda (e)
+                                (declare (ignore e))
+                                (setf captured-backtrace (capture-backtrace)))))
+                      (let* ((endpoint-name (clef-jsonrpc/types:request-method request))
+                             (handler (gethash endpoint-name ctx:handlers)))
+                            (if handler
+                                (respond (funcall handler request))
+                                (progn
+                                  (slog :error "[~A] No handler found" endpoint-name)
+                                  (error 'clef-lsp/types/base:method-not-found-error
+                                         :endpoint endpoint-name)))))
+                    (clef-lsp/types/base:lsp-error (e)
+                                                   (respond-error (clef-lsp/types/base:lsp-error-code e)
+                                                                  (clef-lsp/types/base:lsp-error-message e)
+                                                                  (ignore-errors (clef-lsp/types/base:lsp-error-data e))))
+                    (error (e)
+                           (slog :error "[~A] Internal error: ~A"
+                                 (clef-jsonrpc/types:request-method request) e)
+                           (when captured-backtrace
+                                 (slog :error "Backtrace:~%~A" captured-backtrace))
+                           (respond-error clef-jsonrpc/types:+internal-error+
+                                          (format nil "Internal server error: ~A" e)))))))
 
 (defun run-lsp-server-stdio (&key (input *standard-input*) (output *standard-output*))
        "Run LSP server over stdio"
@@ -66,7 +78,9 @@
               (when request
                     (let* ((id (clef-jsonrpc/types:request-id request))
                            (response (handle-lsp-request id request)))
-                          ;; Skip sending the response if 'response' is nil, meaning this was a notification
+                          ;; NIL here now means "notification" for real --
+                          ;; HANDLE-LSP-REQUEST decides that from the id, not
+                          ;; from what the handler happened to return.
                           (when response
                                 (clef-jsonrpc/messages:write-lsp-message response output)))))))
 

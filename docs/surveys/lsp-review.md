@@ -51,7 +51,7 @@ Conformance is checked against the machine-readable LSP 3.17 model, fetched to
 
 Ranked by severity. Each has a reproduction.
 
-### 1.1 A request whose handler returns NIL gets no response at all — **severe**
+### 1.1 A request whose handler returns NIL gets no response at all — **severe** — ***FIXED***
 
 `lsp/src/lsp/server.lisp:36`
 
@@ -93,8 +93,32 @@ the response object, not on the extracted result.
 as hangs or dropped requests on a stricter client, and it is the kind of defect
 that looks like "the server is slow" rather than "the server is wrong".
 
-*Fix:* branch on the presence of `id`, not on the result. Requests always get a
-response; notifications never do.
+*Fixed* by branching on the presence of `id` rather than on the result. Requests
+always get a response; notifications never do, including when their handler
+errors — previously an unknown method or an uninitialised server produced an
+error response carrying a null id, itself a protocol violation.
+
+**The abstraction was already named.** `notification-p` was in
+`clef-jsonrpc/types`' export list with no definition anywhere in the tree. The
+original design anticipated exactly this predicate; it simply never got written,
+and its absence *is* this bug. It now exists, in the package that already claimed
+it.
+
+Covered by `lsp/test/protocol-tests.lisp` — five tests asserting who gets replied
+to and what an empty reply looks like, a contract that had no coverage at all.
+
+### 1.6 `method-not-found-error` carries a positive error code — **moderate** — ***FIXED***
+
+`lsp/src/lsp/types/base/error-codes.lisp:68` had `(code :initform 32601)`.
+JSON-RPC's MethodNotFound is **-32601**. The sign was missing, so every unknown
+method reported a code in a range that means nothing to any client.
+
+The correct value already existed as `clef-jsonrpc/types:+method-not-found+` one
+package over; the condition re-typed it rather than referencing it. Now
+referenced.
+
+*Found by* the new protocol test, not by reading — the constant is visually
+plausible and sits among a dozen correct ones.
 
 ### 1.2 `findReferences` ignores lexical scope — **severe**
 
@@ -228,12 +252,60 @@ everywhere: either `defconstant` (awkward for lists, since `defconstant` require
 `eql`-identical re-evaluation) or `alexandria:define-constant`, or rename to
 `*foo*`.
 
+### 3.1b Exported symbols that were never defined
+
+`clef-jsonrpc/types` exported three names with no definitions anywhere:
+`valid-request-p`, `valid-response-p`, `notification-p`. Calling any of them
+could only ever signal `undefined-function`.
+
+`notification-p` has now been written, since §1.1 needed exactly it. The other
+two were removed from the export list rather than invented — guessing at what
+"valid" was meant to check would be fabricating an API.
+
+Worth a general check: an export list is a promise, and nothing in the build
+verifies this one. A test that walks each package's external symbols and asserts
+they are `fboundp` or `boundp` would catch the whole class cheaply.
+
+### 3.1c Camel-case conversion does not recurse into JSON arrays
+
+`jsonrpc/messages.lisp:22`, `make-hash-table-hyphen-case`, recurses through hash
+tables and **lists** — but `com.inuoe.jzon` parses JSON arrays as **vectors**,
+which fall through to the identity branch. So keys of objects nested inside an
+array are never converted from camelCase.
+
+Currently harmless by luck: every such key in use is a single word (`text`,
+`uri`, `name`, `range`). It would bite the moment incremental sync is enabled,
+where `contentChanges` elements carry `rangeLength`.
+
 ### 3.2 Reaching into other packages with `::`
 
 `test/framework.lisp:71` calls `clef-jsonrpc/types::response-result`, and
 `clef-lsp/server::register-handlers` / `::handle-lsp-request`. Double-colon means
 "I am using an unexported internal". Sometimes right for tests, but here it
-suggests the export lists are simply incomplete.
+suggested the export lists were simply incomplete — and they were. The response
+accessors (`response-result`, `response-id`, `response-error`, `error-code`,
+`error-message`, `error-data`) are now exported, since the protocol tests need
+to assert on the response object itself.
+
+The `clef-lsp/server::` uses remain. Those are genuinely internal entry points
+that only the test harness calls.
+
+### 3.2b Test scaffolding that silently depends on load order
+
+`init-server` is a macro, and it lived in `document-tests.lisp`. A macro is only
+available to files loaded *after* the one defining it, so adding a test file
+earlier in `run-tests.lisp`'s explicit load list produced
+
+```
+CLEF-TEST::INIT-SERVER is a macro, not a function.
+```
+
+— a message that points nowhere near load order. Moved to `framework.lisp` along
+with `make-init-params`.
+
+This is a live hazard because `run-tests.lisp` loads test files by hand rather
+than through ASDF (already noted in `CLAUDE.md`). Every new test file has to be
+added there, and its position matters.
 
 ### 3.3 Two incompatible `line-char-to-offset` definitions
 

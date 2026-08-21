@@ -77,6 +77,23 @@
   "Check if response is an error response"
   (typep response 'clef-jsonrpc/types:jsonrpc-error-response))
 
+(defun response-is-success-p (response)
+  "Check if response is a successful (non-error) response."
+  (typep response 'clef-jsonrpc/types:jsonrpc-response))
+
+(defun answered-p (response)
+  "Did the server reply at all?
+
+Deliberately distinct from RESPONSE-RESULT-SAFE, which flattens three different
+outcomes onto NIL: no reply, an error reply, and a reply carrying a null result.
+That conflation is exactly why the suite could not see the bug where requests
+went entirely unanswered -- a test asserting NIL passed whether the server
+answered correctly or never answered at all. See docs/surveys/lsp-review.md §1.1.
+
+Assert on this when what you mean is \"the server answered\"; assert on
+RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
+  (not (null response)))
+
 ;;; LSP Message utilities
 
 (defun make-lsp-request (method params &key (id 1))
@@ -191,6 +208,28 @@
            (ignore-errors (close client-input))
            (ignore-errors (close server-output))
            (ignore-errors (close server-input)))))))
+
+;;; Server setup scaffolding
+;;;
+;;; Lives here rather than in document-tests.lisp because every test file needs
+;;; it. INIT-SERVER is a macro, so it is only visible to files loaded after the
+;;; one that defines it -- which meant a test file loaded earlier could not use
+;;; it, and failed with "is a macro, not a function" rather than anything that
+;;; pointed at load order.
+
+(defun make-init-params ()
+  "Create params for initialize request"
+  (dict "processId" 12345
+        "capabilities" (dict)
+        "rootUri" "file:///tmp/test-workspace"
+        "workspaceFolders" (vector (dict "uri" "file:///tmp/test-workspace"
+                                         "name" "test"))))
+
+(defmacro init-server ()
+  "Initialize the server within with-direct-handler-test context"
+  `(progn
+     (call-handler "initialize" (make-init-params))
+     (call-handler "initialized" (dict) :id nil)))
 
 ;;; Simpler direct handler testing (no pipes, faster)
 

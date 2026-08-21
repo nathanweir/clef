@@ -83,8 +83,17 @@ through their own defparameters.")
                      request-params
                      jsonrpc-response
                      jsonrpc-error-response
-                     valid-request-p
-                     valid-response-p
+                     response-result
+                     response-id
+                     response-error
+                     response-jsonrpc
+                     error-code
+                     error-message
+                     error-data
+                     ;; VALID-REQUEST-P and VALID-RESPONSE-P used to be listed
+                     ;; here with no definitions anywhere in the tree -- an
+                     ;; exported API surface that could only ever signal
+                     ;; UNDEFINED-FUNCTION. Removed rather than invented.
                      notification-p))
 
 (defpackage :clef-jsonrpc/messages

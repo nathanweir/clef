@@ -71,6 +71,27 @@
           :documentation "Client-established identifier (optional for notifications)."))
     (:documentation "JSON-RPC 2.0 Request object."))
 
+(defun notification-p (request)
+    "Is REQUEST a notification -- a message that must NOT be answered?
+
+JSON-RPC 2.0 distinguishes a request from a notification by the presence of an
+id, and by nothing else.
+
+In particular, NOT by whether the handler produced a result. A request that
+legitimately finds nothing -- SIGNATUREHELP outside a call, DEFINITION that
+resolves nowhere, HOVER over whitespace -- is still a request, and is still owed
+an answer carrying a null result. Deciding by the result instead is what left
+clients waiting on ids that were never answered; see
+docs/surveys/lsp-review.md §1.1.
+
+This name was already in this package's export list before it had a definition,
+which is a fair indication the abstraction was always meant to live here.
+
+A JSON null id counts as a notification. LSP omits the key rather than sending
+null, but answering \"the message with id null\" is meaningless either way."
+    (let ((id (request-id request)))
+        (or (null id) (eq id :null))))
+
 (defun hash-table-to-request (hash-table params-class)
     "Creates an instance of jsonrpc-request where PARAMS is an instance of REQUEST-PARAMS"
     (make-instance 'jsonrpc-request

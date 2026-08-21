@@ -60,6 +60,7 @@
 (handler-bind ((warning #'muffle-warning))
   (load (project-path "test/package.lisp"))
   (load (project-path "test/framework.lisp"))
+  (load (project-path "test/protocol-tests.lisp"))
   (load (project-path "test/lifecycle-tests.lisp"))
   (load (project-path "test/document-tests.lisp"))
   (load (project-path "test/diagnostic-tests.lisp"))

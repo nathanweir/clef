@@ -22,19 +22,11 @@
   "(defun hello () (print \"hello\"))"
   "Simple Lisp code for basic tests")
 
-(defun make-init-params ()
-  "Create params for initialize request"
-  (dict "processId" 12345
-        "capabilities" (dict)
-        "rootUri" "file:///tmp/test-workspace"
-        "workspaceFolders" (vector (dict "uri" "file:///tmp/test-workspace"
-                                         "name" "test"))))
-
-(defmacro init-server ()
-  "Initialize the server within with-direct-handler-test context"
-  `(progn
-     (call-handler "initialize" (make-init-params))
-     (call-handler "initialized" (dict) :id nil)))
+;; MAKE-INIT-PARAMS and INIT-SERVER used to live here. They are scaffolding that
+;; every test file needs, not document tests, so they now sit in framework.lisp
+;; -- INIT-SERVER is a macro, and a macro is only available to files loaded
+;; after the one defining it, which silently made it uncallable from any test
+;; file loaded earlier.
 
 ;;; textDocument/didOpen tests
 

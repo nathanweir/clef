@@ -65,7 +65,12 @@
          (message :initform "The LSP has not yet been initialized.")))
 
 (define-condition method-not-found-error (lsp-error)
-        ((code :initform 32601)
+        ;; Was hardcoded as 32601 -- POSITIVE, and JSON-RPC's MethodNotFound is
+        ;; -32601. Every unknown method therefore reported an error code that
+        ;; means nothing to any client, in a range reserved for nothing at all.
+        ;; Referenced from the constant now rather than re-typed, since the
+        ;; correct value already existed one package over.
+        ((code :initform clef-jsonrpc/types:+method-not-found+)
          (endpoint :initarg :endpoint :reader method-not-found-endpoint)
          (message :initform "Method not found."))
     ;; TODO: How to handle :message and give it the param / custom message instead?
