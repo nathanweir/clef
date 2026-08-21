@@ -155,12 +155,32 @@ Tags: **[U]** shippable unilaterally · **[B]** needs ecosystem buy-in
 
 ### Layer 0 — Bootstrap
 
-#### W0. SBCL profile + humane errors **[U]**
+#### W0. SBCL profile + humane errors **[U]** — ***both halves built, 2026-08-20***
 
 *The compiler must stop being prohibitively annoying before anything else is
 worth doing.*
 
-Two halves:
+**Status: delivered.** Two components and a rewire:
+
+- **`conditions/`** (`:clef-conditions`) — condition → structured diagnostic, and
+  a renderer that puts the message first with the offending line marked. No
+  English is parsed.
+- **`runner/`** (`:clef-runner`, binary `clef-run`) — the process-level half: the
+  debugger guarantee, the exit-code contract, the optimize policy, printer
+  bounds, and a backtrace filtered to the user's own frames.
+- **`lsp/`** — diagnostics rewired off text-scraping onto `clef-conditions`, and
+  now walking SBCL's `original-source-path` into the tree-sitter tree.
+
+Measured effect on a four-problem file: 27 lines of macroexpansion dump and
+uppercase s-expressions become three located, underlined diagnostics. On an
+unhandled runtime failure: SBCL's full debugger dump becomes the message plus
+three frames of the user's own call chain.
+
+*Still open, and deliberately so:* backtraces are filtered by parsing SBCL's
+printed frames, not by structure. `dissect` is the intended upgrade (item 4
+below) and would let frames be dropped by package rather than by string prefix.
+
+Two halves, as originally scoped:
 
 - **Defaults profile** — non-interactive toolchain across ASDF + runner + test
   framework + LSP compile path; warnings policy; printer settings; dev vs
@@ -182,17 +202,58 @@ hostile hook. Full results in [`motivation.md`](motivation.md) §5.1; probe in
 **Design constraint that follows:** the runner establishes an outer
 `handler-bind`. Flags and hooks are belt-and-braces on top, never the mechanism.
 
+> **Refinement, 2026-08-20.** The obvious reading of that constraint — an outer
+> handler that renders and exits — **over-reaches and would break correct
+> programs.** `handler-bind` runs for every `signal`, not only for calls heading
+> to the debugger, so `(signal (make-condition 'simple-error ...))` — which is
+> entitled to return `nil` and carry on — would kill the process.
+>
+> What the runner actually does: the outer handler **re-installs the debugger
+> hook and then declines.** Because it runs *during* the signal it is already
+> inside the extent of any hostile `let` binding, so its `setf` lands on that
+> binding, and if the condition really is heading for the debugger then ours is
+> the hook `invoke-debugger` finds. If it is not, nothing has changed.
+>
+> Verified against all four cases — hostile rebind, hostile hook, bare `signal`,
+> and an inner `handler-case` that must still win — in
+> `docs/experiments/defaults/02-handler-reinstalls-hook.lisp`, and pinned by the
+> runner's own suite.
+
+**Second finding, and a cautionary one:** the optimize policy was set with
+`with-compilation-unit`'s `:policy` and **silently did nothing** — twice. First
+with the declaration wrapped as `'((optimize ...))`, which is accepted and
+ignored outright; then with the correct bare `'(optimize ...)`, which still left
+the runner compiling at SBCL's 1/1/1. Only a global `proclaim` measurably took
+effect. Probes: `03-policy-and-frames.lisp`, `04-runner-policy-check.lisp`.
+
+The measurement that matters is the *observable consequence* — `(debug 3)`
+suppresses tail-call merging, so the functions that led to a failure survive as
+frames. Reading `sb-c::*policy*` from a function at runtime reports the global
+policy, not the one a file was compiled under, and makes any dynamically-scoped
+setting look like it did nothing. Both probes fell into that trap before giving
+a usable answer.
+
 *Progress already made incidentally* (see `lsp/build.lisp`, `lsp/load.lisp`): a
 clean build went from 278 lines of output to 6 by silencing compiler progress
 chatter and clearing all six style warnings. What remains is one genuine warning
 (the `line-char-to-offset` redefinition), now impossible to miss. That is the
 whole argument for a zero-warning baseline in miniature.
 
-*Remaining first questions:* What already exists for condition prettying? How
-much of the profile can be a library the user loads, versus settings a runner
-must impose from outside?
+*First questions, answered:*
 
-*Dependencies:* none. **Start here.**
+- *What already exists for condition prettying?* Nothing reusable — `dissect`
+  wraps backtraces, `trivial-custom-debugger` points at a hook, and the
+  structured extraction this needs was sitting inside Swank's Emacs integration
+  layer, unfactored, for years. See `surveys/w0-conditions.md`.
+- *Library or runner?* Both, split along the line the probes drew. The renderer
+  and extractor are a library (`conditions/`) because they are pure functions and
+  the language server needs them too. Everything that must be true *before* user
+  code runs is the runner, because a library can be dismantled by whatever loads
+  after it.
+
+*Remaining in W0:* structured backtraces via `dissect`.
+
+*Dependencies:* none. **Done; W1 is now the front of the queue.**
 
 #### W1. CLEF hardening **[U]**
 
@@ -394,12 +455,28 @@ is built twice.
 3. ~~Survey step for W1~~ — done, `surveys/clef-state.md`, though its coverage-gap
    list needed correcting once the tests actually ran.
 
-**Now:** W0, with the design constraint already established — an outer
-`handler-bind` as the mechanism. Two concrete sub-tasks are already scoped:
+4. ~~W0~~ — done, 2026-08-20. Surveyed first per the §3 rule, which found nothing
+   reusable and turned up the Swank finding. Delivered `conditions/`, `runner/`,
+   and the language-server rewire. Three probes corrected three things the survey
+   had recorded wrongly: reader errors *do* carry position, `original-source-path`
+   *is* a walkable tree path, and undefined names are grouped per top-level form
+   rather than per call site.
 
-- Survey what exists for condition prettying before writing any (§3 rule).
-- Decide the fate of the `line-char-to-offset` duplicate, now the only warning
-  left in a clean build (`surveys/clef-state.md` §4).
+**Now:** W1, the CLEF hardening pass. Concrete starting points, in order of how
+well understood they already are:
 
-Also unblocked and independent, whenever it is wanted instead: `symbols/init.lisp`
-is the W1 hot spot, carrying a self-reported suspected bug in `let` handling.
+- `symbols/init.lisp` — the W1 hot spot, 642 lines and 9 TODOs, carrying a
+  self-reported suspected bug in `let` handling (`surveys/clef-state.md`).
+- The `line-char-to-offset` duplicate definition, still the only warning left in
+  a clean build. It is a latent landmine: two definitions, one of which wins by
+  load order.
+- Dead weight to remove: `lsp/src/lsp/types/document/types.lisp` contains only a
+  `;; Unused` comment and is not in the `.asd`; `lsp/src/lsp/document/rename.lisp`
+  is unregistered WIP referencing a variable that no longer exists.
+
+Deferred out of W0 rather than forgotten:
+
+- Structured backtraces via `dissect`, replacing the string-prefix frame filter.
+- The naming collision between the `clef` language-server binary and the
+  roadmap's eventual unified `clef` subcommand tool. `clef-run` sidesteps it for
+  now; resolving it properly means changing what editors point at.

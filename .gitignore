@@ -77,3 +77,8 @@ tmp/
 
 # Built executable
 /lsp/clef
+/runner/clef-run
+
+# nix build output symlink
+/result
+/result-*

@@ -39,6 +39,14 @@ run = "sbcl --noinform --non-interactive --load conditions/test/run-tests.lisp"
 description = "Side-by-side: SBCL's default compiler output vs clef-conditions"
 run = "sbcl --noinform --non-interactive --load conditions/demo.lisp"
 
+[tasks."runner:build"]
+description = "Build the standalone clef-run binary into runner/clef-run"
+run = "sbcl --noinform --non-interactive --load runner/build.lisp"
+
+[tasks."runner:test"]
+description = "Run the clef-runner test suite"
+run = "sbcl --noinform --non-interactive --load runner/test/run-tests.lisp"
+
 [tasks."lsp:test-integration"]
 description = "Old stdio integration test (deprecated, unmaintained)"
 run = "sbcl --script lsp/test/client.lisp"
@@ -50,7 +58,7 @@ depends = ["lsp:build"]
 
 [tasks.test]
 description = "Run every component's tests"
-depends = ["lsp:test", "conditions:test"]
+depends = ["lsp:test", "conditions:test", "runner:test"]
 
 [tasks.run]
 description = "Alias for lsp:run"

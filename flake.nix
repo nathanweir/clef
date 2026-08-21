@@ -33,6 +33,7 @@
       # no ASDF, no C toolchain and no LD_LIBRARY_PATH.
       packages.x86_64-linux = rec {
         clef = pkgs.callPackage ./nix/clef.nix { };
+        clef-run = pkgs.callPackage ./nix/clef-run.nix { };
         default = clef;
       };
 

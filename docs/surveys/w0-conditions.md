@@ -220,6 +220,42 @@ That split also serves the "unified `clef` tool exposes configuration" idea: the
 runner is the thing with the config surface, and the renderer is a library it
 uses. The renderer being separable is what lets the language server share it.
 
+### Built, 2026-08-20 — and one refinement the probe forced
+
+`runner/` (`:clef-runner`, binary `clef-run`) is the runner described above.
+
+**The refinement:** "outer `handler-bind` that renders and exits" is the obvious
+reading of §3 and it **over-reaches**. `handler-bind` runs for every `signal`,
+not only for calls heading to the debugger, so a program doing
+
+```lisp
+(signal (make-condition 'simple-error :format-control "advisory"))
+```
+
+— which is entitled to have that return `nil` and carry on — would be killed by
+its own runner.
+
+What it does instead: the outer handler **re-installs the debugger hook, then
+declines.** It runs *during* the signal, so it is already inside the extent of
+any hostile `let` binding and its `setf` lands there. If the condition really is
+heading for the debugger, ours is the hook `invoke-debugger` finds; if it is not,
+nothing changed. Verified on all four cases in
+`docs/experiments/defaults/02-handler-reinstalls-hook.lisp` and pinned by the
+runner's suite.
+
+**And a cautionary finding about the optimize half.** The policy was set with
+`with-compilation-unit`'s `:policy` and silently did nothing, twice over — first
+with the declaration wrapped as `'((optimize ...))` (accepted and ignored), then
+with the correct bare form (still compiling at 1/1/1). Only a global `proclaim`
+took effect. Global is the right scope anyway: leaking a policy is a hazard for a
+*library* loaded into someone else's image, and the runner owns its process.
+
+The trap underneath it is worth naming, because both probes fell into it: reading
+`sb-c::*policy*` from a function at runtime reports the **global** policy, not the
+one a file was compiled under, so any dynamically-scoped setting looks like it did
+nothing. Measure the observable consequence instead — `(debug 3)` suppresses
+tail-call merging, so the functions that led to a failure survive as frames.
+
 ## 4. What to build
 
 1. **A structured extraction layer.** Condition → `{kind, symbol, file, byte

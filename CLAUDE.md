@@ -8,13 +8,26 @@ This repo is a monorepo. Its long-term goal is the developer tooling layer
 Common Lisp never got — see `docs/motivation.md` and `docs/roadmap.md`, which
 are the authority on scope and ordering.
 
-The only component that exists today is **`lsp/`**: CLEF (Common Lisp Editor
-Facilitator), an LSP 3.17 server for Common Lisp, built for Zed and Helix.
+Three components exist today, one ASDF system each:
 
-- ASDF system: `:clef-lsp` (tests: `:clef-lsp-test`)
-- Built binary: `lsp/clef` — still named `clef`, since editors point at it
+| directory | system | what it is |
+|---|---|---|
+| `lsp/` | `:clef-lsp` (tests `:clef-lsp-test`) | CLEF, an LSP 3.17 server for Common Lisp, built for Zed and Helix |
+| `conditions/` | `:clef-conditions` | structured condition extraction + a humane renderer; a library, used by both the others |
+| `runner/` | `:clef-runner` | runs a program with legible errors and a meaningful exit code |
+
+- Built binaries: `lsp/clef` and `runner/clef-run`. The language server keeps the
+  bare name `clef` because editors point at it.
 - Lisp package names (`clef-root`, `clef-lsp/document`, ...) are a separate
-  namespace from ASDF system names and were not renamed
+  namespace from ASDF system names and were not renamed.
+- **Open question:** the roadmap wants a single `clef` umbrella tool with
+  subcommands. That would collide with the language-server binary's name and
+  break existing editor configuration, so it has not been done unilaterally.
+
+`conditions/` is the shared layer and the thing to reach for first: it turns a
+condition into `{severity, kind, symbol, message, file, byte offset, source path,
+enclosing form}` without parsing English, and renders it with source context.
+Both other components are consumers. Do not add message-text matching to either.
 
 ## Build and Run Commands
 
@@ -22,20 +35,36 @@ Tasks run through **mise**, not just. The toolchain comes from `flake.nix`.
 
 ```bash
 mise run build    # build the standalone binary into lsp/clef
-mise run test     # run the LSP test suite
-mise run run      # run the server from source over stdio
+mise run test     # run EVERY component's tests
+mise run run      # run the language server from source over stdio
 mise tasks        # list all tasks
 ```
 
-Tasks are namespaced `lsp:build`, `lsp:test`, `lsp:run`; the bare names above
-are aliases. `mise run run` delegates to `lsp/start-server.sh`, which is the
-single definition of how to launch from source — do not duplicate that
-invocation elsewhere.
+Tasks are namespaced per component — `lsp:build`, `lsp:test`, `lsp:run`,
+`conditions:test`, `conditions:demo`, `runner:build`, `runner:test`. The bare
+names above are aliases; `test` depends on all three suites. `mise run run`
+delegates to `lsp/start-server.sh`, which is the single definition of how to
+launch from source — do not duplicate that invocation elsewhere.
 
-`nix build .#clef` produces the packaged binary, which is what editors should
-actually point at.
+`nix build .#clef` produces the packaged language server, which is what editors
+should actually point at. `nix build .#clef-run` produces the runner.
+
+Note that `nix build` needs `dangerouslyDisableSandbox` — the nix daemon is not
+reachable from inside the Bash tool's sandbox.
 
 ## Testing
+
+Each component has its own suite and its own runner script; `mise run test` runs
+all three. `conditions/` and `runner/` use a small check-counting harness of
+their own (`check`, `check-true`) rather than the LSP's `deftest` framework, and
+each `run-tests.lisp` goes through ASDF, unlike the LSP's.
+
+`runner/`'s suite spawns subprocesses for the debugger-guarantee cases. That is
+deliberate and not worth optimising away: verifying that a hostile
+`*invoke-debugger-hook*` rebind cannot stop the process exiting non-zero means
+watching a process actually exit.
+
+### The LSP suite
 
 Tests are in `lsp/test/` and use a custom test framework.
 
