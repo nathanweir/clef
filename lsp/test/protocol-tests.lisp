@@ -595,6 +595,125 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
                          (format nil "Definition of ~A must not be an error" name))))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Package-qualified symbols
+;;; ---------------------------------------------------------------------------
+
+(defparameter *qualified-code* "(defpackage :qual-lib (:use :cl) (:export #:helper))
+(in-package :qual-lib)
+
+(defun helper (x) (* x 2))
+
+(defpackage :qual-app (:use :cl))
+(in-package :qual-app)
+
+(defun single-colon (n) (qual-lib:helper n))
+(defun double-colon (n) (qual-lib::helper n))")
+
+(deftest test-qualified-reference-resolves
+  "Go-to-definition through a package-qualified name must work"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *qualified-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *qualified-code*))
+                           :id nil)
+             ;; The grammar splits QUAL-LIB:HELPER into a package half and a
+             ;; symbol half, and only the symbol half is the reference. Nothing
+             ;; recorded it, so every qualified use was invisible to the index.
+             ;; Line 8 is the single-colon use, line 9 the double-colon one.
+             ;; QUAL-LIB:HELPER -- the name half starts at column 34.
+             (dolist (probe '((8 34 "single-colon form")
+                              (9 35 "double-colon form")))
+               (destructuring-bind (line character what) probe
+                 (let ((result (response-result-safe
+                                (call-handler "textDocument/definition"
+                                              (dict "textDocument" (dict "uri" uri)
+                                                    "position" (dict "line" line
+                                                                     "character" character))))))
+                   (assert-not-nil result
+                                   (format nil "Qualified reference (~A) should resolve" what))
+                   (when (hash-table-p result)
+                     (assert-equal 3 (gethash "line" (gethash "start" (gethash "range" result)))
+                                   (format nil "~A should point at the defun on line 3" what))))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-qualified-reference-found-by-find-references
+  "Find-references must see qualified uses of a symbol"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *qualified-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *qualified-code*))
+                           :id nil)
+             ;; Asked at the definition of HELPER: both qualified uses count.
+             (let ((lines (mapcar #'car
+                                  (reference-positions
+                                   (call-handler "textDocument/references"
+                                                 (references-params uri 3 7))))))
+               (assert-true (member 8 lines)
+                            "Should find the single-colon use on line 8")
+               (assert-true (member 9 lines)
+                            "Should find the double-colon use on line 9"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-same-name-in-two-packages-resolves-to-the-right-one
+  "A name defined in two packages must resolve to the caller's package"
+  (let ((paths '()))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; SEVERITY is defined in two packages, in two files, and called from
+           ;; a THIRD file -- which is what forces the lookup through the
+           ;; workspace index rather than resolving in the caller's own document
+           ;; scope. That distinction matters: an earlier version of this test
+           ;; put the caller beside its definition and passed without exercising
+           ;; the fix at all.
+           (let* ((code-a "(defpackage :pkg-alpha (:use :cl))
+(in-package :pkg-alpha)
+(defun severity (x) (list :alpha x))")
+                  (code-b "(defpackage :pkg-beta (:use :cl))
+(in-package :pkg-beta)
+(defun severity (x) (list :beta x))")
+                  (code-c "(in-package :pkg-beta)
+(defun caller (x) (severity x))")
+                  (b (write-temp-file code-b))
+                  (a (write-temp-file code-a))
+                  (c (write-temp-file code-c)))
+             (setf paths (list a b c))
+             ;; B first and A second, deliberately. ADD-TO-WORKSPACE-INDEX conses
+             ;; onto the front, so the LAST file indexed is what a bare-name
+             ;; lookup finds first -- meaning PKG-ALPHA's SEVERITY is the wrong
+             ;; answer this test would get without package ranking.
+             (dolist (pair (list (cons b code-b) (cons a code-a) (cons c code-c)))
+               (call-handler "textDocument/didOpen"
+                             (dict "textDocument"
+                                   (dict "uri" (format nil "file://~A" (car pair))
+                                         "languageId" "lisp" "version" 1
+                                         "text" (cdr pair)))
+                             :id nil))
+             ;; Line 1 char 19 is the call to SEVERITY inside PKG-BETA's CALLER.
+             (let ((result (response-result-safe
+                            (call-handler "textDocument/definition"
+                                          (dict "textDocument"
+                                                (dict "uri" (format nil "file://~A" c))
+                                                "position" (dict "line" 1 "character" 19))))))
+               (assert-not-nil result "Should resolve the cross-file call")
+               (when (hash-table-p result)
+                 (assert-true (search (file-namestring b) (gethash "uri" result))
+                              "Must resolve to PKG-BETA's SEVERITY, not PKG-ALPHA's")))))
+      (dolist (p paths) (when p (delete-temp-file p))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

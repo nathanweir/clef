@@ -14,7 +14,7 @@ Returns all locations where the symbol at the given position is referenced."
     (slog :debug "[textDocument/references] Position: line ~A, char ~A" line character)
     (slog :debug "[textDocument/references] Include declaration: ~A" include-declaration)
 
-    (multiple-value-bind (ref-name ref-scope)
+    (multiple-value-bind (ref-name ref-scope ref-package)
         (get-ref-for-doc-pos document-uri line character)
 
       ;; If no symbol reference at position, check if we're on a symbol definition
@@ -37,7 +37,7 @@ Returns all locations where the symbol at the given position is referenced."
         ;; Resolve what the symbol at point actually names, then ask for
         ;; references to THAT, not to everything sharing its spelling.
         (let* ((definition (or definition-at-point
-                               (search-up-for-symbol-def ref-scope symbol-name)))
+                               (search-up-for-symbol-def ref-scope symbol-name ref-package)))
                (lexical (and definition
                              (lexical-binding-scope-p
                               (clef-symbols:symbol-definition-defining-scope definition))))
@@ -132,7 +132,8 @@ genuinely are workspace-wide, so those keep the name-matching path."
 (defun binding-of (ref)
   "The definition REF actually refers to, resolved up REF's own scope chain."
   (search-up-for-symbol-def (clef-symbols:symbol-reference-usage-scope ref)
-                            (clef-symbols:symbol-reference-symbol-name ref)))
+                            (clef-symbols:symbol-reference-symbol-name ref)
+                            (clef-symbols:symbol-reference-package-name ref)))
 
 (defun find-references-to-binding (definition symbol-name)
   "Locations of every reference that resolves to DEFINITION.

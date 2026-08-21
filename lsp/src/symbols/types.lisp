@@ -71,8 +71,16 @@ which is why nothing did."
 (defstruct symbol-reference
            "A reference (usage) of a symbol in the workspace."
            (symbol-name nil :type string)
-           ;; TODO: Is this necessary? I think it'd be the package that's current at time of use
-           ;; (package-name nil :type string)
+           ;; The package in effect where the reference appears -- which is what
+           ;; the commented-out version of this slot asked about: "I think it'd
+           ;; be the package that's current at time of use." That is right, and
+           ;; it is necessary.
+           ;;
+           ;; Without it the workspace index is consulted by bare name and the
+           ;; first match wins, so go-to-definition on DIAGNOSTIC-SEVERITY in
+           ;; conditions/src/render.lisp landed on a same-named test helper in an
+           ;; unrelated component. See docs/surveys/lsp-review.md §3c.2.
+           (package-name nil :type symbol)
            (location nil :type location)
            (usage-scope nil :type lexical-scope)
            (node nil))

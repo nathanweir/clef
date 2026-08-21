@@ -644,7 +644,7 @@ load-bearing.
 Both surfaced within minutes of pointing the rebuilt server at this repository,
 with 98 tests passing. That is the headline datum for §3d.
 
-### 3c.1 Package-qualified references are never recorded — **severe**
+### 3c.1 Package-qualified references are never recorded — **severe** — ***FIXED***
 
 Go-to-definition on `clef-jsonrpc/types:request-params` fails, **even though the
 symbol is indexed** (workspace symbol finds it at `jsonrpc/types.lisp:62`).
@@ -663,10 +663,14 @@ use is ever entered into the reference index at all.**
 
 Affects go-to-definition, find-references and document-highlight for every
 qualified symbol, which in this codebase is most cross-package usage.
-`outgoingCalls` is unaffected only because it walks `:sym-lit` descendants
+`outgoingCalls` was unaffected only because it walks `:sym-lit` descendants
 directly rather than consulting the index.
 
-### 3c.2 The name-keyed index returns definitions from the wrong package — **severe**
+*Fixed* by accepting `(:symbol :sym-lit)` alongside `(:value :sym-lit)`. The
+package half is deliberately still not recorded: it names a package, not a
+symbol, and packages are not in the index.
+
+### 3c.2 The name-keyed index returns definitions from the wrong package — **severe** — ***FIXED***
 
 Go-to-definition on `diagnostic-severity` in `conditions/src/render.lisp:151`
 lands on **`lsp/test/diagnostic-tests.lisp:56`** — a same-named test helper in an
@@ -677,8 +681,23 @@ the caller's own package.
 records a `package-name`, but nothing filters on it. The first match wins.
 
 This is worse than the imprecision recorded as a call-hierarchy caveat: it
-actively sends you to the wrong file. Fixing it means making the index
-package-aware, which is a change to the index rather than to any handler.
+actively sends you to the wrong file.
+
+*Fixed*, and the design was already anticipated here too. `symbol-reference` had
+a `package-name` slot commented out, carrying the TODO *"Is this necessary? I
+think it'd be the package that's current at time of use."* That is exactly
+right, it is necessary, and it is what the fix uses: the package in effect at the
+reference is recorded, returned as a third value from `get-ref-for-doc-pos`, and
+used to rank candidates from the workspace index.
+
+**A partial fix, honestly.** It ranks after the fact rather than keying the index
+by package and name, so it disambiguates when the packages are known and falls
+back to the old behaviour when they are not. Keying the index properly is a
+change to the index and stays recorded.
+
+The regression test was checked by disabling the ranking and confirming it fails
+— worth doing, because an earlier version of the same test put the caller in the
+same file as its definition and passed without exercising the fix at all.
 
 ---
 

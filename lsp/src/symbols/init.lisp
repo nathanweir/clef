@@ -64,10 +64,16 @@ Note that symbol-ref can be nil if none is at the location"
              ;; (slog :debug "Found symbol-defs at line ~A char ~A (offset ~A): ~A" line char offset symbol-defs)
              ;; (slog :debug ">>>> scope intervals found: ~A" scopes)
              ;; (values nil nil)))
+             ;; Third value: the package in effect where the reference appears.
+             ;; Callers use it to break ties in the name-keyed workspace index,
+             ;; which otherwise returns whichever same-named definition happened
+             ;; to be indexed first, from any package in any component.
              (values
                (when (and symbol-refs (consp symbol-refs))
                      (symbol-reference-symbol-name (clef-interval-data (first symbol-refs))))
-               (clef-interval-data (first (last scopes))))))
+               (clef-interval-data (first (last scopes)))
+               (when (and symbol-refs (consp symbol-refs))
+                     (symbol-reference-package-name (clef-interval-data (first symbol-refs)))))))
 ;;
 ;; (if (> (length symbol-refs) 0)
 ;; (let ((symbol-ref (clef-interval-data (first symbol-refs))))
@@ -814,12 +820,28 @@ structure gets used. CLEF-CONDITIONS:DIAGNOSTIC-SEVERITY is one of these."
 (defun check-for-symbol-reference (node node-type file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's
 interval tree if so."
-       (unless (equal node-type '(:value :sym-lit))
+       ;; (:VALUE :SYM-LIT) is an ordinary symbol. (:SYMBOL :SYM-LIT) is the name
+       ;; half of a package-qualified one, which the grammar gives its own shape:
+       ;;
+       ;;   (:VALUE :PACKAGE-LIT)   "clef-jsonrpc/types:request-params"
+       ;;     (:PACKAGE :SYM-LIT)   "clef-jsonrpc/types"
+       ;;     (:SYMBOL :SYM-LIT)    "request-params"
+       ;;
+       ;; Matching only (:VALUE :SYM-LIT) meant NO qualified use was ever entered
+       ;; into the reference index -- so go-to-definition, find-references and
+       ;; document-highlight all failed on them, which in a multi-package codebase
+       ;; is most cross-package usage. See docs/surveys/lsp-review.md §3c.1.
+       ;;
+       ;; The package half is deliberately not recorded: it names a package, not
+       ;; a symbol, and packages are not in the index.
+       (unless (and (consp node-type)
+                    (eq (second node-type) :sym-lit)
+                    (member (first node-type) '(:value :symbol)))
                (return-from check-for-symbol-reference nil))
        ;; (slog :debug "Found (:value :sym-lit) node: ~A" (node-text node source))
        (let ((symbol-reference (make-symbol-reference
                                  :symbol-name (fast-node-text node source file-path)
-                                 ;; :package-name *current-package* ;; TODO: revisit
+                                 :package-name *current-package*
                                  :location (location-for-node file-path node)
                                  :usage-scope *current-scope*
                                  :node node)))

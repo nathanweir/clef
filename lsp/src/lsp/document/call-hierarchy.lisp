@@ -99,11 +99,11 @@ obvious thing."
          (character (href position "character"))
          (file-path (clef-util:cleanup-path document-uri)))
     (slog :debug "[prepareCallHierarchy] ~A ~A:~A" document-uri line character)
-    (multiple-value-bind (ref-name ref-scope)
+    (multiple-value-bind (ref-name ref-scope ref-package)
         (get-ref-for-doc-pos document-uri line character)
       (let* ((def (cond
                     ;; On a call or other reference: resolve what it names.
-                    (ref-name (search-up-for-symbol-def ref-scope ref-name))
+                    (ref-name (search-up-for-symbol-def ref-scope ref-name ref-package))
                     ;; On the name in a definition.
                     (t (find-definition-at-position document-uri line character))))
              ;; Anywhere else inside a definition: use the definition itself.

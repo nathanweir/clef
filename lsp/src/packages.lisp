@@ -149,6 +149,8 @@ through their own defparameters.")
                      ;; Needed to resolve a reference to the binding it actually
                      ;; names, rather than to everything sharing its spelling.
                      symbol-reference-usage-scope
+                     symbol-reference-package-name
+                     symbol-definition-package-name
                      symbol-reference-location
                      ;; system-info struct and accessors
                      system-info

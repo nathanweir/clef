@@ -10,7 +10,7 @@
              (slog :debug "[textDocument/definition] Document: ~A" document-uri)
              (slog :debug "[textDocument/definition] Position: line ~A, character ~A" line character)
 
-             (multiple-value-bind (ref-name ref-scope)
+             (multiple-value-bind (ref-name ref-scope ref-package)
                                   (get-ref-for-doc-pos document-uri line character)
                                   (slog :debug "[textDocument/definition] Reference name: ~A" ref-name)
                                   (when (not ref-scope)
@@ -18,18 +18,22 @@
                                         (return-from handle-text-document-definition
                                                      (make-goto-definition-response nil)))
                                   (make-goto-definition-response
-                                    (search-up-for-symbol-def ref-scope ref-name)))))
+                                    (search-up-for-symbol-def ref-scope ref-name ref-package)))))
 
 
-(defun search-up-for-symbol-def (ref-scope ref-name)
+(defun search-up-for-symbol-def (ref-scope ref-name &optional ref-package)
        "Search up the lexical scope tree from REF-SCOPE to find the definition of REF-NAME.
 If not found in the scope tree, falls back to searching the workspace symbol index
-for cross-file definitions."
+for cross-file definitions.
+
+REF-PACKAGE is the package in effect where the reference appears. It only
+matters for the workspace-index fallback, where it disambiguates same-named
+definitions from different packages."
        ;; Base case: reached end of scope tree, try workspace index
        (unless ref-scope
                (slog :debug "Scope tree exhausted, searching workspace index for ~A" ref-name)
                (return-from search-up-for-symbol-def
-                            (search-workspace-index-for-symbol ref-name)))
+                            (search-workspace-index-for-symbol ref-name ref-package)))
        (slog :debug "searching up for ref name ~A with scope kind ~A" ref-name
              (lexical-scope-kind ref-scope))
        ;; Check each symbol definition in the scope. If it has the same name as ref-name, return
@@ -40,17 +44,34 @@ for cross-file definitions."
                           (slog :debug "Found symbol definition for ~A in scope" ref-name)
                           (return-from search-up-for-symbol-def def))))
        (let ((parent-scope (lexical-scope-parent-scope ref-scope)))
-            (search-up-for-symbol-def parent-scope ref-name)))
+            (search-up-for-symbol-def parent-scope ref-name ref-package)))
 
-(defun search-workspace-index-for-symbol (symbol-name)
+(defun search-workspace-index-for-symbol (symbol-name &optional ref-package)
        "Search the workspace symbol index for a symbol definition.
-Returns the first match, or nil if not found."
+
+The index is keyed by bare symbol name, so a name defined in more than one
+package has more than one entry and they are indistinguishable by name alone.
+Taking the first match meant go-to-definition on DIAGNOSTIC-SEVERITY in
+conditions/src/render.lisp landed on a same-named test helper in an unrelated
+component -- not imprecision, but navigation to the wrong file.
+
+Prefer a definition from REF-PACKAGE, the package in effect where the reference
+appears. Falls back to the first match when the packages are unknown or none
+agrees, which is no worse than before.
+
+The proper fix is to key the index by package and name rather than to rank
+after the fact; that is a change to the index and is recorded rather than done
+here."
        (let ((defs (clef-symbols:lookup-in-workspace-index symbol-name)))
             (when defs
                   (slog :debug "Found ~A definition(s) for ~A in workspace index"
                         (length defs) symbol-name)
-                  ;; Return the first match (could be enhanced to handle multiple definitions)
-                  (first defs))))
+                  (or (when ref-package
+                            (find-if (lambda (def)
+                                             (eq (clef-symbols:symbol-definition-package-name def)
+                                                 ref-package))
+                                     defs))
+                      (first defs)))))
 
 ;; The TODO that used to sit here -- "this will definitely be used elsewhere" --
 ;; came true three times over, twice as a copy rather than a call. NODE-TO-RANGE
