@@ -639,6 +639,166 @@ Per [`roadmap.md`](../roadmap.md) §3, deciding this properly needs a survey —
 including actually checking whether the Lem coupling is real, still true, and
 load-bearing.
 
+## 3c. Two bugs found live, after the suite was green
+
+Both surfaced within minutes of pointing the rebuilt server at this repository,
+with 98 tests passing. That is the headline datum for §3d.
+
+### 3c.1 Package-qualified references are never recorded — **severe**
+
+Go-to-definition on `clef-jsonrpc/types:request-params` fails, **even though the
+symbol is indexed** (workspace symbol finds it at `jsonrpc/types.lisp:62`).
+
+The grammar gives a qualified symbol its own node type:
+
+```
+(:VALUE :PACKAGE-LIT)   "clef-jsonrpc/types:request-params"
+  (:PACKAGE :SYM-LIT)   "clef-jsonrpc/types"
+  (:SYMBOL :SYM-LIT)    "request-params"
+```
+
+`check-for-symbol-reference` matches only `(:value :sym-lit)`. The interesting
+part is `(:symbol :sym-lit)` — a different field name — so **no package-qualified
+use is ever entered into the reference index at all.**
+
+Affects go-to-definition, find-references and document-highlight for every
+qualified symbol, which in this codebase is most cross-package usage.
+`outgoingCalls` is unaffected only because it walks `:sym-lit` descendants
+directly rather than consulting the index.
+
+### 3c.2 The name-keyed index returns definitions from the wrong package — **severe**
+
+Go-to-definition on `diagnostic-severity` in `conditions/src/render.lisp:151`
+lands on **`lsp/test/diagnostic-tests.lisp:56`** — a same-named test helper in an
+unrelated package and a different component — rather than the struct accessor in
+the caller's own package.
+
+`ctx:workspace-symbol-index` is keyed by bare symbol name; `symbol-definition`
+records a `package-name`, but nothing filters on it. The first match wins.
+
+This is worse than the imprecision recorded as a call-hierarchy caveat: it
+actively sends you to the wrong file. Fixing it means making the index
+package-aware, which is a change to the index rather than to any handler.
+
+---
+
+## 3d. Test adequacy — an honest assessment
+
+Prompted by the right question: when we say "fixed and verified", how much does
+that claim actually cover?
+
+**Measured, not estimated.**
+
+### The headline
+
+98 tests passed. The server was then pointed at this repository and produced
+**two more severe bugs within minutes** (§3c). One of them is *directly* explained
+by a gap the numbers below make visible. That is not bad luck; it is the suite
+measuring the wrong thing.
+
+### Fixture complexity
+
+77 fixture programs across the suite and the sweep:
+
+| | |
+|---|---|
+| median length | **2 lines** |
+| ≤3 lines | 56 of 77 (73%) |
+| >10 lines | 4 |
+| longest | 44 lines (the sweep specimen) |
+
+Constructs, counted as *number of fixtures containing them*:
+
+```
+defun                 73  ####################################################
+defclass               5  ####
+defstruct              4  ####
+deftype                4  ####
+define-condition       3  ###
+defvar                 3  ###
+defmacro               2  ##
+defpackage/in-package  2  ##
+defgeneric/defmethod   1  #
+flet                   1  #
+labels                 1  #
+loop                   1  #
+```
+
+and, at **zero**: `declare`, `declaim`, `let*`, `lambda`, `handler-case`,
+`multiple-value-bind`, `destructuring-bind`, `eval-when`, `symbol-macrolet`,
+`with-open-file`, `dolist`, `dotimes`, `#+`/`#-` reader conditionals, character
+literals, `::` internal-symbol references, `defparameter`.
+
+**The suite tests one construct — `defun` — at two lines.** Everything else is a
+rounding error.
+
+### The causal link, stated plainly
+
+Exactly **2 of 77 fixtures contain a package-qualified symbol**. §3c.1 is a bug
+in how package-qualified symbols are indexed. The gap in the corpus and the
+escaped bug are the same fact seen twice.
+
+Likewise, 2 fixtures contain `defpackage`/`in-package`, so package resolution is
+effectively untested — and §3c.2 is a package-resolution bug.
+
+### Other structural gaps
+
+- **Positions never stress anything.** Across every test, positions span lines
+  0–12 and characters 0–22. Nothing tests a position past end-of-line, past
+  end-of-file, on the final character, or in an empty file.
+- **No non-ASCII, no CRLF, no empty file, no large file.** Byte-vs-character
+  offsets are load-bearing throughout `symbols/init.lisp` and are never exercised
+  against a multi-byte character.
+- **Cross-file is 3 tests.** Only three tests write more than one fixture file,
+  all for definition/references.
+- **Four registered methods have no test at all**: `textDocument/didSave`,
+  `workspace/diagnostic`, `workspace/didChangeConfiguration`, and
+  `publishDiagnostics` (which is dead code anyway, §2).
+- **Coverage is heavily skewed by method.** `signatureHelp` has 13 tests;
+  `hover` — a 212-line handler that regex-scrapes `describe` output — has 3.
+  Call hierarchy has 1–2 per method.
+
+### What the suite is, honestly
+
+**A regression net for bugs already found, not a verification of correctness over
+Common Lisp.** Every test added during this review pins a specific defect and is
+good at that job. None of them establishes that an operation works over the
+language generally, because none of them shows it a realistic program.
+
+That is a fair thing for a young suite to be. It is not a fair basis for the
+phrase "verified", which this review has used too freely.
+
+### Recommendation
+
+**A bounded corpus pass is worth doing now; everything else defers.**
+
+*Now — small, high expected yield:*
+
+1. A **fixture corpus** of perhaps six realistic files covering the construct
+   matrix above: packages and qualified references, `declare`/`declaim`, the
+   binding forms, CLOS with qualifiers and specializers, reader conditionals,
+   macros that define functions, a multi-byte character. Not contrived — read
+   like code someone would write.
+2. Run the **existing sweep** over each. The sweep already checks every operation
+   and needs only to be pointed at more inputs.
+3. Record what breaks. Fix only what falls inside the agreed scope; log the rest.
+
+The expectation is explicitly that **this finds more bugs**. Two escaped against
+one real file; six deliberately-chosen files should do better.
+
+*Defer to a dedicated testing workstream:*
+
+- Position/offset edge cases as a systematic matrix (EOF, past-EOL, multi-byte,
+  CRLF, empty file)
+- Property-based testing — generate a program, assert invariants such as "every
+  reference resolves to a definition that contains it"
+- Performance and correctness at scale (a 5,000-line file; a 500-file workspace)
+- Full LSP conformance from `metaModel.json` — shape-checking every response
+  against the spec's declared structure, which is mechanical and currently
+  entirely absent
+- Concurrency: nothing tests overlapping requests, though the server is
+  single-threaded per connection today
+
 ## 4. Scope for this pass
 
 Agreed: **confirmed bugs plus the highest-value missing methods.** Everything
