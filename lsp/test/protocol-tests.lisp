@@ -309,6 +309,116 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
                    "Empty is an array, not null -- the file simply has no symbols"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Type-defining forms in the symbol index
+;;; ---------------------------------------------------------------------------
+
+(defparameter *type-forms-code* "(defclass shape (base)
+  ((name :initarg :name :accessor shape-name)
+   (area :initarg :area :reader shape-area)))
+
+(defstruct point x y)
+
+(define-condition shape-error (error)
+  ((shape :initarg :shape :accessor shape-error-shape)))
+
+(deftype small-int () '(integer 0 100))")
+
+(deftest test-type-forms-are-indexed
+  "defclass, defstruct, define-condition and deftype must reach the index"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *type-forms-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *type-forms-code*))
+                           :id nil)
+             (let* ((response (call-handler "textDocument/documentSymbol"
+                                            (dict "textDocument" (dict "uri" uri))))
+                    (result (response-result-safe response))
+                    (names (when (vectorp result)
+                             (map 'list (lambda (s) (gethash "name" s)) result))))
+               (assert-not-nil names "Should report symbols")
+               (dolist (expected '("shape"              ; defclass
+                                   "shape-name"         ; :accessor
+                                   "shape-area"         ; :reader
+                                   "point"              ; defstruct
+                                   "shape-error"        ; define-condition
+                                   "shape-error-shape"  ; condition accessor
+                                   "small-int"))        ; deftype
+                 (assert-true (member expected names :test #'string=)
+                              (format nil "Index should contain ~A" expected)))
+               ;; The generated names appear nowhere in the source text, so
+               ;; nothing that searches source could ever find them -- and they
+               ;; are how a structure is actually used.
+               (dolist (generated '("make-point" "point-p" "copy-point"
+                                    "point-x" "point-y"))
+                 (assert-true (member generated names :test #'string=)
+                              (format nil "Should record generated ~A" generated))))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-defstruct-honours-conc-name-and-constructor
+  "DEFSTRUCT options must change the generated accessor and constructor names"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defstruct (circle (:conc-name circ-) (:constructor build-circle))
+  radius)")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let* ((response (call-handler "textDocument/documentSymbol"
+                                            (dict "textDocument" (dict "uri" uri))))
+                    (result (response-result-safe response))
+                    (names (when (vectorp result)
+                             (map 'list (lambda (s) (gethash "name" s)) result))))
+               (assert-true (member "circle" names :test #'string=) "The struct itself")
+               (assert-true (member "build-circle" names :test #'string=)
+                            ":constructor should override make-circle")
+               (assert-nil (member "make-circle" names :test #'string=)
+                           "The default constructor name should not be recorded")
+               (assert-true (member "circ-radius" names :test #'string=)
+                            ":conc-name should override the default prefix")
+               (assert-nil (member "circle-radius" names :test #'string=)
+                           "The default accessor prefix should not be used"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-defclass-accessor-resolves-to-its-definition
+  "Go-to-definition on an accessor use must find the defclass slot"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defclass boxed ()
+  ((payload :initarg :payload :accessor boxed-payload)))
+
+(defun unwrap-it (b)
+  (boxed-payload b))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             ;; Line 4 char 4 is inside the call to BOXED-PAYLOAD.
+             (let* ((response (call-handler "textDocument/definition"
+                                            (dict "textDocument" (dict "uri" uri)
+                                                  "position" (dict "line" 4 "character" 4))))
+                    (result (response-result-safe response)))
+               (assert-not-nil result
+                               "A defclass accessor should resolve to its definition"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

@@ -99,6 +99,12 @@
 
 (defun calls-across-file ()
   (make-origin))
+
+(defun calls-the-generic (s)
+  (describe-shape s))
+
+(defun calls-the-macro ()
+  (with-counter (c) c))
 ")
 
 ;;; A real file on disk, not a made-up URI.
@@ -173,13 +179,19 @@
   ;; Each entry: what we search for, the token to land on, and where it is
   ;; defined. A form that does not resolve is a hole in the symbol index.
   (dolist (spec '(("(make-origin)" "make-origin" "defun")
-                  ("(with-counter" "with-counter" "defmacro")
+                  ("(with-counter (c) c)" "with-counter" "defmacro")
                   ("*counter*)) ,@body" "*counter*" "defvar")
                   ("(let ((area (* radius radius" "radius" "lexical (parameter)")
                   ("(make-point :x 0" "make-point" "defstruct constructor")
                   ("(shape-area (make-instance" "shape-area" "defclass accessor")
                   ("(shape-name s)" "shape-name" "defclass accessor")
-                  ("(defmethod describe-shape" "describe-shape" "defgeneric")))
+                  ;; A USE site, not the defmethod header. Probing the header
+                  ;; asks "go to the definition of this definition", which has a
+                  ;; legitimately different answer -- and reading its NIL as a
+                  ;; missing index entry is what put defgeneric in the
+                  ;; not-indexed column of the review's first draft.
+                  ("(describe-shape s))" "describe-shape" "defgeneric/defmethod")
+                  ("(deftype small-int" "small-int" "deftype (at its definition)")))
     (destructuring-bind (needle token label) spec
       (let* ((line (line-of *specimen* needle))
              (col (col-of *specimen* needle token)))

@@ -9,8 +9,13 @@
               "Enumeration of possible kinds of symbols.")
 
 (deftype symbol-kind ()
-         "An enum type for symbol kinds."
-         `(member :unknown :variable :function :macro :class :package :constant :type :special-operator))
+         "An enum type for symbol kinds.
+
+:STRUCT and :METHOD were missing even though LISP-KIND-TO-LSP-KIND already
+mapped both -- so recording either would have been a type error under safety,
+which is why nothing did."
+         `(member :unknown :variable :function :macro :class :struct :method
+                  :package :constant :type :special-operator))
 
 (defparameter +scope-kinds+ '(:let :flet :labels :lambda :defun :defmacro)
               "Enumeration of possible kinds of scope bindings.")

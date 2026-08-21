@@ -244,6 +244,11 @@ Note that symbol-ref can be nil if none is at the location"
                                   (check-for-defun n node-type file-path file-source)
                                   (check-for-let-binding n node-type file-path file-source)
                                   (check-for-simple-define n node-type file-path file-source)
+                                  ;; Type-defining forms. All plain :LIST-LITs,
+                                  ;; unlike DEFUN which has a grammar node.
+                                  (check-for-class-define n node-type file-path file-source)
+                                  (check-for-struct-define n node-type file-path file-source)
+                                  (check-for-type-define n node-type file-path file-source)
                                   ;; Check if the node is a symbol-reference and record it into the scope if so
                                   ;; (uses *current-scope* internally intead of passing a scope in here)
                                   (check-for-symbol-reference n node-type file-path file-source)
@@ -615,6 +620,196 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              ;; (defparameter/defvar/defconstant are always top-level)
              (when (eq (lexical-scope-kind *current-scope*) :document)
                    (add-to-workspace-index symbol-def))))
+
+;;; ---------------------------------------------------------------------------
+;;; Type-defining forms: DEFCLASS, DEFINE-CONDITION, DEFSTRUCT, DEFTYPE
+;;;
+;;; Before this, the index understood functions and variables and nothing else,
+;;; which left every CLOS class, every structure, every condition and every type
+;;; invisible to go-to-definition and to workspace symbol. In clef's own source
+;;; that meant the whole of jsonrpc/types.lisp and the whole of
+;;; lsp/types/base/error-codes.lisp -- and REQUEST-PARAMS, an accessor used
+;;; throughout, resolved to nothing at all.
+;;;
+;;; All four arrive as a plain :LIST-LIT with a :SYM-LIT head, unlike DEFUN
+;;; which the grammar gives a node of its own. Shapes measured in
+;;; docs/experiments/lsp/02-type-form-shapes.lisp.
+;;;
+;;; The accessors a DEFSTRUCT generates are recorded too. They appear nowhere in
+;;; the source text, so nothing else could ever find them -- and they are how
+;;; structures are actually used.
+;;; ---------------------------------------------------------------------------
+
+(defun node-kind-of (node)
+       "Tree-sitter node types arrive either bare (:LIST-LIT) or paired with a
+field name ((:VALUE :SYM-LIT)). Normalise to the kind."
+       (let ((type (ts:node-type node)))
+            (if (consp type) (second type) type)))
+
+(defun kind-is (node kind)
+       (eq (node-kind-of node) kind))
+
+(defun head-text (node source file-path)
+       "Text of NODE's first child when that child is a symbol, else NIL."
+       (let ((first-child (first (ts:node-children node))))
+            (when (and first-child (kind-is first-child :sym-lit))
+                  (fast-node-text first-child source file-path))))
+
+(defun keyword-text-p (node text source file-path)
+       "Is NODE the keyword named TEXT? Compares without the leading colon."
+       (and (kind-is node :kwd-lit)
+            (let ((raw (fast-node-text node source file-path)))
+                  (and raw (string-equal (string-left-trim ":" raw) text)))))
+
+(defun record-definition (name name-node kind file-path form-node)
+       "Record a global definition and add it to the workspace index."
+       (let ((symbol-def (make-symbol-definition
+                           :symbol-name name
+                           :package-name *current-package*
+                           :kind kind
+                           :location (location-for-node file-path name-node)
+                           :defining-scope *current-scope*
+                           :node name-node
+                           :form-node form-node)))
+            (push symbol-def (lexical-scope-symbol-definitions *current-scope*))
+            (when (eq (lexical-scope-kind *current-scope*) :document)
+                  (add-to-workspace-index symbol-def))
+            symbol-def))
+
+(defun record-slot-accessors (slots-node file-path source form-node)
+       "Record every :ACCESSOR, :READER and :WRITER named in a slot list.
+
+Each is a generic function the form defines, and each is how the slot is
+actually reached from other code -- REQUEST-PARAMS, LSP-ERROR-CODE and the rest
+are all of this shape."
+       (dolist (slot (ts:node-children slots-node))
+               (when (kind-is slot :list-lit)
+                     (let ((children (ts:node-children slot)))
+                          (loop for (item next) on children
+                                when (and next
+                                          (kind-is next :sym-lit)
+                                          (or (keyword-text-p item "accessor" source file-path)
+                                              (keyword-text-p item "reader" source file-path)
+                                              (keyword-text-p item "writer" source file-path)))
+                                  do (record-definition (fast-node-text next source file-path)
+                                                        next :function file-path form-node))))))
+
+(defun check-for-class-define (node node-type file-path source)
+       "DEFCLASS and DEFINE-CONDITION: the name, and every slot accessor.
+
+    (defclass shape (base) ((name :initarg :name :accessor shape-name)))
+             ^^^^^                                                ^^^^^^^^^^"
+       (unless (eq node-type :list-lit)
+               (return-from check-for-class-define nil))
+       (let ((head (head-text node source file-path)))
+            (unless (and head (or (string-equal head "defclass")
+                                  (string-equal head "define-condition")))
+                    (return-from check-for-class-define nil)))
+       (let* ((children (ts:node-children node))
+              (name-node (second children))
+              (slots-node (fourth children)))
+            (when (and name-node (kind-is name-node :sym-lit))
+                  (record-definition (fast-node-text name-node source file-path)
+                                     name-node :class file-path node))
+            (when (and slots-node (kind-is slots-node :list-lit))
+                  (record-slot-accessors slots-node file-path source node))))
+
+(defun defstruct-name-node (spec)
+       "The struct's name node, whether written bare or with options.
+
+    (defstruct point ...)              -> the POINT symbol
+    (defstruct (circle (:conc-name c-)) ...) -> the CIRCLE symbol"
+       (cond ((null spec) nil)
+             ((kind-is spec :sym-lit) spec)
+             ((kind-is spec :list-lit)
+              (let ((first-child (first (ts:node-children spec))))
+                   (when (and first-child (kind-is first-child :sym-lit))
+                         first-child)))
+             (t nil)))
+
+(defun defstruct-option-value (spec option source file-path)
+       "The symbol given for OPTION in a DEFSTRUCT options list, or NIL.
+
+Returns :NONE when the option is present but given no value -- (:conc-name)
+and (:conc-name nil) both mean \"no prefix\", which is different from the option
+being absent and the prefix defaulting to the struct name."
+       (when (and spec (kind-is spec :list-lit))
+             (dolist (child (rest (ts:node-children spec)))
+                     (when (kind-is child :list-lit)
+                           (let ((parts (ts:node-children child)))
+                                (when (keyword-text-p (first parts) option source file-path)
+                                      (let ((value (second parts)))
+                                            (return
+                                              (cond ((null value) :none)
+                                                    ((kind-is value :sym-lit)
+                                                     (let ((text (fast-node-text value source file-path)))
+                                                          (if (string-equal text "nil")
+                                                              :none
+                                                              text)))
+                                                    (t :none))))))))))
+
+(defun slot-name-node (slot)
+       "A struct slot is either a bare symbol or (name default ...)."
+       (cond ((kind-is slot :sym-lit) slot)
+             ((kind-is slot :list-lit)
+              (let ((first-child (first (ts:node-children slot))))
+                   (when (and first-child (kind-is first-child :sym-lit))
+                         first-child)))
+             (t nil)))
+
+(defun check-for-struct-define (node node-type file-path source)
+       "DEFSTRUCT: the type, its constructor, its predicate, and its accessors.
+
+Everything but the type name is generated rather than written, so nothing that
+searches the source text could ever find them -- and they are exactly how a
+structure gets used. CLEF-CONDITIONS:DIAGNOSTIC-SEVERITY is one of these."
+       (unless (eq node-type :list-lit)
+               (return-from check-for-struct-define nil))
+       (let ((head (head-text node source file-path)))
+            (unless (and head (string-equal head "defstruct"))
+                    (return-from check-for-struct-define nil)))
+       (let* ((children (ts:node-children node))
+              (spec (second children))
+              (name-node (defstruct-name-node spec)))
+            (unless name-node (return-from check-for-struct-define nil))
+            (let* ((name (fast-node-text name-node source file-path))
+                   (conc (defstruct-option-value spec "conc-name" source file-path))
+                   (prefix (cond ((null conc) (concatenate 'string name "-"))
+                                 ((eq conc :none) "")
+                                 (t conc)))
+                   (constructor (defstruct-option-value spec "constructor" source file-path)))
+                  (record-definition name name-node :struct file-path node)
+                  ;; The generated constructor and predicate. Both point at the
+                  ;; struct name, which is the only place there is to point.
+                  (unless (eq constructor :none)
+                          (record-definition (if (stringp constructor)
+                                                 constructor
+                                                 (concatenate 'string "make-" name))
+                                             name-node :function file-path node))
+                  (record-definition (concatenate 'string name "-p")
+                                     name-node :function file-path node)
+                  (record-definition (concatenate 'string "copy-" name)
+                                     name-node :function file-path node)
+                  ;; One accessor per slot, pointing at the slot itself.
+                  (dolist (slot (cddr children))
+                          (let ((slot-node (slot-name-node slot)))
+                                (when slot-node
+                                      (record-definition
+                                        (concatenate 'string prefix
+                                                     (fast-node-text slot-node source file-path))
+                                        slot-node :function file-path node)))))))
+
+(defun check-for-type-define (node node-type file-path source)
+       "DEFTYPE: the type name."
+       (unless (eq node-type :list-lit)
+               (return-from check-for-type-define nil))
+       (let ((head (head-text node source file-path)))
+            (unless (and head (string-equal head "deftype"))
+                    (return-from check-for-type-define nil)))
+       (let ((name-node (second (ts:node-children node))))
+            (when (and name-node (kind-is name-node :sym-lit))
+                  (record-definition (fast-node-text name-node source file-path)
+                                     name-node :type file-path node))))
 
 (defun check-for-symbol-reference (node node-type file-path source)
        "Checks if the given node is a symbol reference and records it in the current scope & file's

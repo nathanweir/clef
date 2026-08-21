@@ -244,7 +244,7 @@ in a workspace that failed to scan are all affected. Every existing test works
 around this by sending a redundant `didChange` immediately after `didOpen`,
 which is what disguised it.
 
-### 1.5 The symbol index understands only functions and variables — **severe for CL**
+### 1.5 The symbol index understands only functions and variables — **severe for CL** — ***FIXED***
 
 *Measured* both through Claude Code's client against the real repo and through
 the sweep:
@@ -284,6 +284,40 @@ nothing.
 
 This is the largest single gap in usefulness. CLOS and structures are not a
 corner of Common Lisp.
+
+#### The fix
+
+All four forms arrive as a plain `:LIST-LIT` with a `:SYM-LIT` head, unlike
+`defun` which the grammar gives a node of its own — shapes measured in
+`docs/experiments/lsp/02-type-form-shapes.lisp`. So they extend the existing
+`check-for-simple-define` pattern rather than needing anything new.
+
+Now recorded:
+
+- **`defclass` / `define-condition`** — the class, and every `:accessor`,
+  `:reader` and `:writer` named in its slot list. Those accessors are how slots
+  are actually reached from other code; `request-params` and `lsp-error-code` are
+  both of this shape.
+- **`defstruct`** — the type, plus the constructor, predicate, copier and one
+  accessor per slot. These are **generated**, appearing nowhere in the source
+  text, so nothing that searches source could ever have found them. `:conc-name`
+  and `:constructor` options are honoured, including `(:conc-name nil)`.
+- **`deftype`** — the type name.
+
+`symbol-kind` also gained `:struct` and `:method`, which
+`lisp-kind-to-lsp-kind` already mapped — meaning recording either would have
+been a type error under safety, which is presumably why nothing did.
+
+*Measured after the fix.* Every previously-failing go-to-definition probe now
+resolves, and the sweep reports **0 bugs** where it began with 2. The outline for
+the sweep specimen went from 8 symbols to 20, with correct kinds — Struct for
+`point`, Class for `shape` and `shape-error`, TypeParameter for `small-int`,
+Function for the accessors.
+
+#### Still not indexed
+
+Binding forms, as distinct from definition forms — see §1.2. And `defpackage`,
+which would give the outline a package entry and make `in-package` navigable.
 
 ### 1.8 Identical scope intervals collide, and one is silently dropped — **moderate**
 
