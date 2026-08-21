@@ -419,6 +419,92 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Call hierarchy
+;;; ---------------------------------------------------------------------------
+
+(defparameter *call-graph-code* "(defun leaf (x) (+ x 1))
+
+(defun middle (x) (leaf x))
+
+(defun top-a () (middle 1))
+
+(defun top-b () (middle 2))")
+
+(deftest test-call-hierarchy-incoming-and-outgoing
+  "prepareCallHierarchy, then who calls it and what it calls"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *call-graph-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *call-graph-code*))
+                           :id nil)
+             ;; Line 2 char 7 is the name in (defun middle ...).
+             (let* ((prepared (response-result-safe
+                               (call-handler "textDocument/prepareCallHierarchy"
+                                             (dict "textDocument" (dict "uri" uri)
+                                                   "position" (dict "line" 2 "character" 7)))))
+                    (item (when (and (vectorp prepared) (plusp (length prepared)))
+                            (aref prepared 0))))
+               (assert-not-nil item "prepareCallHierarchy should produce an item")
+               (assert-equal "middle" (gethash "name" item) "Item should name MIDDLE")
+
+               ;; MIDDLE is called by TOP-A and TOP-B, and by nothing else.
+               (let* ((incoming (response-result-safe
+                                 (call-handler "callHierarchy/incomingCalls"
+                                               (dict "item" item))))
+                      (callers (sort (map 'list (lambda (c) (gethash "name" (gethash "from" c)))
+                                          incoming)
+                                     #'string<)))
+                 (assert-equal '("top-a" "top-b") callers
+                               "MIDDLE should be called by TOP-A and TOP-B only"))
+
+               ;; And MIDDLE calls LEAF. It must not report calling itself: its
+               ;; own name node sits inside its own form.
+               (let* ((outgoing (response-result-safe
+                                 (call-handler "callHierarchy/outgoingCalls"
+                                               (dict "item" item))))
+                      (callees (map 'list (lambda (c) (gethash "name" (gethash "to" c)))
+                                    outgoing)))
+                 (assert-true (member "leaf" callees :test #'string=)
+                              "MIDDLE should be shown as calling LEAF")
+                 (assert-nil (member "middle" callees :test #'string=)
+                             "MIDDLE must not be reported as calling itself")))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-call-hierarchy-from-inside-a-body
+  "Invoking call hierarchy anywhere inside a function should pick that function"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *call-graph-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *call-graph-code*))
+                           :id nil)
+             ;; Line 4 is (defun top-a () (middle 1)); character 15 is the space
+             ;; before the call, so the cursor is on no symbol at all. Landing on
+             ;; MIDDLE instead would resolve to MIDDLE, which is also correct --
+             ;; just not what this test is about.
+             (let* ((prepared (response-result-safe
+                               (call-handler "textDocument/prepareCallHierarchy"
+                                             (dict "textDocument" (dict "uri" uri)
+                                                   "position" (dict "line" 4 "character" 15)))))
+                    (item (when (and (vectorp prepared) (plusp (length prepared)))
+                            (aref prepared 0))))
+               (assert-not-nil item "Should still produce an item from inside a body")
+               (assert-equal "top-a" (gethash "name" item)
+                             "Should resolve to the enclosing function"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

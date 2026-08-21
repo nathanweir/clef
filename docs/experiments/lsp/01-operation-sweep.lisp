@@ -316,6 +316,37 @@
                                rl re (gethash "kind" s) (gethash "name" s))))
                r)))))
 
+(defun probe-call-hierarchy (call)
+  (format t "~&~%== call hierarchy ==~%")
+  ;; MAKE-ORIGIN is called by CALLS-ACROSS-FILE and calls MAKE-POINT, so it has
+  ;; exactly one caller and one callee in the specimen.
+  (let* ((line (line-of *specimen* "(defun make-origin"))
+         (col (col-of *specimen* "(defun make-origin" "make-origin"))
+         (items (result-of (funcall call "textDocument/prepareCallHierarchy"
+                                    (dict "textDocument" (dict "uri" *uri*)
+                                          "position" (dict "line" line "character" col))
+                                    1))))
+    (if (or (null items) (zerop (length items)))
+        (note :gap "prepareCallHierarchy" "returned nothing")
+        (let ((item (aref items 0)))
+          (note :ok "prepareCallHierarchy" (format nil "~A" (gethash "name" item)))
+          (let ((incoming (result-of (funcall call "callHierarchy/incomingCalls"
+                                              (dict "item" item) 1)))
+                (outgoing (result-of (funcall call "callHierarchy/outgoingCalls"
+                                              (dict "item" item) 1))))
+            (if (and incoming (plusp (length incoming)))
+                (note :ok "incomingCalls"
+                      (format nil "~{~A~^, ~}"
+                              (map 'list (lambda (c) (gethash "name" (gethash "from" c)))
+                                   incoming)))
+                (note :gap "incomingCalls" "returned nothing"))
+            (if (and outgoing (plusp (length outgoing)))
+                (note :ok "outgoingCalls"
+                      (format nil "~{~A~^, ~}"
+                              (map 'list (lambda (c) (gethash "name" (gethash "to" c)))
+                                   outgoing)))
+                (note :gap "outgoingCalls" "returned nothing")))))))
+
 (defun probe-unregistered-methods (call)
   (format t "~&~%== methods a client will ask for ==~%")
   ;; What an editor or agent sends whether or not we advertise it. Anything
@@ -326,7 +357,6 @@
                     "textDocument/codeAction"
                     "textDocument/foldingRange"
                     "textDocument/selectionRange"
-                    "textDocument/prepareCallHierarchy"
                     "textDocument/typeDefinition"
                     "textDocument/declaration"
                     "textDocument/implementation"
@@ -353,6 +383,7 @@
       (probe-reference-scoping #'call)
       (probe-other-operations #'call)
       (probe-document-symbol #'call)
+      (probe-call-hierarchy #'call)
       (probe-unregistered-methods #'call)))
 
   (format t "~&~%========================================~%")

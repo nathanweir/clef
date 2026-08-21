@@ -163,6 +163,7 @@ through their own defparameters.")
                      remove-file-from-workspace-index
                      add-to-workspace-index
                      lookup-in-workspace-index
+                     node-kind-of
                      ;; Byte offset helpers (used by some handlers)
                      line-char-to-byte-offset))
 
@@ -270,6 +271,9 @@ through their own defparameters.")
               handle-text-document-references
               handle-text-document-diagnostic
               handle-text-document-document-symbol
+              handle-text-document-prepare-call-hierarchy
+              handle-call-hierarchy-incoming-calls
+              handle-call-hierarchy-outgoing-calls
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change

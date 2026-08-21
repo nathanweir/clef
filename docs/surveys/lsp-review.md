@@ -443,7 +443,7 @@ bug fix, and it wants doing alongside W4 rather than before it.
 |---|---|
 | ~~`textDocument/documentSymbol`~~ | ***IMPLEMENTED.*** The outline — every editor's symbol pane, breadcrumb and in-file jump, and the first thing an agent asks for. Returns `DocumentSymbol[]`, with `range` spanning the whole definition and `selectionRange` the name. |
 | ~~`textDocument/didClose`~~ | ***IMPLEMENTED.*** |
-| `textDocument/prepareCallHierarchy` + `callHierarchy/{incoming,outgoing}Calls` | Who calls this / what does this call. Available to Claude Code; currently `Method not found`. |
+| ~~`textDocument/prepareCallHierarchy`~~ + ~~`callHierarchy/{incoming,outgoing}Calls`~~ | ***IMPLEMENTED.*** Who calls this / what does this call. Built on the `form-node` recorded for §1.8 — "which function is this call inside?" is answerable only because that node is kept. Works from a call site, from a definition name, or from anywhere inside a body. Stated limits: resolution is by name against a name-keyed index, so same-named definitions in different packages are not distinguished; and calls through `funcall`/`apply` or a macro expansion are not textual references and are not seen. |
 | `textDocument/rename` + `prepareRename` | `rename.lisp` exists as unregistered WIP and references a variable that no longer exists. Either finish or delete. |
 
 ### Missing, recorded, not scoped now

@@ -17,6 +17,7 @@
                     "referencesProvider" t
                     "documentHighlightProvider" t
                     "documentSymbolProvider" t
+                    "callHierarchyProvider" t
                     "workspaceSymbolProvider" t
                     "signatureHelpProvider" (dict)
                     "completionProvider"
