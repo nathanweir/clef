@@ -1345,6 +1345,91 @@ undo it. A macro because CALL-HANDLER is an FLET."
           (setf previous token))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Index freshness
+;;; ---------------------------------------------------------------------------
+
+(deftest test-index-notices-a-file-changed-on-disk
+  "A file edited outside the protocol must not keep answering with old symbols"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; The workspace root has to be somewhere the scan will look, so use
+           ;; the fixture directory itself.
+           (let* ((dir (namestring (test-temp-dir)))
+                  (path (write-temp-file "(defun before-the-edit () 1)"))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (setf clef-context:workspace-root (format nil "file://~A" dir))
+             ;; Index it as the workspace scan would, then close it -- the point
+             ;; is a file clef knows about but the editor is not holding open.
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1
+                                                      "text" "(defun before-the-edit () 1)"))
+                           :id nil)
+             (call-handler "textDocument/didClose"
+                           (dict "textDocument" (dict "uri" uri)) :id nil)
+             (clef-symbols::index-file-from-disk (clef-util:cleanup-path uri))
+             (assert-not-nil (clef-symbols:lookup-in-workspace-index "before-the-edit")
+                             "The original symbol should be indexed")
+
+             ;; Now edit it the way an agent does: straight to disk, no
+             ;; notification of any kind. FILE-WRITE-DATE has one-second
+             ;; resolution, so the recorded time is cleared to stand in for a
+             ;; write the clock cannot distinguish.
+             (with-open-file (out path :direction :output :if-exists :supersede)
+               (write-string "(defun after-the-edit () 2)" out))
+             (remhash (clef-util:cleanup-path uri) clef-context:file-index-times)
+
+             (clef-symbols:refresh-stale-index)
+             (assert-not-nil (clef-symbols:lookup-in-workspace-index "after-the-edit")
+                             "The new symbol should be picked up")
+             (assert-nil (clef-symbols:lookup-in-workspace-index "before-the-edit")
+                         "And the deleted one should be gone")))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-index-forgets-a-deleted-file
+  "A file removed from disk must stop answering navigation"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((dir (namestring (test-temp-dir)))
+                  (path (write-temp-file "(defun soon-to-vanish () 1)"))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (setf clef-context:workspace-root (format nil "file://~A" dir))
+             (clef-symbols::index-file-from-disk (clef-util:cleanup-path uri))
+             (assert-not-nil (clef-symbols:lookup-in-workspace-index "soon-to-vanish")
+                             "Indexed to begin with")
+             (delete-file path)
+             (setf temp-path nil)
+             (clef-symbols:refresh-stale-index)
+             ;; Left in place it answers go-to-definition with a location in a
+             ;; file that is not there any more.
+             (assert-nil (clef-symbols:lookup-in-workspace-index "soon-to-vanish")
+                         "A deleted file's symbols must be forgotten")))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-scan-prunes-uninteresting-directories
+  "The workspace scan must not descend into build, .git or .direnv"
+  ;; Measured on this repository: the unpruned walk took 2175 ms and found 229
+  ;; files, 90 of them inside .direnv. The pruned walk takes 4 ms and finds the
+  ;; 100 that are project source. That cost was paid on every server start.
+  (let ((files (clef-symbols:project-lisp-files
+                (namestring (asdf:system-relative-pathname :clef-lsp "../")))))
+    (assert-true (plusp (length files)) "Should find the project's own sources")
+    (dolist (excluded '(".direnv" "/build/" "/tmp/" "/.git/"))
+      (assert-nil (find-if (lambda (path) (search excluded (namestring path))) files)
+                  (format nil "Scan must not descend into ~A" excluded)))
+    ;; And it must still find real source.
+    (assert-true (find-if (lambda (path)
+                            (search "lsp/src/symbols/init.lisp" (namestring path)))
+                          files)
+                 "Should still find the indexer itself")))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

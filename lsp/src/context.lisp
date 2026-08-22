@@ -40,6 +40,7 @@ Symbol analysis (formerly in clef-symbols):
   symbol-refs          -- file path -> interval tree of symbol-reference's
   workspace-symbol-index -- symbol-name -> list of symbol-definitions (cross-file)
   document-line-offsets  -- file path -> vector of per-line byte offsets
+  file-index-times       -- file path -> FILE-WRITE-DATE when it was indexed
   global-scope         -- root lexical-scope holding builtins + externals
 
 ASDF systems (formerly in clef-lsp/lifecycle):
@@ -57,6 +58,7 @@ ASDF systems (formerly in clef-lsp/lifecycle):
   (symbol-refs (make-hash-table :test 'equal))
   (workspace-symbol-index (make-hash-table :test 'equal))
   (document-line-offsets (make-hash-table :test 'equal))
+  (file-index-times (make-hash-table :test 'equal))
   (global-scope nil)
   (loaded-systems (make-hash-table :test 'equal))
   (file-to-system (make-hash-table :test 'equal))
@@ -118,6 +120,13 @@ Called from shutdown and exit handlers and from test setup."
 
 (define-context-accessor document-line-offsets server-context-document-line-offsets
   "File path -> vector of byte offsets for each line.")
+
+(define-context-accessor file-index-times server-context-file-index-times
+  "File path -> FILE-WRITE-DATE at the moment that file was last indexed.
+
+What makes it possible to notice that a file changed on disk without the client
+telling us. Editors send didChange; an agent editing files directly does not,
+and until this existed clef simply never learned about those edits.")
 
 (define-context-accessor global-scope server-context-global-scope
   "Root lexical-scope for the workspace (holds builtins + externals).")

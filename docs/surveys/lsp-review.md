@@ -1046,6 +1046,60 @@ old suite could not express.
 **A fuller corpus is still wanted.** Six files is enough to catch this class; it
 is not enough to characterise correctness. Deferred as recorded in §3d.
 
+## 3f. What actually helps the agent doing the work
+
+Asked directly: of the methods still unimplemented, which does Claude Code use?
+**None.** Its LSP client exposes exactly nine operations — definition,
+references, hover, documentSymbol, workspaceSymbol, implementation, and the
+three call-hierarchy calls — and all nine are now implemented. `codeAction`,
+`inlayHint`, `rename`, `codeLens`, `documentLink`, `semanticTokens`,
+`foldingRange` and `selectionRange` are all real features for a human in an
+editor and none of them are reachable by an agent.
+
+So the useful question was what would improve the nine, and the answer was not a
+feature at all.
+
+### 3f.1 The index went stale and said so with a straight face — **severe** — ***FIXED***
+
+`workspaceSymbol` was observed returning three functions that had been deleted,
+at line numbers that by then held something else:
+
+```
+token-type-index (Function) - Line 39      <- line 39 is now "(t nil)))"
+```
+
+The index is updated only by `didOpen` and `didChange`, so it only ever learns
+about files an **editor** opens. An agent editing files directly never touches
+the protocol, and clef never hears about a single change. Answers decay silently
+across a session, and a wrong answer that looks right is worse than a missing
+one.
+
+Fixed with an mtime check: the write date is recorded when a file is indexed, and
+every request that consults the index re-stats the workspace first, re-indexing
+what changed and forgetting what was deleted. Files the editor has open are
+skipped — the client's copy is authoritative and may hold unsaved edits.
+
+Centralised in `before-handle-request` against a list of index-consulting
+methods, so a tenth handler cannot forget to do it.
+
+### 3f.2 The workspace scan spent two seconds walking `.direnv` — **moderate** — ***FIXED***
+
+Found while checking whether a per-request rescan was affordable. It was not,
+for a reason worth writing down:
+
+| | |
+|---|---|
+| the scan as written | **2175 ms**, 229 files |
+| pruned | **4 ms**, 100 files |
+
+`filter-files` removed `.direnv` results *after* enumerating them — but the cost
+is the walk, not the filter, and `.direnv` is a nix profile containing 90
+vendored Lisp files. `.git`, `build/` and `tmp/` were walked too.
+
+Pruning happens at the directory level now. **That 2 seconds was paid on every
+server start**, before a single symbol was indexed, and it is also what made
+per-request freshness practical.
+
 ## 4. Scope for this pass
 
 Agreed: **confirmed bugs plus the highest-value missing methods.** Everything

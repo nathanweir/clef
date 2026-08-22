@@ -7,6 +7,23 @@
 ;;; (*initialized*, *documents*, *workspace-root*, ...) that have been moved
 ;;; there; see src/context.lisp for the canonical definitions.
 
+(defparameter *index-consulting-methods*
+  '("textDocument/definition"
+    "textDocument/references"
+    "textDocument/implementation"
+    "textDocument/documentHighlight"
+    "textDocument/hover"
+    "textDocument/prepareCallHierarchy"
+    "callHierarchy/incomingCalls"
+    "callHierarchy/outgoingCalls"
+    "workspace/symbol")
+  "Methods whose answers come from the workspace index rather than from the
+open document, and which therefore need the index to be current.
+
+Not every method: documentSymbol, semanticTokens, foldingRange and the rest
+answer from the client's own copy of the document, which is current by
+definition. Refreshing for those would be work with nothing to show for it.")
+
 (defun before-handle-request (request)
        "Hook to run before handling any request."
        (let ((endpoint-name (clef-jsonrpc/types:request-method request)))
@@ -15,7 +32,12 @@
                        (not (string= endpoint-name "initialized"))
                        (not ctx:initialized))
                   (slog :error "Server not initialized yet.")
-                  (error 'clef-lsp/types/base:server-not-initialized-error))))
+                  (error 'clef-lsp/types/base:server-not-initialized-error))
+            ;; Pick up edits made outside the protocol before answering from the
+            ;; index. Centralised here rather than repeated in nine handlers, so
+            ;; a tenth cannot forget. See CLEF-SYMBOLS:REFRESH-STALE-INDEX.
+            (when (member endpoint-name *index-consulting-methods* :test #'string=)
+                  (ignore-errors (clef-symbols:refresh-stale-index)))))
 
 (defun capture-backtrace ()
        "Capture current backtrace as a string."

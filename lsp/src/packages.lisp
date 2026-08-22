@@ -39,6 +39,7 @@ through their own defparameters.")
                      :server-context-symbol-refs
                      :server-context-workspace-symbol-index
                      :server-context-document-line-offsets
+                     :server-context-file-index-times
                      :server-context-global-scope
                      :server-context-loaded-systems
                      :server-context-file-to-system
@@ -55,6 +56,7 @@ through their own defparameters.")
                      :symbol-refs
                      :workspace-symbol-index
                      :document-line-offsets
+                     :file-index-times
                      :global-scope
                      :loaded-systems
                      :file-to-system
@@ -165,6 +167,8 @@ through their own defparameters.")
                      remove-file-from-workspace-index
                      add-to-workspace-index
                      lookup-in-workspace-index
+                     refresh-stale-index
+                     project-lisp-files
                      node-kind-of
                      ;; Byte offset helpers (used by some handlers)
                      line-char-to-byte-offset))
