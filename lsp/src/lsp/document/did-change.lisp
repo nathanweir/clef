@@ -2,8 +2,8 @@
 
 (defun update-document-text (document-text start-line start-char end-line end-char new-text)
        "Replace text in document-text from (start-line, start-char) to (end-line, end-char) with new-text."
-       (let ((start-offset (line-char-to-offset document-text start-line start-char))
-             (end-offset (line-char-to-offset document-text end-line end-char)))
+       (let ((start-offset (line-char-to-offset-in-string document-text start-line start-char))
+             (end-offset (line-char-to-offset-in-string document-text end-line end-char)))
             (slog :debug "offsets: ~A to ~A~%" start-offset end-offset)
             (concatenate 'string
                          (subseq document-text 0 start-offset)
@@ -18,7 +18,18 @@
              while pos
              finally (return pos)))
 
-(defun line-char-to-offset (string line char)
+;; Named for its argument, because signature-help.lisp defines a
+;; LINE-CHAR-TO-OFFSET of its own in this same package that takes a LIST of
+;; lines. It loads later, so it silently replaced this one -- and the build said
+;; so, in a "redefining ... in DEFUN" warning that had gone unread.
+;;
+;; No live caller, so nothing was broken: incremental sync is not advertised
+;; (initialize.lisp's `"change" 2' is commented out) and UPDATE-DOCUMENT-TEXT is
+;; unreachable. It was a trap rather than a fault -- turning incremental sync on
+;; would have handed a string to a function expecting a list, and the error
+;; would have pointed at the wrong file.
+(defun line-char-to-offset-in-string (string line char)
+       "Convert a line/character position to an absolute offset within STRING."
        (if (= line 0)
            char
            (let ((newline-pos (find-nth-newline string line)))
