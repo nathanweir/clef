@@ -25,6 +25,20 @@ containing a single top-level form has a defun scope of nearly the same extent."
           (when (and scope (eq (clef-symbols:lexical-scope-kind scope) :document))
             (return scope)))))))
 
+(defun trim-range-start (range shift)
+  "RANGE with its start moved SHIFT characters right.
+
+For a DEFPACKAGE name the node spans a marker -- the `:' of :foo, the `#:' of
+#:foo -- that the reported name does not include. Without this the
+DocumentSymbol's `name' and its `selectionRange' describe different text, which
+the corpus sweep flags as `selectionRange text /= name'."
+  (if (and shift (plusp shift))
+      (let* ((start (gethash "start" range))
+             (moved (dict "line" (gethash "line" start)
+                          "character" (+ (gethash "character" start) shift))))
+        (dict "start" moved "end" (gethash "end" range)))
+      range))
+
 (defun definition-to-document-symbol (def)
   "One DocumentSymbol for DEF, or NIL if it cannot be located.
 
@@ -38,7 +52,9 @@ docs/surveys/lsp-review.md §1.8."
         (name-node (clef-symbols:symbol-definition-node def))
         (form-node (clef-symbols:symbol-definition-form-node def)))
     (when (and name name-node)
-      (let* ((selection-range (node-to-range name-node))
+      (let* ((selection-range (trim-range-start
+                               (node-to-range name-node)
+                               (clef-symbols:symbol-definition-name-start-shift def)))
              ;; The spec requires selectionRange to be contained in range.
              ;; Falling back to the name for both satisfies that trivially and
              ;; still navigates correctly -- it only gives up the breadcrumb.

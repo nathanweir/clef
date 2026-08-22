@@ -367,6 +367,9 @@ new files costs about 4 ms now that it prunes."
                                   (check-for-class-define n node-type file-path file-source)
                                   (check-for-struct-define n node-type file-path file-source)
                                   (check-for-type-define n node-type file-path file-source)
+                                  ;; Fallback for DEF* forms with no dedicated
+                                  ;; checker, including project-defined macros.
+                                  (check-for-generic-define n node-type file-path file-source)
                                   ;; Check if the node is a symbol-reference and record it into the scope if so
                                   ;; (uses *current-scope* internally intead of passing a scope in here)
                                   (check-for-symbol-reference n node-type file-path file-source)
@@ -981,13 +984,29 @@ field name ((:VALUE :SYM-LIT)). Normalise to the kind."
             (let ((raw (fast-node-text node source file-path)))
                   (and raw (string-equal (string-left-trim ":" raw) text)))))
 
-(defun record-definition (name name-node kind file-path form-node)
-       "Record a global definition and add it to the workspace index."
-       (let ((symbol-def (make-symbol-definition
+(defun record-definition (name name-node kind file-path form-node
+                          &optional (name-start-shift 0) (name-end-shift 0))
+       "Record a global definition and add it to the workspace index.
+
+NAME-START-SHIFT and NAME-END-SHIFT trim the recorded location inward from the
+node's own extent. DEFPACKAGE names its package with a marker -- :foo, #:foo,
+\"FOO\" -- which is not part of the name, so the name is normalised without it
+and the location has to be trimmed to match. Otherwise the reported name and
+the range covering it disagree, which is what the corpus sweep's
+`selectionRange text /= name' invariant catches."
+       (let* ((raw (location-for-node file-path name-node))
+              (location (if (or (plusp name-start-shift) (plusp name-end-shift))
+                            (make-location
+                              :file-path (location-file-path raw)
+                              :start (+ (location-start raw) name-start-shift)
+                              :end (- (location-end raw) name-end-shift))
+                            raw))
+              (symbol-def (make-symbol-definition
                            :symbol-name name
                            :package-name *current-package*
                            :kind kind
-                           :location (location-for-node file-path name-node)
+                           :location location
+                           :name-start-shift name-start-shift
                            :defining-scope *current-scope*
                            :node name-node
                            :form-node form-node)))
@@ -1175,3 +1194,99 @@ interval tree if so."
 ;; (slog :debug "Adding symbol-reference for ~A to current scope"
 ;;       (symbol-reference-symbol-name symbol-reference))
 ;; (slog :debug "New list is: ~A " scope-references-list))))
+
+;;; ---------------------------------------------------------------------------
+;;; DEFPACKAGE, and every other DEF* form nobody wrote a checker for
+;;;
+;;; Measured on clef's own 100 source files (docs/experiments/lsp/06-real-code-
+;;; sweep.lisp): 645 of 828 definitions were indexed, and 87% of the misses were
+;;; not ANSI gaps at all but DEFINING MACROS THE PROJECT DEFINES ITSELF --
+;;; 144 DEFTEST, 16 DEFINE-CONTEXT-ACCESSOR. The hand-written corpus could never
+;;; have shown that, because it was derived from the standard and so contains no
+;;; project-specific macros.
+;;;
+;;; No amount of per-form checkers fixes that: any project can invent any DEF*
+;;; macro. But the naming convention is near-universal in Common Lisp, and the
+;;; standard follows it without exception -- all eighteen standard defining
+;;; forms are DEF-prefixed with the name second. So treat that shape as a
+;;; definition by default.
+;;;
+;;; Deliberately a heuristic, and it can be wrong. A macro named DEFER, or one
+;;; whose second element is not the name it defines, produces a bogus entry. The
+;;; trade is a wrong entry against a missing one, and for navigation a wrong
+;;; entry is the cheaper error -- go-to-definition lands somewhere odd rather
+;;; than nowhere, and the symbol at least appears in documentSymbol.
+;;;
+;;; This also picks up the four standard forms that had no checker:
+;;; DEFINE-SETF-EXPANDER, DEFINE-MODIFY-MACRO, DEFINE-SYMBOL-MACRO and
+;;; DEFINE-METHOD-COMBINATION -- see docs/surveys/cl-surface-area.md §9.2.
+
+(defparameter *heads-with-their-own-checker*
+              '("defun" "defmacro" "defmethod" "defgeneric" "lambda"
+                "defparameter" "defconstant" "defvar"
+                "defclass" "define-condition" "defstruct" "deftype")
+              "DEF* heads handled by a dedicated checker.
+
+Excluded here so a form is not recorded twice, once by its own checker and
+once by the generic fallback.")
+
+(defun define-form-name (text)
+       "The symbol name TEXT designates, or NIL if it does not look like one.
+
+DEFPACKAGE names its package as a keyword, a string or an uninterned symbol --
+:clef-lsp/document, \"CLEF\", #:clef -- and all three mean the same name. Strip
+the marker so the index holds one spelling.
+
+Returns NIL for anything containing whitespace or a paren, which rejects a
+list-shaped name such as (setf area) without having to inspect node types."
+       (when (and text (plusp (length text)))
+             (multiple-value-bind (name start-shift end-shift)
+                 (cond
+                   ((and (> (length text) 2) (string= "#:" (subseq text 0 2)))
+                    (values (subseq text 2) 2 0))
+                   ((char= (char text 0) #\:) (values (subseq text 1) 1 0))
+                   ((char= (char text 0) #\") (values (string-trim "\"" text) 1 1))
+                   (t (values text 0 0)))
+               (when (and (plusp (length name))
+                          (notany (lambda (c)
+                                          (member c '(#\Space #\Tab #\Newline
+                                                      #\( #\) #\' #\`)))
+                                  name))
+                     (values name start-shift end-shift)))))
+
+(defun guessed-define-kind (head)
+       "A plausible SYMBOL-KIND for an unrecognised DEF* form named HEAD.
+
+A guess, and marked as one. The alternative is :UNKNOWN for every project macro,
+which tells an editor nothing and shows no icon."
+       (cond
+         ((string-equal head "defpackage") :package)
+         ((or (search "var" head) (search "global" head)
+              (search "param" head) (search "constant" head))
+          :variable)
+         (t :function)))
+
+(defun check-for-generic-define (node node-type file-path source)
+       "Record any (DEF<something> NAME ...) form that no other checker claims."
+       (when (not (eq node-type :LIST-LIT))
+             (return-from check-for-generic-define nil))
+       (let* ((children (ts:node-children node))
+              (head-node (first children))
+              (name-node (second children)))
+            (unless (and head-node name-node
+                         (equal (ts:node-type head-node) '(:value :sym-lit)))
+                    (return-from check-for-generic-define nil))
+            (let ((head (fast-node-text head-node source file-path)))
+                 (unless (and head
+                              (>= (length head) 4)
+                              (string-equal "def" (subseq head 0 3))
+                              (not (member head *heads-with-their-own-checker*
+                                           :test #'string-equal)))
+                         (return-from check-for-generic-define nil))
+                 (multiple-value-bind (name start-shift end-shift)
+                     (define-form-name (fast-node-text name-node source file-path))
+                   (when name
+                         (record-definition name name-node
+                                            (guessed-define-kind head)
+                                            file-path node
+                                            start-shift end-shift))))))

@@ -66,7 +66,19 @@ which is why nothing did."
            ;; textDocument/documentSymbol needs this to give a DocumentSymbol a
            ;; `range' covering the whole definition while `selectionRange' covers
            ;; the name -- which is what puts "inside FOO" in an editor breadcrumb.
-           (form-node nil))
+           (form-node nil)
+           ;; How many characters at the START of NODE are not part of the name.
+           ;;
+           ;; DEFPACKAGE writes its package name with a marker -- :foo, #:foo,
+           ;; "FOO" -- which is not part of the name. The name is normalised
+           ;; without it so that all three spellings index alike and an
+           ;; (in-package :foo) can find a (defpackage #:foo). But the tree-sitter
+           ;; node still spans the marker, so a range built from the node covers
+           ;; more than the reported name does, and selectionRange disagrees with
+           ;; `name'. Recorded here so consumers can trim.
+           ;;
+           ;; Always on one line: a package name and its marker cannot be split.
+           (name-start-shift 0))
 
 (defstruct symbol-reference
            "A reference (usage) of a symbol in the workspace."

@@ -145,6 +145,7 @@ through their own defparameters.")
                      lexical-scope-node
                      symbol-definition-node
                      symbol-definition-form-node
+                     symbol-definition-name-start-shift
                      symbol-definition-kind
                      symbol-reference-node
                      symbol-reference-symbol-name

@@ -1861,6 +1861,103 @@ undo it. A macro because CALL-HANDLER is an FLET."
                     "LABELS must resolve a backward reference to a sibling"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; DEF* forms with no dedicated checker
+;;; ---------------------------------------------------------------------------
+;;;
+;;; Measured on clef's own 100 source files, 87% of unindexed definitions came
+;;; from defining macros the PROJECT defines -- DEFTEST, DEFINE-CONTEXT-ACCESSOR
+;;; -- not from gaps in ANSI coverage. No set of per-form checkers can fix that,
+;;; so any (DEF<something> NAME ...) shape is now treated as a definition.
+
+(defmacro symbol-names (uri)
+  "Names reported by textDocument/documentSymbol, lowercased."
+  `(let ((result (response-result-safe
+                  (call-handler "textDocument/documentSymbol"
+                                (dict "textDocument" (dict "uri" ,uri))))))
+     (when (vectorp result)
+       (loop for s across result collect (string-downcase (gethash "name" s))))))
+
+(deftest test-defpackage-is-indexed
+  "DEFPACKAGE names a package, and that name must be findable"
+  ;; Missed in all twelve corpus files and all 21 DEFPACKAGE forms in clef's
+  ;; own source before this.
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defpackage :my-package
+  (:use :cl)
+  (:export #:thing))
+(in-package :my-package)
+(defun thing () 1)")
+      (let ((names (symbol-names uri)))
+        (assert-true (member "my-package" names :test #'string=)
+                     "The package name must be indexed")
+        (assert-true (member "thing" names :test #'string=)
+                     "And the function alongside it")))))
+
+(deftest test-defpackage-name-spellings-normalise
+  "A package named as a keyword, a string or #:uninterned is one name"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defpackage #:hash-named (:use :cl))")
+      (assert-true (member "hash-named" (symbol-names uri) :test #'string=)
+                   "#:NAME must index as NAME, without the marker"))
+    (with-scoping-fixture (uri "(defpackage \"STRING-NAMED\" (:use :cl))")
+      (assert-true (member "string-named" (symbol-names uri) :test #'string=)
+                   "\"NAME\" must index as NAME, without the quotes"))))
+
+(deftest test-project-defined-defining-macros-are-indexed
+  "A DEF* macro the project invented must still register its name"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defmacro deftest (name &body body)
+  `(defun ,name () ,@body))
+(deftest my-first-test
+  (list 1 2))
+(define-context-accessor documents)")
+      (let ((names (symbol-names uri)))
+        (assert-true (member "my-first-test" names :test #'string=)
+                     "A name defined by a project macro must be indexed")
+        (assert-true (member "documents" names :test #'string=)
+                     "Including macros clef has never seen")))))
+
+(deftest test-remaining-standard-defining-forms-are-indexed
+  "The four ANSI DEF* forms that had no checker"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(define-symbol-macro *limit* 100)
+(define-modify-macro doublef () (lambda (x) (* 2 x)))
+(define-setf-expander car-of (place) place)
+(define-method-combination sum-it ())")
+      (let ((names (symbol-names uri)))
+        (dolist (expected '("*limit*" "doublef" "car-of" "sum-it"))
+          (assert-true (member expected names :test #'string=)
+                       (format nil "~A must be indexed" expected)))))))
+
+(deftest test-setf-function-names-are-indexed-whole
+  "(defun (setf place) ...) indexes as the list name it actually has"
+  ;; A SETF function's name IS a list -- (setf place) -- not a mangling of one.
+  ;; So the paren is correct and the whole form is the right thing to record.
+  ;;
+  ;; The generic DEF* fallback takes the second element as the name, which for
+  ;; these is a list; DEFINE-FORM-NAME rejects anything containing a paren, so
+  ;; the fallback declines and the dedicated DEFUN path -- which handles them
+  ;; properly -- stays the only one recording them. This pins that there is
+  ;; exactly one entry, not two.
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defun (setf place) (new obj) (setf (car obj) new))
+(defmethod (setf area) (v (s integer)) v)
+(defun normal (x) x)")
+      (let ((names (symbol-names uri)))
+        (assert-true (member "(setf place)" names :test #'string=)
+                     "A SETF function indexes under its whole list name")
+        (assert-true (member "(setf area)" names :test #'string=)
+                     "And so does a SETF method")
+        (assert-equal 3 (length names)
+                      "Three definitions, each recorded once -- the generic
+fallback must not add a second entry beside the dedicated DEFUN path")))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Dotted lambda lists
 ;;; ---------------------------------------------------------------------------
 
