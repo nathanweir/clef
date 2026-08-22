@@ -907,6 +907,98 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Hover, rebuilt on structured data
+;;; ---------------------------------------------------------------------------
+
+(defparameter *hover-code* "(defun hover-subject (items)
+  (list (length items)
+        (when items t)
+        *print-pretty*))")
+
+(defmacro hover-contents (uri line character)
+  "The markdown string from a hover response, or NIL.
+
+A MACRO, not a function. CALL-HANDLER is an FLET bound by
+WITH-DIRECT-HANDLER-TEST, so a top-level function cannot see it -- and the
+failure reads \"The function CLEF-TEST::CALL-HANDLER is undefined\", which points
+nowhere near the cause. Expanding at the call site puts the body inside the FLET
+where it belongs."
+  `(let* ((response (call-handler "textDocument/hover"
+                                  (dict "textDocument" (dict "uri" ,uri)
+                                        "position" (dict "line" ,line
+                                                         "character" ,character))))
+          (result (response-result-safe response))
+          (contents (when (hash-table-p result) (gethash "contents" result))))
+     (when (stringp contents) contents)))
+
+(deftest test-hover-reports-a-derived-type
+  "Hover must surface SBCL's type knowledge, not scrape DESCRIBE's prose"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/hover-typed.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *hover-code*))
+                    :id nil)
+      ;; Line 1 char 10 is LENGTH, whose argument and return types SBCL knows.
+      ;; Char 16 is ITEMS, a parameter -- a mistake worth naming, since a probe
+      ;; landing one token over is how several wrong findings started.
+      (let ((text (hover-contents uri 1 10)))
+        (assert-not-nil text "Hover on LENGTH should produce contents")
+        (assert-not-nil (search "SEQUENCE" text) "Should report the argument type")
+        (assert-not-nil (search "=>" text) "Should report a return type")
+        ;; (VALUES X &OPTIONAL) is how SBCL spells one return value. Accurate,
+        ;; unreadable, and unwrapped before display.
+        (assert-nil (search "&OPTIONAL" text)
+                    "The VALUES wrapper should be unwrapped")
+        (assert-not-nil (search "Return an integer" text)
+                        "Should include the docstring, from DOCUMENTATION")))))
+
+(deftest test-hover-on-a-macro-omits-a-meaningless-type
+  "A macro's ftype is (FUNCTION (T T) *) and says nothing; do not show it"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/hover-macro.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *hover-code*))
+                    :id nil)
+      ;; Line 2 char 9 is WHEN.
+      (let ((text (hover-contents uri 2 9)))
+        (assert-not-nil text "Hover on WHEN should produce contents")
+        (assert-not-nil (search "defmacro" text) "Should be presented as a macro")
+        ;; Every parameter of an unannotated function reports type T. Printing
+        ;; `: T` beside each looks like an annotation and carries nothing.
+        (assert-nil (search ": T" text) "Should not annotate parameters with T")))))
+
+(deftest test-hover-falls-back-to-the-index
+  "A symbol clef has indexed but the image has never seen must still hover"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun never-loaded-fn (x) x)
+(defun caller () (never-loaded-fn 1))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             ;; Line 1 char 18 is the call to NEVER-LOADED-FN. FBOUNDP is false
+             ;; for it -- the language server never loads the user's code -- so
+             ;; everything drawn from the image is unavailable and the old
+             ;; implementation returned a blank.
+             (let ((text (hover-contents uri 1 18)))
+               (assert-not-nil text "Should fall back to what the index knows")
+               (assert-not-nil (search "never-loaded-fn" text)
+                               "Should name the symbol")
+               (assert-not-nil (search (file-namestring path) text)
+                               "Should say where it is defined"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

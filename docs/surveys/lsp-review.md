@@ -404,7 +404,7 @@ Also dead in the same area: `lexical-scope-child-scopes` is only ever pushed to
 for the document scope itself (`init.lisp:228`). No `check-for-*` links a child
 scope to its parent, so the slot cannot be used to walk the scope tree downward.
 
-### 1.7 Hover scrapes `describe` output — **the W0 anti-pattern, still present**
+### 1.7 Hover scrapes `describe` output — **the W0 anti-pattern** — ***FIXED***
 
 `lsp/src/lsp/document/hover.lisp:96` calls `(describe sym str)` into a string and
 then recovers everything it needs with five regexes over SBCL's English prose:
@@ -474,8 +474,37 @@ means this hover is the natural surface for that whole workstream.
 So: **rebuild on the structured APIs, keep the presentation idea.** The rendered
 code-block-with-annotations is a good design; the way it is populated is not.
 
-*Recorded, not scoped for this pass* — it is a rewrite of one file rather than a
-bug fix, and it wants doing alongside W4 rather than before it.
+#### Rewritten
+
+Every regex is gone. The sources were measured first, against every shape hover
+meets, in `docs/experiments/lsp/04-hover-sources.lisp`:
+
+- The ftype is genuinely structured — `(FUNCTION (STRING FIXNUM) (VALUES LIST
+  &OPTIONAL))` — so argument types and the return type are list elements, not
+  substrings.
+- `(VALUES X &OPTIONAL)` is how SBCL spells *one* return value. Accurate,
+  unreadable, and now unwrapped to `X`.
+- Parameters are paired with types by walking both lists and skipping `&`-markers
+  in **both**, which is what keeps them aligned. The old positional zip broke on
+  the first `&optional` with a default.
+- A type of `T` is dropped rather than printed. `;; T` beside every parameter
+  looks like an annotation and carries nothing — the author's own complaint.
+- A macro's ftype is `(FUNCTION (T T) *)` and says nothing, so no type block is
+  shown for macros at all.
+- Kind comes from `FBOUNDP` / `MACRO-FUNCTION` / `SPECIAL-OPERATOR-P` /
+  `FIND-CLASS`, so a macro is presented as `defmacro` and a generic as
+  `defgeneric` rather than everything being `defun`.
+
+**And a gap closed that predates the rewrite.** Everything above asks the
+*image*: `FBOUNDP`, `DOCUMENTATION` and the ftype all need the symbol to exist in
+the running Lisp. That is fine for CL and for loaded libraries, and useless for
+the file being written right now — whose functions clef has indexed but SBCL has
+never seen. Hover returned a blank for those. It now falls back to the workspace
+index and reports the name, kind and defining file, saying plainly that the
+symbol is not loaded.
+
+The presentation is unchanged, deliberately: it was the way it was populated
+that was wrong, not the idea. This remains the natural surface for W4.
 
 ---
 

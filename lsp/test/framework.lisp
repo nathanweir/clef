@@ -267,7 +267,13 @@ which silently aliased file-a and file-b in the cross-file tests.")
 
 (defmacro with-direct-handler-test (&body body)
   "Execute body with server state reset but test handlers directly.
-   Provides CALL-HANDLER function for invoking handlers."
+   Provides CALL-HANDLER function for invoking handlers.
+
+CALL-HANDLER is an FLET, so it exists only inside this macro's body. A top-level
+helper function that calls it compiles fine and fails at run time with \"The
+function CLEF-TEST::CALL-HANDLER is undefined\" -- a message pointing nowhere
+near the cause. Helpers that need it must be macros, or take the response as an
+argument. This has bitten three times."
   `(progn
      ;; Reset server state
      (clef-lsp/server:reset)
