@@ -1759,6 +1759,108 @@ undo it. A macro because CALL-HANDLER is an FLET."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Binding forms differ in what their own bindings can see
+;;; ---------------------------------------------------------------------------
+;;;
+;;; A lexical scope is stored as one interval, but LET is not one region: its
+;;; bindings are live in the body and not in the init forms beside them. LET*,
+;;; FLET and LABELS each draw that line somewhere different, and the four
+;;; answers are genuinely three rules, not two. These pin all of them, because
+;;; the failure mode is silent -- go-to-definition lands one line off and rename
+;;; emits edits that do not compile.
+
+;;; A macro, not a function: CALL-HANDLER is an FLET inside
+;;; WITH-DIRECT-HANDLER-TEST and so is invisible to anything defined outside it.
+(defmacro definition-line-char (uri line character)
+  "Where go-to-definition at LINE/CHARACTER lands, as (line . character), or NIL."
+  `(let ((result (response-result-safe
+                  (call-handler "textDocument/definition"
+                                (dict "textDocument" (dict "uri" ,uri)
+                                      "position" (dict "line" ,line
+                                                       "character" ,character))))))
+     (when (hash-table-p result)
+       (let ((start (gethash "start" (gethash "range" result))))
+         (cons (gethash "line" start) (gethash "character" start))))))
+
+(defmacro with-scoping-fixture ((uri-var code) &body body)
+  "Open CODE as a temp document, bind URI-VAR to its URI, and clean up after."
+  (let ((path (gensym "PATH")) (text (gensym "TEXT")))
+    `(let ((,path nil))
+       (unwind-protect
+            (let* ((,text ,code)
+                   ;; SETF, not a fresh binding: a LET* clause of the same name
+                   ;; would shadow the one UNWIND-PROTECT can see, leaving it NIL
+                   ;; and the temp file on disk forever.
+                   (,uri-var (format nil "file://~A"
+                                     (setf ,path (write-temp-file ,text)))))
+              (call-handler "textDocument/didOpen"
+                            (dict "textDocument" (dict "uri" ,uri-var "languageId" "lisp"
+                                                       "version" 1 "text" ,text))
+                            :id nil)
+              ,@body)
+         (when ,path (delete-temp-file ,path))))))
+
+(deftest test-let-bindings-are-not-visible-in-their-own-init-forms
+  "(let ((total (* total 2)))) -- the init form's TOTAL is the OUTER one"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defun plain (total)
+  (let ((total (* total 2)))
+    (list total total)))")
+      ;; 1:18 is the TOTAL inside (* total 2).
+      (assert-equal '(0 . 14) (definition-line-char uri 1 18)
+                    "A LET init form must see the parameter, not the binding")
+      ;; 2:11 is the first TOTAL of (list total total), in the body.
+      (assert-equal '(1 . 9) (definition-line-char uri 2 11)
+                    "The LET body must see the binding"))))
+
+(deftest test-let*-sees-earlier-bindings-but-not-its-own
+  "LET* draws the line at the end of each binding form, not at the name"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defun sequential (total)
+  (let* ((total (* total 2))
+         (other (+ total 1)))
+    (list total other)))")
+      ;; 1:19 is the TOTAL inside the FIRST binding's own init form. The name
+      ;; ends before that init form begins, so comparing against the name would
+      ;; wrongly make the binding visible inside the form establishing it.
+      (assert-equal '(0 . 19) (definition-line-char uri 1 19)
+                    "A LET* binding is not visible in its own init form")
+      ;; 2:21 is the TOTAL inside the SECOND binding's init form.
+      (assert-equal '(1 . 10) (definition-line-char uri 2 21)
+                    "A LET* binding IS visible in a later init form"))))
+
+(deftest test-flet-and-labels-differ-on-mutual-recursion
+  "LABELS bodies see every LABELS name; FLET bodies see none of the FLET names"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(defun local-fns (n)
+  (flet ((helper (n) (helper n)))
+    (helper n)))")
+      ;; 1:22 is HELPER called from inside HELPER's own FLET body -- column 22,
+      ;; on the symbol, not 21 on the paren beside it, which would resolve to
+      ;; nothing whatever the rule said and pass vacuously. FLET does not bind
+      ;; its names in its own bodies, and there is no outer HELPER, so the honest
+      ;; answer is that there is nothing to go to.
+      (assert-nil (definition-line-char uri 1 22)
+                  "An FLET function is not visible in its own body")
+      ;; 2:5 is HELPER called from the FLET body proper.
+      (assert-equal '(1 . 10) (definition-line-char uri 2 5)
+                    "The FLET body must see the FLET binding"))
+    (with-scoping-fixture (uri "(defun mutual (n)
+  (labels ((ping (n) (pong n))
+           (pong (n) (ping n)))
+    (ping n)))")
+      ;; 1:22 is PONG called from PING's body -- a FORWARD reference, which is
+      ;; legal in LABELS and is the whole reason LABELS exists next to FLET.
+      (assert-equal '(2 . 12) (definition-line-char uri 1 22)
+                    "LABELS must resolve a forward reference to a sibling")
+      ;; 2:22 is PING called from PONG's body, the backward direction.
+      (assert-equal '(1 . 12) (definition-line-char uri 2 22)
+                    "LABELS must resolve a backward reference to a sibling"))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

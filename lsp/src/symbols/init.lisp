@@ -644,6 +644,58 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              (setf *current-scope* scope)
              scope))
 
+(defun definition-visible-from-p (definition scope offset)
+       "Is DEFINITION, which belongs to SCOPE, in scope at OFFSET?
+
+The rule Common Lisp actually has, which one interval per form cannot express:
+
+  - Past the end of the binding list -- in the body -- every binding is visible.
+  - On the binding's own name, it is visible, so go-to-definition on a binding
+    lands on itself rather than on whatever it shadows.
+  - Inside the binding list otherwise, it depends on the form, and there are
+    three answers rather than two. LET and FLET expose none of their own
+    bindings there. LET* exposes the ones whose binding form has already closed,
+    so a binding is visible in later init forms but not in its own. LABELS
+    exposes all of them, forward references included -- that is precisely what
+    makes mutual recursion legal in LABELS and not in FLET.
+
+Without this, (let ((total (* total 2))) ...) resolved the init form's TOTAL to
+the binding being established rather than to the outer one -- which made rename
+emit edits that do not compile. See docs/surveys/lsp-review.md §3g."
+       (let ((bindings-end (lexical-scope-bindings-end scope)))
+            (cond
+              ;; Not a form with a binding list, or we do not know where it ends.
+              ((null bindings-end) t)
+              ((null offset) t)
+              ((>= offset bindings-end) t)
+              (t
+                (let* ((location (symbol-definition-location definition))
+                       (start (when location (location-start location)))
+                       (end (when location (location-end location))))
+                     (cond
+                       ((or (null start) (null end)) t)
+                       ;; The cursor is on the binding's own name.
+                       ((and (>= offset start) (< offset end)) t)
+                       (t
+                         (case (lexical-scope-binding-visibility scope)
+                           ;; LABELS: everything sees everything, forward
+                           ;; references included.
+                           (:all t)
+                           ;; LET*: visible once its own binding form is closed.
+                           ;; Measured against the NAME would be wrong -- the
+                           ;; name ends before its own init form begins, so the
+                           ;; binding would be visible inside the very init form
+                           ;; that establishes it.
+                           (:preceding
+                             (let* ((form (symbol-definition-form-node definition))
+                                    (form-end (when form
+                                                    (nth-value 1 (byte-offsets-for-node
+                                                                   (location-file-path location)
+                                                                   form)))))
+                                   (if form-end (<= form-end offset) (<= end offset))))
+                           ;; LET / FLET: none of this form's bindings.
+                           (t nil)))))))))
+
 (defun store-scope-on-interval-tree (scope file-path)
        "Stores the given lexical SCOPE into the interval tree for FILE-PATH.
 
@@ -703,9 +755,16 @@ binding. See docs/surveys/lsp-review.md §1.2."
                                      ((string-equal text "macrolet") :flet)
                                      (t nil))))))
              (unless kind (return-from check-for-local-function-binding nil))
-             (let ((bindings (ts:node-children (second children)))
-                   (scope (make-lexical-scope
+             (let* ((bindings-node (second children))
+                    (bindings (ts:node-children bindings-node))
+                    (scope (make-lexical-scope
                             :kind kind
+                            ;; LABELS bindings see each other -- that is the
+                            ;; whole difference from FLET, and what makes mutual
+                            ;; recursion legal in one and not the other.
+                            :bindings-end (nth-value 1 (byte-offsets-for-node file-path
+                                                                              bindings-node))
+                            :binding-visibility (if (eq kind :labels) :all :none)
                             :location (location-for-node file-path node)
                             :parent-scope *current-scope*
                             :symbol-definitions '()
@@ -782,9 +841,18 @@ binding. See docs/surveys/lsp-review.md §1.2."
                      (return-from check-for-let-binding nil)))
 
        ;; (slog :debug "getting let defines")
-       (let ((let-var-nodes (ts:node-children (second (ts:node-children node))))
-             (scope (make-lexical-scope
+       (let* ((bindings-node (second (ts:node-children node)))
+              (let-var-nodes (ts:node-children bindings-node))
+              (visibility (let ((head (fast-node-text (first (ts:node-children node))
+                                                      source file-path)))
+                               (if (and head (string= head "let*")) :preceding :none)))
+              (scope (make-lexical-scope
                       :kind :let
+                      ;; Where the binding list ends, so a reference inside it
+                      ;; can be told from one in the body.
+                      :bindings-end (nth-value 1 (byte-offsets-for-node file-path
+                                                                        bindings-node))
+                      :binding-visibility visibility
                       :location (location-for-node file-path node)
                       :parent-scope *current-scope*
                       :symbol-definitions '()
@@ -820,7 +888,13 @@ binding. See docs/surveys/lsp-review.md §1.2."
                                                                                   var-node)
                                                      ;; :defining-scope nil)))
                                                      :defining-scope scope
-                                                     :node var-node)))
+                                                     :node var-node
+                                                     ;; The whole binding pair,
+                                                     ;; (total (* total 2)), not
+                                                     ;; just the name. LET* needs
+                                                     ;; it to keep a binding out
+                                                     ;; of its own init form.
+                                                     :form-node let-var-node)))
                                       ;; (slog :debug "var node is ~A" var-node)
                                       ;; (slog :debug "Found let binding named: ~A" var-name)
                                       ;; Add this def the let-binding scope

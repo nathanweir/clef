@@ -22,8 +22,12 @@ find-references reports is a data-loss bug, not a cosmetic one."
                   definition-at-point def))))
       (if (null symbol-name)
           (values nil nil nil)
-          (let* ((definition (or definition-at-point
-                                 (search-up-for-symbol-def ref-scope symbol-name ref-package)))
+          (let* ((offset (ignore-errors
+                          (clef-symbols:line-char-to-byte-offset
+                           (clef-util:cleanup-path document-uri) line character)))
+                 (definition (or definition-at-point
+                                 (search-up-for-symbol-def ref-scope symbol-name
+                                                           ref-package offset)))
                  (lexical (and definition
                                (lexical-binding-scope-p
                                 (clef-symbols:symbol-definition-defining-scope definition)))))
@@ -159,7 +163,8 @@ reference, and matches how go-to-definition resolves."
                     (clef-symbols:symbol-reference-usage-scope ref))))
     (search-up-for-symbol-def scope
                               (clef-symbols:symbol-reference-symbol-name ref)
-                              (clef-symbols:symbol-reference-package-name ref))))
+                              (clef-symbols:symbol-reference-package-name ref)
+                              (when location (clef-symbols:location-start location)))))
 
 (defun find-references-to-binding (definition symbol-name)
   "Locations of every reference that resolves to DEFINITION.

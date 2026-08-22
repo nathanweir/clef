@@ -168,6 +168,7 @@ through their own defparameters.")
                      add-to-workspace-index
                      lookup-in-workspace-index
                      refresh-stale-index
+                     definition-visible-from-p
                      project-lisp-files
                      node-kind-of
                      ;; Byte offset helpers (used by some handlers)

@@ -629,7 +629,7 @@ Two properties worth calling out:
   every call site in the project while leaving the actual function alone. Both
   handlers refuse, so a client that skips the pre-flight cannot force it either.
 
-### 3g. `let` and `let*` are treated identically — **correctness, found by rename**
+### 3g. `let` and `let*` are treated identically — **correctness, found by rename** — **FIXED**
 
 Not introduced by rename; **surfaced** by it, because it is the first feature
 where the consequence is wrong code rather than a wrong highlight.
@@ -653,12 +653,50 @@ produce three.
 variable at compile time**, not silently wrong behaviour — and clef's own
 diagnostics flag it immediately. Loud, not silent.
 
-*Not fixed, deliberately.* The correct model is not reachable by adjusting the
-interval: the binding *names* belong to the new scope while the init forms beside
-them do not, and an interval cannot express that. Fixing it properly means
-scoping finer than one range per form, which is its own piece of work rather than
-something to bolt onto a rename patch. Affects references, documentHighlight and
-rename equally.
+**Fixed.** The original note here said this was not reachable by adjusting the
+interval, and that much was right — but the conclusion drawn from it, that
+scoping had to get finer than one range per form, was not. The interval stays
+exactly as it is; what was missing was a *second* coordinate recorded beside it.
+Two new slots on `lexical-scope`:
+
+- `bindings-end` — the byte offset where the binding list closes. Inside it and
+  past it are different places, which is the distinction one interval cannot
+  draw.
+- `binding-visibility` — how much of the scope's own binding list is visible
+  from within it.
+
+`definition-visible-from-p` (`symbols/init.lisp`) consults both, and resolution
+threads the reference's offset down to it. Everything built on
+`search-up-for-symbol-def` — definition, references, documentHighlight, rename —
+inherits the fix at once, because they already shared that path.
+
+The thing worth recording is that Common Lisp has **three** answers here, not
+two. The first attempt modelled it as a boolean (`sequential-p`) and got two of
+four forms wrong:
+
+| form | its own bindings, seen from its binding list |
+|---|---|
+| `let`, `flet` | none |
+| `let*` | those whose **binding form has closed** |
+| `labels` | **all**, forward references included |
+
+Both errors are instructive. `let*` had been measured against the end of the
+binding *name*, which is a boundary that always precedes the init form beside
+it — so a binding was visible inside the very form establishing it, and
+`(let* ((total (* total 2))) ...)` resolved to itself. The definition now
+records its whole binding pair as `form-node` and the comparison uses that.
+And `labels` is not "sequential with a longer reach": its bindings are mutually
+visible in both directions, which is the entire reason it exists next to `flet`
+— treating it as ordered breaks exactly the mutual recursion it was added for.
+
+Pinned by `test-let-bindings-are-not-visible-in-their-own-init-forms`,
+`test-let*-sees-earlier-bindings-but-not-its-own` and
+`test-flet-and-labels-differ-on-mutual-recursion`. Each was verified by breaking
+the rule three separate ways — disabling it outright, reverting `let*` to the
+name-based comparison, and demoting `labels` to `:preceding` — and confirming
+that each break fails the one test that names it, on the right assertion. One of
+those probes originally sat on a paren rather than the symbol, where it would
+have passed no matter what the rule said.
 
 ### Missing, recorded, not scoped now
 

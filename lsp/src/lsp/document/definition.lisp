@@ -18,17 +18,27 @@
                                         (return-from handle-text-document-definition
                                                      (make-goto-definition-response nil)))
                                   (make-goto-definition-response
-                                    (search-up-for-symbol-def ref-scope ref-name ref-package)))))
+                                    (search-up-for-symbol-def
+                                      ref-scope ref-name ref-package
+                                      (ignore-errors
+                                       (clef-symbols:line-char-to-byte-offset
+                                         (clef-util:cleanup-path document-uri)
+                                         line character)))))))
 
 
-(defun search-up-for-symbol-def (ref-scope ref-name &optional ref-package)
+(defun search-up-for-symbol-def (ref-scope ref-name &optional ref-package ref-offset)
        "Search up the lexical scope tree from REF-SCOPE to find the definition of REF-NAME.
 If not found in the scope tree, falls back to searching the workspace symbol index
 for cross-file definitions.
 
 REF-PACKAGE is the package in effect where the reference appears. It only
 matters for the workspace-index fallback, where it disambiguates same-named
-definitions from different packages."
+definitions from different packages.
+
+REF-OFFSET is where the reference sits, which decides whether a binding of a
+scope is actually visible from it. A LET's own bindings are not in scope in its
+init forms, and a scope is one interval, so position is the only thing that can
+tell those apart. See CLEF-SYMBOLS:DEFINITION-VISIBLE-FROM-P."
        ;; Base case: reached end of scope tree, try workspace index
        (unless ref-scope
                (slog :debug "Scope tree exhausted, searching workspace index for ~A" ref-name)
@@ -40,11 +50,12 @@ definitions from different packages."
        ;; that definition. Otherwise, recurse on this function with the parent scope
        (let ((defs (lexical-scope-symbol-definitions ref-scope)))
             (dolist (def defs)
-                    (when (string= (symbol-definition-symbol-name def) ref-name)
+                    (when (and (string= (symbol-definition-symbol-name def) ref-name)
+                               (clef-symbols:definition-visible-from-p def ref-scope ref-offset))
                           (slog :debug "Found symbol definition for ~A in scope" ref-name)
                           (return-from search-up-for-symbol-def def))))
        (let ((parent-scope (lexical-scope-parent-scope ref-scope)))
-            (search-up-for-symbol-def parent-scope ref-name ref-package)))
+            (search-up-for-symbol-def parent-scope ref-name ref-package ref-offset)))
 
 (defun search-workspace-index-for-symbol (symbol-name &optional ref-package)
        "Search the workspace symbol index for a symbol definition.

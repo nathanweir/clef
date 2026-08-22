@@ -100,7 +100,35 @@ which is why nothing did."
            (symbol-references nil :type hash-table)
            ;; Should be a list of lexical-scope's
            (child-scopes nil :type list)
-           (node nil))
+           (node nil)
+           ;; Where this scope's binding list ends, as a byte offset, or NIL for
+           ;; scopes that do not have one.
+           ;;
+           ;; A scope is one interval, but LET is not one region. Its bindings
+           ;; are in scope in the body and NOT in the init forms beside them:
+           ;;
+           ;;     (let ((total (* total 2)))   ; this TOTAL is the outer one
+           ;;       total)                     ; this TOTAL is the new one
+           ;;
+           ;; One range per form cannot say that, so the boundary is recorded
+           ;; separately and consulted when resolving. See
+           ;; DEFINITION-VISIBLE-FROM-P.
+           (bindings-end nil)
+           ;; How much of this scope's own bindings are visible from inside its
+           ;; binding list. Common Lisp has three answers, not two:
+           ;;
+           ;;   :NONE       LET and FLET -- an init form or function body sees
+           ;;               none of the bindings being established, so
+           ;;               (let ((x (f x))) ...) has an OUTER x in the init form.
+           ;;   :PRECEDING  LET* -- bindings established earlier are visible, the
+           ;;               one being established is not.
+           ;;   :ALL        LABELS -- every binding sees every other, which is
+           ;;               what makes mutual recursion legal there and not in
+           ;;               FLET. Includes forward references.
+           ;;
+           ;; NIL for scopes with no binding list. Getting this wrong makes
+           ;; rename emit edits that do not compile.
+           (binding-visibility nil))
 
 (defstruct system-info
   "Information about an ASDF system discovered in the workspace."
