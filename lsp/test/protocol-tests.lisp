@@ -1430,6 +1430,69 @@ undo it. A macro because CALL-HANDLER is an FLET."
                  "Should still find the indexer itself")))
 
 ;;; ---------------------------------------------------------------------------
+;;; workspaceSymbol ranking
+;;; ---------------------------------------------------------------------------
+
+(deftest test-workspace-symbol-ranks-matches
+  "An exact match must not be buried under substring hits"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun tokenise-everything () 1)
+(defun retokenise () 2)
+(defun token () 3)
+(defun token-stream () 4)")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let* ((result (response-result-safe
+                             (call-handler "workspace/symbol" (dict "query" "token"))))
+                    (names (when (vectorp result)
+                             (map 'list (lambda (s) (gethash "name" s)) result))))
+               (assert-not-nil names "Should find matches")
+               ;; Exact first, then prefix by length, then substring. Before
+               ;; ranking, order was whatever the hash table yielded.
+               (assert-equal "token" (first names)
+                             "The exact match must come first")
+               (assert-equal "token-stream" (second names)
+                             "Then the shortest prefix match")
+               ;; RETOKENISE only contains the query; it must come after both.
+               (assert-true (> (position "retokenise" names :test #'string=)
+                               (position "token-stream" names :test #'string=))
+                            "A substring-only match ranks below prefix matches"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-workspace-symbol-reports-its-package
+  "Two same-named symbols must be distinguishable without opening them"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defpackage :ws-alpha (:use :cl))
+(in-package :ws-alpha)
+(defun shared-name () 1)")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let* ((result (response-result-safe
+                             (call-handler "workspace/symbol" (dict "query" "shared-name"))))
+                    (entry (when (and (vectorp result) (plusp (length result)))
+                             (aref result 0))))
+               (assert-not-nil entry "Should find the symbol")
+               (assert-equal "WS-ALPHA" (gethash "containerName" entry)
+                             "containerName should carry the package"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 
