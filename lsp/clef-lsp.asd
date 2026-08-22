@@ -49,6 +49,7 @@
                                               (:file "lsp/document/semantic-tokens")
                                               (:file "lsp/document/inlay-hint")
                                               (:file "lsp/document/code-lens")
+                                              (:file "lsp/document/rename")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/did-save")

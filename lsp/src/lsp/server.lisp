@@ -16,7 +16,9 @@
     "textDocument/prepareCallHierarchy"
     "callHierarchy/incomingCalls"
     "callHierarchy/outgoingCalls"
-    "workspace/symbol")
+    "workspace/symbol"
+    "textDocument/rename"
+    "textDocument/prepareRename")
   "Methods whose answers come from the workspace index rather than from the
 open document, and which therefore need the index to be current.
 
@@ -155,6 +157,8 @@ definition. Refreshing for those would be work with nothing to show for it.")
        (sethandler "textDocument/semanticTokens/full" 'clef-lsp/document:handle-text-document-semantic-tokens-full)
        (sethandler "textDocument/inlayHint" 'clef-lsp/document:handle-text-document-inlay-hint)
        (sethandler "textDocument/codeLens" 'clef-lsp/document:handle-text-document-code-lens)
+       (sethandler "textDocument/rename" 'clef-lsp/document:handle-text-document-rename)
+       (sethandler "textDocument/prepareRename" 'clef-lsp/document:handle-text-document-prepare-rename)
        (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
        (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)

@@ -298,6 +298,8 @@ through their own defparameters.")
               handle-text-document-semantic-tokens-full
               handle-text-document-inlay-hint
               handle-text-document-code-lens
+              handle-text-document-rename
+              handle-text-document-prepare-rename
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change

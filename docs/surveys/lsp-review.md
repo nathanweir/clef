@@ -608,6 +608,58 @@ command: there is no standard one for "show references" (`editor.action.showRefe
 is VS Code's), and a lens that looks clickable and does nothing is worse than a
 lens that only informs. Wiring a command is a per-client decision.
 
+**`textDocument/rename` and `textDocument/prepareRename`.** The WIP file that
+existed was rewritten: it reached for `clef-symbols:*symbol-refs-by-file*`, which
+no longer exists, and used the name-based lookup — an unsafe rename that would
+have ignored scope entirely.
+
+Both are built on `resolve-symbol-at` and `locations-for-symbol`, factored out of
+find-references for the purpose. **A rename that edits a different set than
+find-references reports is a data-loss bug**, so the two share the resolution
+rather than reimplementing it, and a test asserts they agree exactly.
+
+Two properties worth calling out:
+
+- **Qualified references rename correctly.** The grammar splits `pkg:name`, so
+  the recorded reference covers only the name half and the package prefix
+  survives untouched. `prepareRename` reports that narrower range, so the editor
+  highlights and pre-fills the right thing.
+- **Standard-library symbols are refused.** Resolution walks into the global
+  scope, which holds every Common Lisp symbol; renaming `list` would rewrite
+  every call site in the project while leaving the actual function alone. Both
+  handlers refuse, so a client that skips the pre-flight cannot force it either.
+
+### 3g. `let` and `let*` are treated identically — **correctness, found by rename**
+
+Not introduced by rename; **surfaced** by it, because it is the first feature
+where the consequence is wrong code rather than a wrong highlight.
+
+`check-for-let-binding` gives a `let` a scope covering the **whole form,
+including the init forms**. In plain `let`, init forms are evaluated in the
+*enclosing* scope — only `let*` sees the bindings being established. So in
+
+```lisp
+(defun shadowed (total)
+  (let ((total (* total 2)))    ; this TOTAL is the PARAMETER
+    (list total total)))
+```
+
+the `total` inside `(* total 2)` refers to the parameter, and clef resolves it to
+the `let` binding. Measured: renaming the parameter produces one edit where it
+should produce two; renaming the `let` binding produces four where it should
+produce three.
+
+*Mitigating, and worth knowing:* both failure modes produce an **unbound
+variable at compile time**, not silently wrong behaviour — and clef's own
+diagnostics flag it immediately. Loud, not silent.
+
+*Not fixed, deliberately.* The correct model is not reachable by adjusting the
+interval: the binding *names* belong to the new scope while the init forms beside
+them do not, and an interval cannot express that. Fixing it properly means
+scoping finer than one range per form, which is its own piece of work rather than
+something to bolt onto a rename patch. Affects references, documentHighlight and
+rename equally.
+
 ### Missing, recorded, not scoped now
 
 `codeAction`, `documentLink`,

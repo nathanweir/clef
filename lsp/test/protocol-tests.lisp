@@ -1611,6 +1611,154 @@ undo it. A macro because CALL-HANDLER is an FLET."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; rename and prepareRename
+;;; ---------------------------------------------------------------------------
+
+(defparameter *rename-code* "(defpackage :ren-lib (:use :cl) (:export #:helper))
+(in-package :ren-lib)
+(defun helper (x) (list x))
+
+(defpackage :ren-app (:use :cl))
+(in-package :ren-app)
+(defun uses () (ren-lib:helper 1))")
+
+(defmacro prepare-rename-at (uri line character)
+  `(response-result-safe
+    (call-handler "textDocument/prepareRename"
+                  (dict "textDocument" (dict "uri" ,uri)
+                        "position" (dict "line" ,line "character" ,character)))))
+
+(defmacro rename-at (uri line character new-name)
+  "Rename edits as a flat list of (line . character), across all files."
+  `(let* ((result (response-result-safe
+                   (call-handler "textDocument/rename"
+                                 (dict "textDocument" (dict "uri" ,uri)
+                                       "position" (dict "line" ,line "character" ,character)
+                                       "newName" ,new-name))))
+          (changes (when (hash-table-p result) (gethash "changes" result)))
+          (edits '()))
+     (when changes
+       (maphash (lambda (uri-key file-edits)
+                  (declare (ignore uri-key))
+                  (map nil (lambda (edit)
+                             (let ((s (gethash "start" (gethash "range" edit))))
+                               (push (cons (gethash "line" s) (gethash "character" s))
+                                     edits)))
+                       file-edits))
+                changes))
+     (sort edits (lambda (a b) (or (< (car a) (car b))
+                                   (and (= (car a) (car b)) (< (cdr a) (cdr b))))))))
+
+(deftest test-prepare-rename-reports-the-name-only
+  "For a qualified reference, only the name half is renameable"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/rename-prep.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *rename-code*))
+                    :id nil)
+      ;; Line 6 is (defun uses () (ren-lib:helper 1)). The qualified token
+      ;; starts at 15; HELPER itself starts at 24.
+      (let ((result (prepare-rename-at uri 6 25)))
+        (assert-not-nil result "A qualified use should be renameable")
+        (let ((start (gethash "start" (gethash "range" result)))
+              (end (gethash "end" (gethash "range" result))))
+          (assert-equal 24 (gethash "character" start)
+                        "The range must start at HELPER, not at REN-LIB")
+          (assert-equal 30 (gethash "character" end) "and end with it")
+          (assert-equal "helper" (gethash "placeholder" result)
+                        "The placeholder is the bare name"))))))
+
+(deftest test-prepare-rename-refuses-what-it-cannot-rename
+  "Standard-library symbols and non-symbols are refused up front"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/rename-refuse.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *rename-code*))
+                    :id nil)
+      ;; LIST on line 2. Renaming it would rewrite every call site in the
+      ;; project while leaving the actual function untouched.
+      (assert-nil (prepare-rename-at uri 2 19)
+                  "A Common Lisp symbol must be refused")
+      (assert-nil (prepare-rename-at uri 3 0)
+                  "A position on nothing must be refused"))))
+
+(deftest test-rename-preserves-the-package-prefix
+  "Renaming edits the name half of a qualified reference and nothing else"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/rename-qualified.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *rename-code*))
+                    :id nil)
+      (let ((edits (rename-at uri 2 7 "assist")))
+        (assert-equal '((2 . 7) (6 . 24)) edits
+                      "The definition and the qualified use, at the name only")))))
+
+(deftest test-rename-refuses-a-standard-library-symbol
+  "A client that skipped prepareRename must still not get a workspace rewrite"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/rename-builtin.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *rename-code*))
+                    :id nil)
+      (assert-nil (rename-at uri 2 19 "nope")
+                  "Renaming LIST must produce no edits at all"))))
+
+(deftest test-rename-respects-shadowing
+  "Renaming a binding must not touch a shadowing one of the same name"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; Line 1 char 9 is AREA in the LET; line 2 holds the shadowing
+             ;; FLET parameter and its use, which belong to a different binding.
+             (let ((edits (rename-at uri 1 9 "region")))
+               (assert-not-nil edits "Should produce edits")
+               (assert-nil (find 2 edits :key #'car)
+                           "Must not touch the shadowing FLET parameter")
+               (assert-true (find 3 edits :key #'car)
+                            "But must edit the genuine use on line 3"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-rename-matches-find-references
+  "Rename must edit exactly the set find-references reports"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *shadowing-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *shadowing-code*))
+                           :id nil)
+             ;; The two share RESOLVE-SYMBOL-AT and LOCATIONS-FOR-SYMBOL for
+             ;; exactly this reason: a rename that edits a different set than
+             ;; references reports is a data-loss bug, not a cosmetic one.
+             (let ((references (reference-positions
+                                (call-handler "textDocument/references"
+                                              (references-params uri 1 9))))
+                   (edits (rename-at uri 1 9 "region")))
+               (assert-equal references edits
+                             "Rename and find-references must agree exactly"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

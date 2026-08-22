@@ -22,6 +22,10 @@
                     "foldingRangeProvider" t
                     "selectionRangeProvider" t
                     "inlayHintProvider" t
+                    ;; prepareProvider tells the client to ask before it lets
+                    ;; the user type a new name, which is how a refusal reaches
+                    ;; them as "cannot rename this" rather than as silence.
+                    "renameProvider" (dict "prepareProvider" t)
                     ;; No resolveProvider: the lenses are complete when sent.
                     "codeLensProvider" (dict "resolveProvider" nil)
                     ;; The legend comes from the same lists the handler indexes

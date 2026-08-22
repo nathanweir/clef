@@ -1,5 +1,48 @@
 (in-package :clef-lsp/document)
 
+(defun resolve-symbol-at (document-uri line character)
+  "What the symbol at a position names.
+
+Returns (values symbol-name definition lexical-p). DEFINITION is NIL when
+nothing could be resolved; LEXICAL-P says the binding is a local one, whose
+references are bounded by its scope.
+
+Extracted so that references, rename and prepareRename cannot disagree about
+what a symbol refers to. A rename that edits a different set than
+find-references reports is a data-loss bug, not a cosmetic one."
+  (multiple-value-bind (ref-name ref-scope ref-package)
+      (get-ref-for-doc-pos document-uri line character)
+    (let ((symbol-name ref-name)
+          (definition-at-point nil))
+      ;; Not on a reference: perhaps on the name in a definition.
+      (unless symbol-name
+        (let ((def (find-definition-at-position document-uri line character)))
+          (when def
+            (setf symbol-name (clef-symbols:symbol-definition-symbol-name def)
+                  definition-at-point def))))
+      (if (null symbol-name)
+          (values nil nil nil)
+          (let* ((definition (or definition-at-point
+                                 (search-up-for-symbol-def ref-scope symbol-name ref-package)))
+                 (lexical (and definition
+                               (lexical-binding-scope-p
+                                (clef-symbols:symbol-definition-defining-scope definition)))))
+            (values symbol-name definition lexical))))))
+
+(defun locations-for-symbol (symbol-name definition lexical include-declaration)
+  "Every location referring to the binding, deduplicated.
+
+The single source of truth for \"where is this symbol used\", shared by
+find-references and rename."
+  (let ((locations (if lexical
+                       (find-references-to-binding definition symbol-name)
+                       (find-all-symbol-references symbol-name))))
+    (when (and include-declaration
+               definition
+               (clef-symbols:symbol-definition-location definition))
+      (push (symbol-definition-to-location definition) locations))
+    (dedupe-locations locations)))
+
 (defun handle-text-document-references (message)
   "Handle a textDocument/references request.
 Returns all locations where the symbol at the given position is referenced."
@@ -10,54 +53,17 @@ Returns all locations where the symbol at the given position is referenced."
          (character (href position "character"))
          (context (href params "context"))
          (include-declaration (and context (href context "include-declaration"))))
-    (slog :debug "[textDocument/references] Document: ~A" document-uri)
-    (slog :debug "[textDocument/references] Position: line ~A, char ~A" line character)
-    (slog :debug "[textDocument/references] Include declaration: ~A" include-declaration)
-
-    (multiple-value-bind (ref-name ref-scope ref-package)
-        (get-ref-for-doc-pos document-uri line character)
-
-      ;; If no symbol reference at position, check if we're on a symbol definition
-      ;; (e.g., the function name in a defun)
-      (let ((symbol-name ref-name)
-            (definition-at-point nil))
-        (unless symbol-name
-          (let ((def (find-definition-at-position document-uri line character)))
-            (when def
-              (setf symbol-name (clef-symbols:symbol-definition-symbol-name def))
-              (setf definition-at-point def)
-              (slog :debug "[textDocument/references] Found definition at point: ~A" symbol-name))))
-
-        (unless symbol-name
-          (slog :warn "[textDocument/references] No symbol at position")
-          (return-from handle-text-document-references #()))
-
-        (slog :debug "[textDocument/references] Symbol name: ~A" symbol-name)
-
-        ;; Resolve what the symbol at point actually names, then ask for
-        ;; references to THAT, not to everything sharing its spelling.
-        (let* ((definition (or definition-at-point
-                               (search-up-for-symbol-def ref-scope symbol-name ref-package)))
-               (lexical (and definition
-                             (lexical-binding-scope-p
-                              (clef-symbols:symbol-definition-defining-scope definition))))
-               (all-references
-                 (if lexical
-                     (find-references-to-binding definition symbol-name)
-                     (find-all-symbol-references symbol-name))))
-          (slog :debug "[textDocument/references] ~A binding, found ~A reference(s)"
-                (if lexical "lexical" "top-level") (length all-references))
-
-          ;; Optionally include the definition
-          (when include-declaration
-            (when (and definition (clef-symbols:symbol-definition-location definition))
-              (push (symbol-definition-to-location definition) all-references)))
-
-          ;; Convert to LSP Location array
-          (let ((unique (dedupe-locations all-references)))
-            (if unique
-                (coerce unique 'vector)
-                #())))))))
+    (slog :debug "[textDocument/references] ~A ~A:~A" document-uri line character)
+    (multiple-value-bind (symbol-name definition lexical)
+        (resolve-symbol-at document-uri line character)
+      (if (null symbol-name)
+          (progn (slog :warn "[textDocument/references] No symbol at position")
+                 #())
+          (let ((locations (locations-for-symbol symbol-name definition lexical
+                                                 include-declaration)))
+            (slog :debug "[textDocument/references] ~A binding, ~A reference(s)"
+                  (if lexical "lexical" "top-level") (length locations))
+            (if locations (coerce locations 'vector) #()))))))
 
 (defun find-definition-at-position (document-uri line character)
   "Find a symbol definition at the given position.
