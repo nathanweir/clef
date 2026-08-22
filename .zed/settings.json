@@ -30,17 +30,22 @@
   // ---------------------------------------------------------------------
   // Why this block exists
   //
-  // Zed's tree-sitter captures are a FIXED set of 43 names (@function,
-  // @keyword, @variable, @string.special.symbol, ...). There is no @macro
-  // among them. So a grammar structurally cannot tell a macro from a function
-  // in Common Lisp -- which is most of why highlighting here has felt flat, and
-  // why languages/commonlisp/highlights.scm resorts to a hardcoded list of ~900
-  // standard function names.
+  // A tree-sitter query can say WHERE a symbol is, but not WHAT it is. Whether
+  // a name in head position is a function, a macro or a special operator
+  // depends on the image, not the text -- which is why
+  // languages/commonlisp/highlights.scm carries a hardcoded list of ~900
+  // standard function names, a frozen approximation of a question only the
+  // server can answer.
   //
-  // Semantic tokens are not limited that way. The protocol has 23 token types
-  // and 10 modifiers, and `semantic_token_rules' maps any (type, modifiers)
-  // pair to either a list of theme styles or a colour directly. That is the
-  // "room to colour things" the tree-sitter side does not have.
+  // (Capture names themselves are open-ended -- see editors/zed/README.md. No
+  // default theme defines `macro', but `@function @macro' resolves rightmost
+  // first and falls back leftward, and theme_overrides.syntax can define the
+  // key. So the grammar CAN express the distinction; it just cannot determine
+  // it.)
+  //
+  // Semantic tokens determine it. The protocol has 23 token types and 10
+  // modifiers, and `semantic_token_rules' maps any (type, modifiers) pair to
+  // either a list of theme styles or a colour directly.
   //
   // `style' is tried in order and the first name present in the current theme
   // wins, so a rule can degrade gracefully across themes. Where no theme key

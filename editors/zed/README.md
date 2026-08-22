@@ -79,17 +79,38 @@ colours sensibly before the server has indexed it, and if the server is down.
 This is the part that is genuinely confusing, and it is two separate systems
 that happen to share vocabulary.
 
-**Tree-sitter captures are a closed set.** Zed recognises exactly 43 capture
-names — `@function`, `@keyword`, `@variable`, `@type`, `@property`,
-`@punctuation.bracket`, `@string.special.symbol`, and so on. You cannot invent
-one; an unrecognised capture is simply not styled. Multiple captures on a node
-form a fallback chain, resolved right-to-left.
+**Capture names are open-ended, not a fixed list.** The extension docs publish a
+table of 43 capture names, and it is easy to read that as the permitted set. It
+is not — it is what the default themes happen to style. One Dark's own `syntax`
+map defines 46 keys, including `namespace`, `selector.pseudo` and `diff.plus`,
+none of which appear in that table, and the docs' own example uses
+`@property.json_key`.
 
-**There is no `@macro`.** That single absence explains a lot: a grammar
-structurally cannot distinguish a macro from a function call in Common Lisp,
-which is why `highlights.scm` resorts to a hardcoded list of ~900 standard
-function names and ~100 macro names. It is not a bad query so much as a query
-being asked to do something the capture set cannot express.
+A capture is just a name. It gets a colour if something defines one for it,
+either in the theme or in `theme_overrides.syntax`.
+
+**No default theme defines `macro`**, though, which is the practical constraint.
+Two documented mechanisms make an invented name safe:
+
+- **Multiple captures on one node resolve right-to-left, rightmost preferred.**
+  So `(sym_lit) @function @macro` uses `macro` where a theme defines it and
+  falls back to `function` where none does.
+- `theme_overrides.syntax` accepts the key, so you can define `macro` yourself
+  without editing a theme.
+
+This is also how per-language colouring works, since there is no per-language
+theme setting: capture names are chosen per grammar, so a capture only the Lisp
+grammar emits only ever colours Lisp.
+
+**None of this needs a separate grammar.** `highlights.scm` is a query *over* the
+grammar, not part of it, and clef consumes the parse tree without ever reading
+the queries. Same grammar, different query files.
+
+What a grammar still cannot do is decide *whether a given symbol is* a macro.
+That depends on the image, not the text, which is why `highlights.scm` carries a
+hardcoded list of ~900 standard function names — a frozen approximation of a
+question only the server can answer. Captures can express the distinction;
+they just cannot determine it.
 
 **Semantic tokens are not limited that way.** The protocol defines 23 token
 types and 10 modifiers, and Zed maps them through
