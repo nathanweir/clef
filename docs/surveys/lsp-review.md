@@ -535,11 +535,29 @@ that also stops `documentSymbol` reporting every method as a plain function.
 A plain `defun` correctly returns nothing rather than pointing back at itself —
 go-to-definition already does that, and duplicating it is noise.
 
+**`textDocument/foldingRange` and `textDocument/selectionRange`.** Both fall out
+of the tree, and `selectionRange` in particular is the most natural fit in the
+protocol for a Lisp: expanding by s-expression is the classic Lisp editing
+gesture, and the chain it asks for *is* the tree ancestry of the node under the
+cursor.
+
+Folding offers every multi-line form plus runs of adjacent comment lines. A
+single comment line is not offered — collapsing one line to one line does
+nothing. Both deduplicate the grammar's wrapper nodes, since a top-level
+`(defun ...)` is a `:LIST-LIT` holding a `:DEFUN` over exactly the same text.
+
+> The dedupe in `selectionRange` was written first as `(equal range seen)` over
+> two Range dicts, which deduplicates **nothing** — `equal` on two distinct hash
+> tables is false however identical their contents. It showed up in the output as
+> an expand step that visibly selected the same text twice. Comparing the node's
+> own coordinates instead. Verified by breaking it again and watching the test
+> fail.
+
 ### Missing, recorded, not scoped now
 
-`codeAction`, `semanticTokens/full`, `inlayHint`, `foldingRange`,
-`selectionRange`, `documentLink`, `codeLens`, `typeDefinition`, `declaration`,
-`rangeFormatting`, `workspace/didChangeWatchedFiles`,
+`codeAction`, `semanticTokens/full`, `inlayHint`, `documentLink`, `codeLens`,
+`typeDefinition`, `declaration`, `rangeFormatting`,
+`workspace/didChangeWatchedFiles`,
 `textDocument/publishDiagnostics` as a push — **verified dead**: `send-notification`
 and `publish-diagnostics` are defined in `server.lisp:73,83` and exported from
 `packages.lisp:166`, and there is not one call site in the whole source tree.

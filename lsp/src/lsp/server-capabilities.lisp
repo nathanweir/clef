@@ -19,6 +19,8 @@
                     "documentSymbolProvider" t
                     "callHierarchyProvider" t
                     "implementationProvider" t
+                    "foldingRangeProvider" t
+                    "selectionRangeProvider" t
                     "workspaceSymbolProvider" t
                     "signatureHelpProvider" (dict)
                     "completionProvider"

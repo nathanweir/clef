@@ -1067,6 +1067,132 @@ where it belongs."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; foldingRange and selectionRange
+;;; ---------------------------------------------------------------------------
+
+(defparameter *range-code* ";;;; A header comment
+;;;; spanning three lines
+;;;; of prose.
+
+(defun outer (items)
+  (let ((total 0))
+    (dolist (item items)
+      (incf total item))
+    total))
+
+;; A single comment line, which is not a fold.
+
+(defun short () 1)")
+
+(deftest test-folding-ranges-cover-multi-line-forms
+  "Every multi-line form is foldable; single-line forms are not"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/folding.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *range-code*))
+                    :id nil)
+      (let* ((result (response-result-safe
+                      (call-handler "textDocument/foldingRange"
+                                    (dict "textDocument" (dict "uri" uri)))))
+             (spans (when (vectorp result)
+                      (map 'list (lambda (f)
+                                   (list (gethash "startLine" f)
+                                         (gethash "endLine" f)
+                                         (gethash "kind" f)))
+                           result))))
+        (assert-not-nil spans "Should offer folds")
+        (assert-true (member '(4 8 nil) spans :test #'equal) "The DEFUN, lines 4-8")
+        (assert-true (member '(5 8 nil) spans :test #'equal) "The LET, lines 5-8")
+        (assert-true (member '(6 7 nil) spans :test #'equal) "The DOLIST, lines 6-7")
+        ;; A one-line form collapses to itself, which is not a fold.
+        (assert-nil (find-if (lambda (s) (= (first s) (second s))) spans)
+                    "No zero-height folds")
+        ;; And the wrapping is deduplicated: a top-level (defun ...) is a
+        ;; :LIST-LIT holding a :DEFUN over exactly the same text.
+        (assert-equal (length spans) (length (remove-duplicates spans :test #'equal))
+                      "No span offered twice")))))
+
+(deftest test-folding-ranges-group-comment-runs
+  "Adjacent comment lines fold together; a lone comment line does not"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/folding-comments.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *range-code*))
+                    :id nil)
+      (let* ((result (response-result-safe
+                      (call-handler "textDocument/foldingRange"
+                                    (dict "textDocument" (dict "uri" uri)))))
+             (comments (when (vectorp result)
+                         (remove-if-not (lambda (f) (equal (gethash "kind" f) "comment"))
+                                        (coerce result 'list)))))
+        (assert-equal 1 (length comments) "One comment run, not two")
+        (assert-equal 0 (gethash "startLine" (first comments)) "Starts at line 0")
+        (assert-equal 2 (gethash "endLine" (first comments)) "Ends at line 2")))))
+
+(deftest test-selection-range-walks-outward
+  "The chain is the s-expression ancestry, innermost first"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/selection.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *range-code*))
+                    :id nil)
+      ;; Line 7 char 12 is TOTAL inside (incf total item).
+      (let* ((result (response-result-safe
+                      (call-handler "textDocument/selectionRange"
+                                    (dict "textDocument" (dict "uri" uri)
+                                          "positions" (vector (dict "line" 7
+                                                                    "character" 12))))))
+             (chain (when (and (vectorp result) (plusp (length result))) (aref result 0))))
+        (assert-not-nil chain "Should return a chain for the position")
+        ;; Collect the chain outward and check it strictly widens.
+        (let ((extents '()))
+          (loop for entry = chain then (gethash "parent" entry)
+                while entry
+                do (let ((s (gethash "start" (gethash "range" entry)))
+                         (e (gethash "end" (gethash "range" entry))))
+                     (push (list (gethash "line" s) (gethash "character" s)
+                                 (gethash "line" e) (gethash "character" e))
+                           extents)))
+          (setf extents (nreverse extents))
+          (assert-true (> (length extents) 3)
+                       "Should have several enclosing levels")
+          ;; Innermost is the symbol TOTAL itself.
+          (assert-equal '(7 12 7 17) (first extents) "Innermost is the symbol")
+          ;; Each step must actually widen -- an expand that selects the same
+          ;; text twice looks broken, and the grammar's wrapper nodes produce
+          ;; exactly that if they are not deduplicated.
+          (assert-equal (length extents)
+                        (length (remove-duplicates extents :test #'equal))
+                        "No step repeats the previous selection"))))))
+
+(deftest test-selection-range-answers-every-position
+  "One chain per requested position, in order"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/selection-multi.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *range-code*))
+                    :id nil)
+      ;; Three positions, one of them on a blank line with nothing under it.
+      (let ((result (response-result-safe
+                     (call-handler "textDocument/selectionRange"
+                                   (dict "textDocument" (dict "uri" uri)
+                                         "positions" (vector (dict "line" 7 "character" 12)
+                                                             (dict "line" 3 "character" 0)
+                                                             (dict "line" 4 "character" 7)))))))
+        ;; The array is positional. Dropping the empty one would silently
+        ;; misalign every chain after it.
+        (assert-equal 3 (length result)
+                      "Must answer every position, including ones with no node")))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

@@ -128,6 +128,8 @@
        (sethandler "callHierarchy/incomingCalls" 'clef-lsp/document:handle-call-hierarchy-incoming-calls)
        (sethandler "callHierarchy/outgoingCalls" 'clef-lsp/document:handle-call-hierarchy-outgoing-calls)
        (sethandler "textDocument/implementation" 'clef-lsp/document:handle-text-document-implementation)
+       (sethandler "textDocument/foldingRange" 'clef-lsp/document:handle-text-document-folding-range)
+       (sethandler "textDocument/selectionRange" 'clef-lsp/document:handle-text-document-selection-range)
        (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
        (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)

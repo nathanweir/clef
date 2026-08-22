@@ -43,6 +43,8 @@
                                               (:file "lsp/document/document-symbol")
                                               (:file "lsp/document/call-hierarchy")
                                               (:file "lsp/document/implementation")
+                                              (:file "lsp/document/folding-range")
+                                              (:file "lsp/document/selection-range")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/did-save")

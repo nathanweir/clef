@@ -277,6 +277,8 @@ through their own defparameters.")
               handle-call-hierarchy-incoming-calls
               handle-call-hierarchy-outgoing-calls
               handle-text-document-implementation
+              handle-text-document-folding-range
+              handle-text-document-selection-range
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change
