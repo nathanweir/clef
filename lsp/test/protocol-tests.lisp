@@ -999,6 +999,74 @@ where it belongs."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; textDocument/implementation
+;;; ---------------------------------------------------------------------------
+
+(defparameter *generic-code* "(defgeneric area (shape))
+
+(defmethod area ((s circle))
+  (* 3 3))
+
+(defmethod area ((s square))
+  (* 4 4))
+
+(defun total (s)
+  (area s))")
+
+(deftest test-implementation-finds-the-methods-of-a-generic
+  "In Common Lisp, a generic function's implementations are its methods"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *generic-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *generic-code*))
+                           :id nil)
+             ;; Line 9 char 4 is the call to AREA inside TOTAL.
+             (let* ((result (response-result-safe
+                             (call-handler "textDocument/implementation"
+                                           (dict "textDocument" (dict "uri" uri)
+                                                 "position" (dict "line" 9 "character" 4)))))
+                    (lines (when (vectorp result)
+                             (sort (map 'list (lambda (loc)
+                                                (gethash "line" (gethash "start" (gethash "range" loc))))
+                                        result)
+                                   #'<))))
+               (assert-not-nil lines "Should find implementations")
+               (assert-equal '(2 5) lines
+                             "Both DEFMETHODs, and not the DEFGENERIC or the caller"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-implementation-of-a-plain-function-is-empty
+  "A DEFUN has no implementations distinct from itself"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun plain (x) x)
+(defun uses () (plain 1))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let ((response (call-handler "textDocument/implementation"
+                                           (dict "textDocument" (dict "uri" uri)
+                                                 "position" (dict "line" 1 "character" 16)))))
+               (assert-true (answered-p response) "Must still answer")
+               ;; Empty, not a pointer back at the DEFUN -- go-to-definition
+               ;; already does that, and duplicating it is noise.
+               (assert-equal 0 (length (response-result-safe response))
+                             "A plain function has no separate implementations"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

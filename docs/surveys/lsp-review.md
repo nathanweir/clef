@@ -521,11 +521,25 @@ that was wrong, not the idea. This remains the natural surface for W4.
 | ~~`textDocument/prepareCallHierarchy`~~ + ~~`callHierarchy/{incoming,outgoing}Calls`~~ | ***IMPLEMENTED.*** Who calls this / what does this call. Built on the `form-node` recorded for §1.8 — "which function is this call inside?" is answerable only because that node is kept. Works from a call site, from a definition name, or from anywhere inside a body. Stated limits: resolution is by name against a name-keyed index, so same-named definitions in different packages are not distinguished; and calls through `funcall`/`apply` or a macro expansion are not textual references and are not seen. |
 | `textDocument/rename` + `prepareRename` | `rename.lisp` exists as unregistered WIP and references a variable that no longer exists. Either finish or delete. |
 
+### Also implemented
+
+**`textDocument/implementation`.** The LSP method was designed for interfaces and
+abstract methods; Common Lisp's equivalent is exact and arguably cleaner — a
+generic function's implementations are its methods.
+
+Answerable only because the indexer now records *which* defining form it saw. It
+wrote `:function` for everything `defun`-shaped under a TODO reading "Calc
+specific kind", which left `defmethod` indistinguishable from `defun`. Fixing
+that also stops `documentSymbol` reporting every method as a plain function.
+
+A plain `defun` correctly returns nothing rather than pointing back at itself —
+go-to-definition already does that, and duplicating it is noise.
+
 ### Missing, recorded, not scoped now
 
 `codeAction`, `semanticTokens/full`, `inlayHint`, `foldingRange`,
 `selectionRange`, `documentLink`, `codeLens`, `typeDefinition`, `declaration`,
-`implementation`, `rangeFormatting`, `workspace/didChangeWatchedFiles`,
+`rangeFormatting`, `workspace/didChangeWatchedFiles`,
 `textDocument/publishDiagnostics` as a push — **verified dead**: `send-notification`
 and `publish-diagnostics` are defined in `server.lisp:73,83` and exported from
 `packages.lisp:166`, and there is not one call site in the whole source tree.

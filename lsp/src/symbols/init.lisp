@@ -454,6 +454,22 @@ Aggregates :depends-on from all discovered .asd files and filters out local syst
 ;; defmacro and lambdas
 ;; TODO: Technically, global defs can occur anywhere and should only modify the global scope. Currently this
 ;; will modify the "current" scope if you do something like put a defparameter inside a defun
+(defun defun-keyword-kind (keyword)
+       "The symbol kind for a DEFUN-shaped form, from its keyword.
+
+The grammar gives DEFUN, DEFMACRO, DEFGENERIC, DEFMETHOD and LAMBDA one node
+type between them, and this used to record :FUNCTION for all of them under a
+TODO reading \"Calc specific kind\". Telling DEFMETHOD apart is what makes
+textDocument/implementation answerable at all -- a generic's implementations are
+exactly its methods -- and it also stops documentSymbol reporting every method as
+a plain function."
+       (cond ((null keyword) :function)
+             ((string-equal keyword "defmacro") :macro)
+             ((string-equal keyword "defmethod") :method)
+             ;; DEFGENERIC stays :FUNCTION. LSP has no generic-function kind, and
+             ;; a generic is the thing you call.
+             (t :function)))
+
 (defun check-for-defun (node node-type file-path source)
        "If a 'defun' node is found, unpack the specific type of node, name, and params into
 symbol-definitions. Returns the created lexical-scope if applicable, nil otherwise."
@@ -491,8 +507,7 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                           (symbol-def (make-symbol-definition
                                         :symbol-name defun-name
                                         :package-name *current-package*
-                                        ;; TODO: Calc specific kind
-                                        :kind :function
+                                        :kind (defun-keyword-kind defun-type)
                                         :location (location-for-node file-path (first defun-header-children))
                                         ;; :defining-scope nil)))
                                         :defining-scope *current-scope*

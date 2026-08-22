@@ -127,6 +127,7 @@
        (sethandler "textDocument/prepareCallHierarchy" 'clef-lsp/document:handle-text-document-prepare-call-hierarchy)
        (sethandler "callHierarchy/incomingCalls" 'clef-lsp/document:handle-call-hierarchy-incoming-calls)
        (sethandler "callHierarchy/outgoingCalls" 'clef-lsp/document:handle-call-hierarchy-outgoing-calls)
+       (sethandler "textDocument/implementation" 'clef-lsp/document:handle-text-document-implementation)
        (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
        (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)

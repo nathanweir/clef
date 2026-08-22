@@ -42,6 +42,7 @@
                                               (:file "lsp/document/diagnostic")
                                               (:file "lsp/document/document-symbol")
                                               (:file "lsp/document/call-hierarchy")
+                                              (:file "lsp/document/implementation")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/did-save")

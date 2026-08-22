@@ -276,6 +276,7 @@ through their own defparameters.")
               handle-text-document-prepare-call-hierarchy
               handle-call-hierarchy-incoming-calls
               handle-call-hierarchy-outgoing-calls
+              handle-text-document-implementation
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change
