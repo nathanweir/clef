@@ -12,19 +12,43 @@
     nix-ld.url = "github:Mic92/nix-ld";
     # this line assume that you also have nixpkgs as an input
     nix-ld.inputs.nixpkgs.follows = "nixpkgs";
+
+    # Rust, for editors/zed. The Zed extension is a WebAssembly component, so
+    # it needs the wasm32-wasip1 target and cargo-component -- neither of which
+    # is in nixpkgs' stable rust. Fenix supplies both.
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     {
       nix-ld,
       nixpkgs,
+      fenix,
       ...
     }:
     let
+      system = "x86_64-linux";
       pkgs = import nixpkgs {
-        system = "x86_64-linux";
+        inherit system;
         config.allowUnfree = true;
       };
+
+      # Nightly, because cargo-component wants it. WITHCOMPONENTS gives the
+      # host toolchain; COMBINE then bolts the wasm target's std on beside it.
+      rustToolchain = fenix.packages.${system}.combine [
+        (fenix.packages.${system}.complete.withComponents [
+          "cargo"
+          "clippy"
+          "rust-src"
+          "rustc"
+          "rustfmt"
+          "rust-analyzer"
+        ])
+        fenix.packages.${system}.targets.wasm32-wasip1.latest.rust-std
+      ];
     in
     {
       # The standalone image. Editors and sandboxes should point at this rather
@@ -62,6 +86,14 @@
             # Task runner. The toolchain itself stays pinned by this flake --
             # mise is used for tasks only, not tool installation.
             mise
+
+            # editors/zed: the Zed extension is a wasm component in Rust.
+            rustToolchain
+            cargo-component
+            # Building the tree-sitter grammar to .wasm locally. Zed fetches and
+            # builds the grammar itself from the commit named in extension.toml,
+            # so this is only for working ON the grammar.
+            tree-sitter
 
             glib
             libGL

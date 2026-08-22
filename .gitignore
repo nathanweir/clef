@@ -46,6 +46,16 @@ metaModel.schema.json
 # Local scratch
 tmp/
 
+# editors/zed -- Rust build output, and the artifacts Zed builds for itself.
+#
+# The old standalone repo committed both extension.wasm (6.2 MB, a debug build)
+# and grammars/commonlisp.wasm. Neither needs to exist in version control:
+# extension.toml names the grammar by git URL and commit, and Zed fetches and
+# builds both the grammar and the extension itself.
+editors/zed/target/
+editors/zed/*.wasm
+editors/zed/grammars/
+
 # Sandbox artifacts. The bubblewrap isolation used for agent sessions bind-mounts
 # /dev/null over these paths, so they appear as character devices in the repo
 # root rather than files. They are never real project content -- do not commit.

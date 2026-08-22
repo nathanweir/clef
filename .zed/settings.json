@@ -1,0 +1,36 @@
+// Zed settings for working on clef, in clef.
+//
+// Two things here matter and both were wrong or missing before.
+{
+  "lsp": {
+    "clef": {
+      "binary": {
+        // The BINARY, not the repository directory. This previously read
+        // "/home/nathan/dev/clef" -- a directory -- so Zed had nothing to
+        // execute and the language server failed to start at all.
+        //
+        // Point this at lsp/clef after `mise run build', or drop the whole
+        // "binary" block to let Zed find `clef' on PATH. To run from source
+        // instead (picks up edits with no rebuild), use:
+        //   "path": "/home/nathan/dev/clef/lsp/start-server.sh"
+        "path": "/home/nathan/dev/clef/lsp/clef"
+      }
+    }
+  },
+
+  // Zed defaults this to "off", which means it never asks for semantic tokens
+  // -- so clef has been computing them and nothing has ever requested them.
+  //
+  //   "off"       tree-sitter only (Zed's default)
+  //   "combined"  LSP tokens overlaid on tree-sitter
+  //   "full"      LSP tokens replace tree-sitter entirely
+  //
+  // "combined" is the right setting for Common Lisp. Tree-sitter can see that
+  // something is a symbol in head position but cannot know whether it names a
+  // function, a macro, a special operator or a class -- that depends on the
+  // image, not the text. clef knows, and reports it, including the
+  // `defaultLibrary' modifier that separates standard-library names from your
+  // own. Tree-sitter stays underneath so a file still colours sensibly before
+  // the server has indexed it, or if the server is down.
+  "semantic_tokens": "combined"
+}

@@ -1,0 +1,21 @@
+id = "zed-common-lisp"
+name = "Common Lisp"
+version = "0.0.3"
+schema_version = 1
+authors = ["Nathan Weir <nathan.weir@protonmail.com>"]
+description = "Common Lisp support for Zed, backed by the clef language server"
+repository = "https://github.com/nathanweir/clef"
+
+[language_servers.clef]
+name = "Clef (Common Lisp LSP)"
+language = "Common Lisp"
+
+# Zed fetches and builds the grammar itself from this commit. Nothing needs to
+# be vendored here, which is why the old repository's grammars/ submodule and
+# its committed .wasm files did not come across.
+#
+# Note this is upstream, unmodified: the standalone repo's submodule carried one
+# local commit and it only re-generated a .wasm.
+[grammars.commonlisp]
+repository = "https://github.com/tree-sitter-grammars/tree-sitter-commonlisp"
+commit = "32323509b3d9fe96607d151c2da2c9009eb13a2f"

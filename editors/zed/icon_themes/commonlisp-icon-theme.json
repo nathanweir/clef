@@ -1,0 +1,29 @@
+{
+  "$schema": "https://zed.dev/schema/icon_themes/v0.2.0.json",
+  "name": "Nathan Weir",
+  "author": "nathanweir",
+  "themes": [
+    {
+      "name": "Common Lisp Dark Theme",
+      "appearance": "dark",
+      "file_suffixes": {
+        "cl": "commonlisp",
+        "lisp": "commonlisp"
+      },
+      "file_icons": {
+        "commonlisp": { "path": "./icons/Lisp_logo.svg" }
+      }
+    },
+    {
+      "name": "Common Lisp Light Theme",
+      "appearance": "light",
+      "file_suffixes": {
+        "cl": "commonlisp",
+        "lisp": "commonlisp"
+      },
+      "file_icons": {
+        "commonlisp": { "path": "./icons/Lisp_logo.svg" }
+      }
+    }
+  ]
+}

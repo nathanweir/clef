@@ -31,6 +31,20 @@ description = "Run the LSP server from source (stdio)"
 # which is a standing invitation to drift.
 run = "lsp/start-server.sh"
 
+[tasks."zed:build"]
+description = "Build the Zed extension to a wasm component"
+dir = "editors/zed"
+# cargo-component and the wasm32-wasip1 target come from flake.nix, same as
+# SBCL does. Zed also builds this itself when the extension is installed as a
+# dev extension; this task is for checking it compiles without going through
+# the editor.
+run = "cargo component build --target wasm32-wasip1"
+
+[tasks."zed:check"]
+description = "Typecheck and lint the Zed extension"
+dir = "editors/zed"
+run = "cargo clippy --target wasm32-wasip1 --all-targets -- -D warnings"
+
 [tasks."conditions:test"]
 description = "Run the clef-conditions test suite"
 run = "sbcl --noinform --non-interactive --load conditions/test/run-tests.lisp"
