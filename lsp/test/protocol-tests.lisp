@@ -1861,6 +1861,45 @@ undo it. A macro because CALL-HANDLER is an FLET."
                     "LABELS must resolve a backward reference to a sibling"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Dotted lambda lists
+;;; ---------------------------------------------------------------------------
+
+(deftest test-normalize-lambda-list-handles-a-dotted-tail
+  "A dotted lambda list must become (... &rest tail), not signal"
+  ;; DEFINE-METHOD-COMBINATION's own lambda list really is (NAME . ARGS) --
+  ;; `. args' being shorthand for `&rest args'. Every caller walked it with
+  ;; DOLIST/MAPCAR/LOOP FOR..IN, all of which assume a proper list.
+  (assert-equal '(name &rest args)
+                (clef-lsp/document::normalize-lambda-list '(name . args))
+                "A dotted tail becomes an explicit &rest")
+  (assert-equal '(a b) (clef-lsp/document::normalize-lambda-list '(a b))
+                "A proper list is unchanged")
+  (assert-equal '() (clef-lsp/document::normalize-lambda-list nil)
+                "NIL stays NIL")
+  (assert-equal '() (clef-lsp/document::normalize-lambda-list 'not-a-list)
+                "A bare symbol is not a lambda list")
+  (assert-equal '(name)
+                (clef-lsp/document::trim-lambda-list '(name . args))
+                "Required parameters stop at the implied &rest"))
+
+(deftest test-hover-over-a-dotted-lambda-list-does-not-error
+  "Hover on DEFINE-METHOD-COMBINATION must answer, not raise"
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(define-method-combination corpus-sum ()
+  ((methods *))
+  `(+ ,@(mapcar (lambda (m) `(call-method ,m)) methods)))")
+      ;; Column 12 is inside DEFINE-METHOD-COMBINATION itself, whose lambda
+      ;; list SB-INTROSPECT reports as the dotted (NAME . ARGS).
+      (let ((response (call-handler "textDocument/hover"
+                                    (dict "textDocument" (dict "uri" uri)
+                                          "position" (dict "line" 0
+                                                           "character" 12)))))
+        (assert-true (answered-p response) "Hover must answer")
+        (assert-nil (response-is-error-p response)
+                    "Hover over a dotted lambda list must not be an error")))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

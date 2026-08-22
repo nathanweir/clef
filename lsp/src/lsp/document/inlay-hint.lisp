@@ -33,16 +33,6 @@ would be noise on the most common forms in the language."
        (not (macro-function sym))
        (not (special-operator-p sym))))
 
-(defun trim-lambda-list (lambda-list)
-  "The required parameters of LAMBDA-LIST, in order.
-
-Stops at the first marker. Arguments after &OPTIONAL may or may not be present
-and arguments after &KEY are already named at the call site, so in neither case
-does a positional label say anything true."
-  (loop for item in lambda-list
-        until (lambda-list-marker-p item)
-        collect (if (consp item) (first item) item)))
-
 (defun indexed-lambda-list (name)
   "Parameter names for NAME read from its source, or NIL.
 

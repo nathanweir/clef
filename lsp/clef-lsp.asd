@@ -37,6 +37,7 @@
                                               (:file "lsp/server")
                                               (:file "lsp/lifecycle/initialize")
                                               (:file "lsp/lifecycle/initialized")
+                                              (:file "lsp/document/lambda-lists")
                                               (:file "lsp/document/completion")
                                               (:file "lsp/document/definition")
                                               (:file "lsp/document/references")

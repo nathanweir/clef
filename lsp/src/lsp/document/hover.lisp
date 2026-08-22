@@ -136,12 +136,6 @@ accurate and unreadable. * means nothing is known and is reported as nothing."
                               (t (cons 'values values)))))
                   (t ret))))
 
-(defun lambda-list-marker-p (item)
-       (and (symbolp item)
-            item
-            (plusp (length (symbol-name item)))
-            (char= #\& (char (symbol-name item) 0))))
-
 (defun annotated-parameters (lambda-list argument-types)
        "Pair each parameter name with its type, or NIL when nothing is known.
 
@@ -153,7 +147,10 @@ tokens against a two-element type list, and every annotation after the first was
 wrong."
        (let ((types argument-types)
              (result '()))
-            (dolist (item lambda-list (nreverse result))
+            ;; NORMALIZE first: a dotted lambda list such as
+            ;; DEFINE-METHOD-COMBINATION's (NAME . ARGS) makes DOLIST signal,
+            ;; and hover then answered "Internal server error" for that symbol.
+            (dolist (item (normalize-lambda-list lambda-list) (nreverse result))
                     (cond
                       ((lambda-list-marker-p item)
                        (when (and types (lambda-list-marker-p (first types)))

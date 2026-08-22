@@ -190,7 +190,11 @@ Tries workspace index first, then falls back to sb-introspect for loaded functio
                (sym (when pkg
                       (find-symbol (string-upcase bare-name) pkg))))
           (when (and sym (fboundp sym))
-            (let ((arglist (sb-introspect:function-lambda-list sym)))
+            ;; NORMALIZE: a dotted lambda list would make MAPCAR signal, and
+            ;; the HANDLER-CASE below would turn that into a silent "no
+            ;; signature" rather than an error anyone would notice.
+            (let ((arglist (normalize-lambda-list
+                            (sb-introspect:function-lambda-list sym))))
               (when arglist
                 (mapcar (lambda (arg)
                           (if (listp arg)
