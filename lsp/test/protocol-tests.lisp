@@ -838,6 +838,75 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Scope interval collisions
+;;; ---------------------------------------------------------------------------
+
+(deftest test-single-toplevel-form-still-has-a-scope
+  "A file whose only form spans the whole text must keep that form's scope"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; No trailing newline, deliberately: the DEFUN then covers exactly
+           ;; [0, length], which is what the document scope used to cover too.
+           ;; The interval tree keeps only the first interval for a given pair
+           ;; of bounds, and the document scope is inserted first -- so this
+           ;; DEFUN's scope vanished and its parameters had nowhere to live.
+           (let* ((code (format nil "(defun only-form (alpha beta)~%  (+ alpha beta))"))
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             ;; Line 1 char 5 is the use of ALPHA in the body.
+             (let ((result (response-result-safe
+                            (call-handler "textDocument/definition"
+                                          (dict "textDocument" (dict "uri" uri)
+                                                "position" (dict "line" 1 "character" 5))))))
+               ;; HASH-TABLE-P, not ASSERT-NOT-NIL. "No definition" is reported
+               ;; as an empty vector, and #() is not NIL -- an earlier version of
+               ;; this test asserted non-nil and passed while resolving nothing.
+               (assert-true (hash-table-p result)
+                            "A parameter must resolve to a real Location even when its DEFUN spans the whole file")
+               (when (hash-table-p result)
+                 (assert-equal 0 (gethash "line" (gethash "start" (gethash "range" result)))
+                               "ALPHA is declared on line 0")))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-single-toplevel-form-references-are-scoped
+  "And a parameter of that form must resolve as a lexical binding"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; A shadowing LET inside the sole top-level form. Without the DEFUN
+           ;; scope the parameter resolves to nothing, references falls back to
+           ;; matching by name, and all three occurrences come back. With it,
+           ;; the LET-bound ALPHA is a different binding and drops out.
+           (let* ((code (format nil "(defun only-form (alpha)~%  (let ((alpha 1))~%    alpha))"))
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             ;; Line 0 char 18 is ALPHA in the lambda list.
+             (let ((lines (mapcar #'car
+                                  (reference-positions
+                                   (call-handler "textDocument/references"
+                                                 (references-params uri 0 18))))))
+               (assert-not-nil lines "Should find the parameter itself")
+               (assert-true (member 0 lines) "Should include the parameter on line 0")
+               (assert-nil (member 1 lines)
+                           "Must NOT include the shadowing LET binding on line 1")
+               (assert-nil (member 2 lines)
+                           "Must NOT include the shadowed use on line 2"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

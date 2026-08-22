@@ -334,7 +334,7 @@ Function for the accessors.
 Binding forms, as distinct from definition forms — see §1.2. And `defpackage`,
 which would give the outline a package entry and make `in-package` navigable.
 
-### 1.8 Identical scope intervals collide, and one is silently dropped — **moderate**
+### 1.8 Identical scope intervals collide, and one is silently dropped — **moderate** — ***FIXED***
 
 Scopes are stored in a per-file interval tree keyed by `(start . end)`. When two
 scopes have **identical** extents the tree keeps only one.
@@ -359,15 +359,46 @@ lookup finds only the document scope, so go-to-definition on a **parameter**
 fails and local reference scoping falls back. Small single-function files — and
 every file while its first function is being written — are affected.
 
-*Worked around* for `documentSymbol` by recording the defining form's node on the
-`symbol-definition` at index time (`form-node`) instead of recovering it from the
-tree. **The underlying collision is not fixed** and should be: either make the
-stored intervals distinct, or stop using an interval tree as the only record of
-what scopes exist.
+#### The tree's behaviour, measured rather than inferred
 
-Related: `check-for-defun` inserts the same scope into the tree **twice**
-(`symbols/init.lisp:460` and `:499`). Harmless only because the tree deduplicates
-identical intervals — the same behaviour that causes the bug above.
+The original entry deduced the cause from a symptom. Tested directly:
+
+| inserted | survives |
+|---|---|
+| two intervals with different bounds | both |
+| two intervals with **identical bounds**, different data | **only the first** |
+| the same interval object twice | one |
+
+And a bonus worth having in writing: `find-all` returns matches **outermost
+first, innermost last, regardless of insertion order**. So `(first (last scopes))`
+— which `get-ref-for-doc-pos` and `innermost-scope-at` both rely on — is correct
+and stable rather than accidental.
+
+#### The fix
+
+The document scope now spans `[0, length+1]` — one past the end of the file. It
+is inserted first, so it was always the survivor; making it strictly larger means
+no top-level form can ever share its bounds.
+
+`check-for-defun`'s duplicate insert is also gone. It was harmless (the tree
+deduplicates the same object) but it stored the scope *before* `parent-scope` and
+`symbol-definitions` were filled in, which reads as though order does not matter.
+
+**The general case is not solved.** Any two scopes that happen to share bounds
+still collide. `store-scope-on-interval-tree` now logs a warning when it detects
+one, because silence is what made this take so long to find. A real fix means
+either keying the tree so scopes cannot collide, or keeping a per-file list of
+scopes and using the tree only as an index.
+
+> **The first pair of tests for this were vacuous, and the check that caught it
+> is worth naming.** Both passed with the fix reverted. `make-goto-definition-response`
+> reports "not found" as `#()`, and `#()` is not `NIL` in Common Lisp, so
+> `assert-not-nil` was satisfied by an empty answer; the references test passed
+> because name-matching returns the same count when scoping is unavailable.
+> Rewritten to assert `hash-table-p` and to use a shadowing `let`, and then
+> confirmed to fail with the fix reverted. **Breaking the fix to check the test is
+> the only thing that has reliably caught this**, and it has now caught six bad
+> probes or tests across this review.
 
 Also dead in the same area: `lexical-scope-child-scopes` is only ever pushed to
 for the document scope itself (`init.lisp:228`). No `check-for-*` links a child

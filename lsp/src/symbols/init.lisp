@@ -220,10 +220,22 @@ Note that symbol-ref can be nil if none is at the location"
             (setf *current-scope*
                   (make-lexical-scope
                     :kind :document
+                    ;; One past the end of the file, deliberately.
+                    ;;
+                    ;; The scope interval tree keeps only the first interval for
+                    ;; any pair of bounds, and the document scope is inserted
+                    ;; first. A file whose single top-level form spans the whole
+                    ;; text -- no trailing newline, one DEFUN -- produced a
+                    ;; scope with exactly these bounds and was silently dropped,
+                    ;; so nothing inside it had a scope at all: go-to-definition
+                    ;; on a parameter failed and local reference scoping fell
+                    ;; back to the document. Small single-function files, and
+                    ;; every file while its first function is being written.
+                    ;; See docs/surveys/lsp-review.md §1.8.
                     :location (make-location
                                 :file-path file-path
                                 :start 0
-                                :end (length file-source))
+                                :end (1+ (length file-source)))
                     :parent-scope ctx:global-scope
                     :symbol-definitions '()
                     :symbol-references (make-hash-table)
@@ -468,8 +480,11 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
                        :symbol-references (make-hash-table)
                        :child-scopes '()
                        :node node)))
-             ;; (slog :debug "made scope for ~A at ~A" defun-type (location-for-node file-path node))
-             (store-scope-on-interval-tree scope file-path)
+             ;; The scope used to be stored here as well as below. The tree
+             ;; deduplicates the same object, so it was harmless -- but it also
+             ;; meant the store happened before PARENT-SCOPE and
+             ;; SYMBOL-DEFINITIONS were filled in, which reads as though order
+             ;; does not matter. It does; the single store is at the end.
              ;; Make a symbol-definition for the function/macro name if applicable
              (when defun-name-n
                    (let* ((defun-name (fast-node-text defun-name-n source file-path))
@@ -516,13 +531,35 @@ symbol-definitions. Returns the created lexical-scope if applicable, nil otherwi
              scope))
 
 (defun store-scope-on-interval-tree (scope file-path)
-       "Stores the given lexical SCOPE into the interval tree for FILE-PATH."
-       (let ((scopes-tree (gethash file-path ctx:lexical-scopes))
-             (new-interval (make-clef-interval
-                             :start (location-start (lexical-scope-location scope))
-                             :end (location-end (lexical-scope-location scope)))))
-            (setf (clef-interval-data new-interval) scope)
-            (interval:insert scopes-tree new-interval)))
+       "Stores the given lexical SCOPE into the interval tree for FILE-PATH.
+
+**The tree keeps only the FIRST interval for any given pair of bounds.**
+Measured, not assumed: inserting two intervals with identical start and end and
+different data leaves one, holding the data of the first. The same object
+inserted twice is likewise deduplicated, which is why CHECK-FOR-DEFUN storing
+its scope twice was harmless.
+
+That is why the document scope is made to span one past the end of the file --
+see BUILD-FILE-SYMBOL-MAP. A file whose single top-level form covers the whole
+text would otherwise produce a scope with exactly the document scope's bounds,
+and vanish. The warning below exists because the general case is not solved: any
+two scopes that happen to share bounds still collide, and silence is what made
+this take so long to find."
+       (let* ((scopes-tree (gethash file-path ctx:lexical-scopes))
+              (start (location-start (lexical-scope-location scope)))
+              (end (location-end (lexical-scope-location scope)))
+              (existing (find-if (lambda (iv)
+                                         (and (= (clef-interval-start iv) start)
+                                              (= (clef-interval-end iv) end)
+                                              (not (eq (clef-interval-data iv) scope))))
+                                 (ignore-errors (interval:find-all scopes-tree (cons start end)))))
+              (new-interval (make-clef-interval :start start :end end)))
+             (when existing
+                   (slog :warn "Scope ~A at [~A ~A] in ~A collides with an existing ~A scope and will be dropped."
+                         (lexical-scope-kind scope) start end file-path
+                         (lexical-scope-kind (clef-interval-data existing))))
+             (setf (clef-interval-data new-interval) scope)
+             (interval:insert scopes-tree new-interval)))
 
 (defun check-for-local-function-binding (node node-type file-path source)
        "FLET, LABELS and MACROLET: local function names and their parameters.
