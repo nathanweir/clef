@@ -47,6 +47,8 @@
                                               (:file "lsp/document/folding-range")
                                               (:file "lsp/document/selection-range")
                                               (:file "lsp/document/semantic-tokens")
+                                              (:file "lsp/document/inlay-hint")
+                                              (:file "lsp/document/code-lens")
                                               (:file "lsp/document/did-open")
                                               (:file "lsp/document/did-change")
                                               (:file "lsp/document/did-save")

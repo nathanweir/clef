@@ -589,9 +589,28 @@ guess.
 > not the sequence function, and the failure is `UNDEFINED-FUNCTION` at run time
 > rather than a compile error. That is the answer to the TODO.
 
+**`textDocument/inlayHint`.** Parameter names at call sites, which is where
+Common Lisp's positional arguments cost the reader most:
+`(subseq line 0 width)` shows as `(subseq sequence: line start: 0 width)`.
+
+Quiet by design — no hint past the first lambda-list marker, since `&optional`
+and `&key` arguments do not line up positionally; none when the argument is
+already spelled like its parameter; none on macros or special operators, where
+"parameter" means nothing useful to a reader.
+
+The lambda list comes from the image first and from **clef's own indexed
+defining form** second, which is what makes it work for the function you just
+wrote — the case that matters most and the one the image cannot help with.
+
+**`textDocument/codeLens`.** A reference count above each top-level definition,
+cheap because the reference index already exists. Deliberately carries no
+command: there is no standard one for "show references" (`editor.action.showReferences`
+is VS Code's), and a lens that looks clickable and does nothing is worse than a
+lens that only informs. Wiring a command is a per-client decision.
+
 ### Missing, recorded, not scoped now
 
-`codeAction`, `inlayHint`, `documentLink`, `codeLens`,
+`codeAction`, `documentLink`,
 `typeDefinition`, `declaration`, `rangeFormatting`,
 `workspace/didChangeWatchedFiles`,
 `textDocument/publishDiagnostics` as a push — **verified dead**: `send-notification`

@@ -21,6 +21,9 @@
                     "implementationProvider" t
                     "foldingRangeProvider" t
                     "selectionRangeProvider" t
+                    "inlayHintProvider" t
+                    ;; No resolveProvider: the lenses are complete when sent.
+                    "codeLensProvider" (dict "resolveProvider" nil)
                     ;; The legend comes from the same lists the handler indexes
                     ;; into. Retyping it here is how the two drift, and an index
                     ;; off by one recolours every token in the file.

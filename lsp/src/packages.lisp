@@ -280,7 +280,7 @@ through their own defparameters.")
               (:ts :cl-tree-sitter/high-level))
             (:import-from :serapeum :dict :href)
             (:import-from :clef-lsp/types/basic
-                          :make-range :node-to-range :lisp-kind-to-lsp-kind
+                          :make-range :make-position :node-to-range :lisp-kind-to-lsp-kind
                           :*semantic-token-types* :*semantic-token-modifiers*
                           :semantic-token-type-index :semantic-token-modifier-bit)
             (:export
@@ -296,6 +296,8 @@ through their own defparameters.")
               handle-text-document-folding-range
               handle-text-document-selection-range
               handle-text-document-semantic-tokens-full
+              handle-text-document-inlay-hint
+              handle-text-document-code-lens
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change

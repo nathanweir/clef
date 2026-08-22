@@ -1493,6 +1493,124 @@ undo it. A macro because CALL-HANDLER is an FLET."
       (when temp-path (delete-temp-file temp-path)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; inlayHint and codeLens
+;;; ---------------------------------------------------------------------------
+
+(defparameter *hint-code* "(defun trim-and-pad (line width)
+  (let ((body (subseq line 0 width)))
+    body))
+
+(defun caller-one () (trim-and-pad \"a\" 3))
+(defun caller-two () (trim-and-pad \"b\" 4))")
+
+(defmacro inlay-hints-for (uri)
+  "Hints as (line char label). A macro because CALL-HANDLER is an FLET."
+  `(let ((result (response-result-safe
+                  (call-handler "textDocument/inlayHint"
+                                (dict "textDocument" (dict "uri" ,uri)
+                                      "range" (dict "start" (dict "line" 0 "character" 0)
+                                                    "end" (dict "line" 100 "character" 0)))))))
+     (when (vectorp result)
+       (map 'list (lambda (h)
+                    (let ((p (gethash "position" h)))
+                      (list (gethash "line" p) (gethash "character" p)
+                            (gethash "label" h))))
+            result))))
+
+(deftest test-inlay-hints-name-standard-library-parameters
+  "Positional arguments to a known function get their parameter names"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/hints.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *hint-code*))
+                    :id nil)
+      (let ((hints (inlay-hints-for uri)))
+        (assert-not-nil hints "Should produce hints")
+        ;; (subseq line 0 width) -- SEQUENCE and START are required, END is
+        ;; &optional and deliberately unlabelled.
+        (assert-true (member '(1 22 "sequence:") hints :test #'equal)
+                     "SUBSEQ's first parameter")
+        (assert-true (member '(1 27 "start:") hints :test #'equal)
+                     "and its second")
+        (assert-nil (find-if (lambda (h) (string= (third h) "end:")) hints)
+                    "&optional parameters do not line up positionally")))))
+
+(deftest test-inlay-hints-cover-user-defined-functions
+  "A function the image has never seen still gets hints, from clef's index"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *hint-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *hint-code*))
+                           :id nil)
+             ;; TRIM-AND-PAD is not FBOUNDP -- the server never loads user code --
+             ;; so the lambda list has to come from the indexed defining form.
+             ;; This is the case that matters most: the function you just wrote.
+             (let ((hints (inlay-hints-for uri)))
+               (assert-true (member '(4 35 "line:") hints :test #'equal)
+                            "First parameter of the user's own function")
+               (assert-true (member '(4 39 "width:") hints :test #'equal)
+                            "and its second"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-inlay-hints-stay-quiet-where-they-add-nothing
+  "No hint when the argument is already spelled like the parameter"
+  (with-direct-handler-test
+    (init-server)
+    (let ((code "(defun holder (line width) (subseq line 0 width))")
+          (uri "file:///tmp/hints-quiet.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" code))
+                    :id nil)
+      (let ((hints (inlay-hints-for uri)))
+        ;; LINE is passed as SEQUENCE, so that hint is informative and shown.
+        (assert-true (find-if (lambda (h) (string= (third h) "sequence:")) hints)
+                     "A differently-named argument is worth labelling")
+        ;; Macros and special operators are never hinted -- (let ((x 1)) ...)
+        ;; has no parameter a reader benefits from being told about.
+        (assert-nil (find-if (lambda (h) (string= (third h) "bindings:")) hints)
+                    "Special operators are not hinted")))))
+
+(deftest test-code-lens-counts-references
+  "Each top-level definition gets a reference count"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((path (write-temp-file *hint-code*))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" *hint-code*))
+                           :id nil)
+             (let* ((result (response-result-safe
+                             (call-handler "textDocument/codeLens"
+                                           (dict "textDocument" (dict "uri" uri)))))
+                    (titles (when (vectorp result)
+                              (map 'list (lambda (l)
+                                           (cons (gethash "line"
+                                                          (gethash "start" (gethash "range" l)))
+                                                 (gethash "title" (gethash "command" l))))
+                                   result))))
+               (assert-not-nil titles "Should produce lenses")
+               ;; TRIM-AND-PAD is called from both callers, and its own name node
+               ;; must not count as a reference to itself.
+               (assert-equal "2 references" (cdr (assoc 0 titles))
+                             "TRIM-AND-PAD is called twice")
+               (assert-equal "0 references" (cdr (assoc 4 titles))
+                             "CALLER-ONE is called by nobody"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 
