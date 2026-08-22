@@ -14,12 +14,21 @@
 
 (defparameter *semantic-token-types*
   #("keyword" "function" "macro" "variable" "parameter" "type" "class"
-    "property" "string" "number" "comment")
+    "property" "string" "number" "comment" "namespace" "method" "struct")
   "The token type legend, in index order.
 
-Values are from the spec's SemanticTokenTypes enumeration. A server may use a
-subset, but inventing a name means clients with no theme rule for it render
-nothing at all.")
+Values are from the spec's SemanticTokenTypes enumeration -- all 23 of them are
+listed in metaModel.json. A server may use a subset, but inventing a name means
+clients with no theme rule for it render nothing at all.
+
+NAMESPACE, METHOD and STRUCT are appended rather than inserted. The legend is an
+index-ordered contract and renumbering it would recolour every existing token.
+
+They exist because the indexer already told these apart and the legend threw it
+away: :METHOD collapsed into `function', :STRUCT into `type', and :PACKAGE into
+nothing at all -- so a DEFPACKAGE name was reported as `variable'. Common Lisp
+has more namespaces than most languages, and this legend is where a client finds
+out about them.")
 
 (defparameter *semantic-token-modifiers*
   #("definition" "readonly" "defaultLibrary")

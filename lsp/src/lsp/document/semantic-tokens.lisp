@@ -28,12 +28,23 @@
 ;;; ---------------------------------------------------------------------------
 
 (defun kind-token-type (kind)
-  "The token type for one of clef's own symbol kinds."
+  "The token type for one of clef's own symbol kinds.
+
+Every name here is from the spec's SemanticTokenTypes enumeration. That matters
+more than it looks: a client has no rule for a type it does not recognise, so an
+invented name renders as nothing at all.
+
+:METHOD, :STRUCT and :PACKAGE used to collapse into `function', `type' and
+nothing respectively -- distinctions the indexer had already worked out and then
+discarded. A DEFPACKAGE name came out as `variable', which is not what it is."
   (case kind
     (:macro "macro")
-    ((:function :method) "function")
+    (:function "function")
+    (:method "method")
     (:class "class")
-    ((:struct :type) "type")
+    (:struct "struct")
+    (:type "type")
+    (:package "namespace")
     ((:variable :constant) "variable")
     (:special-operator "keyword")
     (t nil)))

@@ -1,36 +1,110 @@
 // Zed settings for working on clef, in clef.
-//
-// Two things here matter and both were wrong or missing before.
 {
   "lsp": {
     "clef": {
       "binary": {
         // The BINARY, not the repository directory. This previously read
         // "/home/nathan/dev/clef" -- a directory -- so Zed had nothing to
-        // execute and the language server failed to start at all.
+        // execute and the language server never started at all.
         //
-        // Point this at lsp/clef after `mise run build', or drop the whole
-        // "binary" block to let Zed find `clef' on PATH. To run from source
-        // instead (picks up edits with no rebuild), use:
+        // Point at lsp/clef after `mise run build', or drop the whole "binary"
+        // block to let Zed find `clef' on PATH. To run from source instead
+        // (picks up edits with no rebuild):
         //   "path": "/home/nathan/dev/clef/lsp/start-server.sh"
         "path": "/home/nathan/dev/clef/lsp/clef"
       }
     }
   },
 
-  // Zed defaults this to "off", which means it never asks for semantic tokens
-  // -- so clef has been computing them and nothing has ever requested them.
+  // Zed defaults this to "off", so it never asks for semantic tokens -- clef
+  // has been computing them and nothing was requesting them.
   //
   //   "off"       tree-sitter only (Zed's default)
   //   "combined"  LSP tokens overlaid on tree-sitter
   //   "full"      LSP tokens replace tree-sitter entirely
   //
-  // "combined" is the right setting for Common Lisp. Tree-sitter can see that
-  // something is a symbol in head position but cannot know whether it names a
-  // function, a macro, a special operator or a class -- that depends on the
-  // image, not the text. clef knows, and reports it, including the
-  // `defaultLibrary' modifier that separates standard-library names from your
-  // own. Tree-sitter stays underneath so a file still colours sensibly before
-  // the server has indexed it, or if the server is down.
-  "semantic_tokens": "combined"
+  // "combined" keeps tree-sitter underneath, so a file still colours before the
+  // server has indexed it and if the server is down.
+  "semantic_tokens": "combined",
+
+  // ---------------------------------------------------------------------
+  // Why this block exists
+  //
+  // Zed's tree-sitter captures are a FIXED set of 43 names (@function,
+  // @keyword, @variable, @string.special.symbol, ...). There is no @macro
+  // among them. So a grammar structurally cannot tell a macro from a function
+  // in Common Lisp -- which is most of why highlighting here has felt flat, and
+  // why languages/commonlisp/highlights.scm resorts to a hardcoded list of ~900
+  // standard function names.
+  //
+  // Semantic tokens are not limited that way. The protocol has 23 token types
+  // and 10 modifiers, and `semantic_token_rules' maps any (type, modifiers)
+  // pair to either a list of theme styles or a colour directly. That is the
+  // "room to colour things" the tree-sitter side does not have.
+  //
+  // `style' is tried in order and the first name present in the current theme
+  // wins, so a rule can degrade gracefully across themes. Where no theme key
+  // exists at all -- `macro' is the notable one -- set foreground_color.
+  //
+  // Run `zed::ShowDefaultSemanticTokenRules' from the command palette to see
+  // what Zed applies before any of this.
+  //
+  // Colours below are deliberately left to theme styles rather than hex, so
+  // this file does not fight your theme. Swap in foreground_color where you
+  // want a specific colour.
+  // ---------------------------------------------------------------------
+  "global_lsp_settings": {
+    "semantic_token_rules": [
+      // Special operators -- the 25 irreducible forms. Worth their own colour:
+      // they are the ones with genuinely different evaluation rules.
+      { "token_type": "keyword", "style": ["keyword"] },
+
+      // Macros. No tree-sitter capture and no standard theme key, which is why
+      // this needs a style fallback chain (or a hex colour of your own).
+      { "token_type": "macro", "style": ["preproc", "keyword", "function"] },
+
+      // Yours versus the standard library. clef sets `defaultLibrary' from the
+      // image, so this is accurate rather than a frozen list.
+      {
+        "token_type": "function",
+        "token_modifiers": ["defaultLibrary"],
+        "style": ["function.builtin", "function"]
+      },
+      {
+        "token_type": "macro",
+        "token_modifiers": ["defaultLibrary"],
+        "style": ["keyword", "preproc"]
+      },
+
+      // Definition sites, so a name stands out where it is introduced.
+      {
+        "token_type": "function",
+        "token_modifiers": ["definition"],
+        "style": ["function.definition", "function"]
+      },
+
+      // CLOS and structures.
+      { "token_type": "class", "style": ["type.class", "type"] },
+      { "token_type": "struct", "style": ["type", "constructor"] },
+      { "token_type": "method", "style": ["function.method", "function"] },
+      { "token_type": "type", "style": ["type"] },
+
+      // Packages. Common Lisp leans on these far more than most languages.
+      { "token_type": "namespace", "style": ["namespace", "module", "type"] },
+
+      // A parameter is part of an interface; a LET binding is not.
+      { "token_type": "parameter", "style": ["variable.parameter", "variable"] },
+      { "token_type": "variable", "style": ["variable"] },
+      {
+        "token_type": "variable",
+        "token_modifiers": ["readonly"],
+        "style": ["constant", "variable"]
+      },
+
+      { "token_type": "property", "style": ["property", "string.special.symbol"] },
+      { "token_type": "string", "style": ["string"] },
+      { "token_type": "number", "style": ["number"] },
+      { "token_type": "comment", "style": ["comment"] }
+    ]
+  }
 }

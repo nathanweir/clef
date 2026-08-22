@@ -74,6 +74,59 @@ is available to a grammar.
 `"combined"` rather than `"full"` so tree-sitter stays underneath: a file still
 colours sensibly before the server has indexed it, and if the server is down.
 
+## How colour actually gets applied in Zed
+
+This is the part that is genuinely confusing, and it is two separate systems
+that happen to share vocabulary.
+
+**Tree-sitter captures are a closed set.** Zed recognises exactly 43 capture
+names — `@function`, `@keyword`, `@variable`, `@type`, `@property`,
+`@punctuation.bracket`, `@string.special.symbol`, and so on. You cannot invent
+one; an unrecognised capture is simply not styled. Multiple captures on a node
+form a fallback chain, resolved right-to-left.
+
+**There is no `@macro`.** That single absence explains a lot: a grammar
+structurally cannot distinguish a macro from a function call in Common Lisp,
+which is why `highlights.scm` resorts to a hardcoded list of ~900 standard
+function names and ~100 macro names. It is not a bad query so much as a query
+being asked to do something the capture set cannot express.
+
+**Semantic tokens are not limited that way.** The protocol defines 23 token
+types and 10 modifiers, and Zed maps them through
+`global_lsp_settings.semantic_token_rules`, where each rule is:
+
+| field | meaning |
+|---|---|
+| `token_type` | LSP token type to match; omit to match all |
+| `token_modifiers` | list that must *all* be present, e.g. `["defaultLibrary"]` |
+| `style` | list of theme style names, first one present in the theme wins |
+| `foreground_color` | a hex colour, bypassing the theme entirely |
+| `background_color`, `underline`, `strikethrough`, `font_weight`, `font_style` | as named |
+
+So a `(type, modifiers)` pair can be given any colour directly. That is the
+"room to colour things" the tree-sitter side does not have — and it is why the
+answer to flat highlighting is semantic tokens plus rules, not a better grammar
+query.
+
+`zed::ShowDefaultSemanticTokenRules` in the command palette prints what Zed
+applies before your own rules.
+
+The repository's `.zed/settings.json` carries a worked set of rules for clef's
+full legend, using `style` chains rather than hex so it does not fight your
+theme. Swap in `foreground_color` on any rule where you want a specific colour.
+
+### clef's legend
+
+Fourteen types, all from the spec's `SemanticTokenTypes` enumeration — a client
+has no rule for a name it does not recognise, so inventing one renders nothing:
+
+```
+keyword function macro variable parameter type class
+property string number comment namespace method struct
+```
+
+and three modifiers: `definition`, `readonly`, `defaultLibrary`.
+
 ## Building
 
 ```bash
