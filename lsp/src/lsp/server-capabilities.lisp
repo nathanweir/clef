@@ -21,6 +21,13 @@
                     "implementationProvider" t
                     "foldingRangeProvider" t
                     "selectionRangeProvider" t
+                    ;; The legend comes from the same lists the handler indexes
+                    ;; into. Retyping it here is how the two drift, and an index
+                    ;; off by one recolours every token in the file.
+                    "semanticTokensProvider"
+                    (dict "legend" (dict "tokenTypes" clef-lsp/types/basic:*semantic-token-types*
+                                         "tokenModifiers" clef-lsp/types/basic:*semantic-token-modifiers*)
+                          "full" t)
                     "workspaceSymbolProvider" t
                     "signatureHelpProvider" (dict)
                     "completionProvider"

@@ -174,6 +174,9 @@ through their own defparameters.")
             (:local-nicknames
               (:ctx :clef-context))
             (:import-from :serapeum :dict)
+            ;; No :IMPORT-FROM :CLEF-LSP/TYPES/BASIC here -- that package's
+            ;; DEFPACKAGE appears later in this file, and :IMPORT-FROM needs it
+            ;; to exist already. server-capabilities.lisp uses qualified names.
             (:export :start
                      :sethandler
                      :register-handlers
@@ -238,7 +241,14 @@ through their own defparameters.")
                      :node-to-range
                      ;; SymbolKind, shared by workspace/symbol and
                      ;; textDocument/documentSymbol.
-                     :lisp-kind-to-lsp-kind))
+                     :lisp-kind-to-lsp-kind
+                     ;; The semantic tokens legend, shared by the capabilities
+                     ;; (which declare it) and the handler (which indexes into
+                     ;; it). They must agree exactly.
+                     :*semantic-token-types*
+                     :*semantic-token-modifiers*
+                     :semantic-token-type-index
+                     :semantic-token-modifier-bit))
 
 (defpackage :clef-lsp/lifecycle
             (:use :cl :clef-log)
@@ -266,7 +276,9 @@ through their own defparameters.")
               (:ts :cl-tree-sitter/high-level))
             (:import-from :serapeum :dict :href)
             (:import-from :clef-lsp/types/basic
-                          :make-range :node-to-range :lisp-kind-to-lsp-kind)
+                          :make-range :node-to-range :lisp-kind-to-lsp-kind
+                          :*semantic-token-types* :*semantic-token-modifiers*
+                          :semantic-token-type-index :semantic-token-modifier-bit)
             (:export
               handle-text-document-completion
               handle-text-document-definition
@@ -279,6 +291,7 @@ through their own defparameters.")
               handle-text-document-implementation
               handle-text-document-folding-range
               handle-text-document-selection-range
+              handle-text-document-semantic-tokens-full
               handle-text-document-did-open
               handle-text-document-did-close
               handle-text-document-did-change

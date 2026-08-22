@@ -1193,6 +1193,158 @@ where it belongs."
                       "Must answer every position, including ones with no node")))))
 
 ;;; ---------------------------------------------------------------------------
+;;; semanticTokens
+;;; ---------------------------------------------------------------------------
+
+(defparameter *semantic-code* ";; a comment
+(defun compute (items scale)
+  (let ((total 0))
+    (dolist (item items)
+      (incf total (* item scale)))
+    (list total \"done\" 42 :ok)))")
+
+(defmacro decoded-semantic-tokens (uri)
+  "Semantic tokens decoded back to (line char length type modifiers).
+
+The wire format is deltas, and the only way to know the encoding is right is to
+undo it. A macro because CALL-HANDLER is an FLET."
+  `(let* ((result (response-result-safe
+                   (call-handler "textDocument/semanticTokens/full"
+                                 (dict "textDocument" (dict "uri" ,uri)))))
+          (data (when (hash-table-p result) (gethash "data" result)))
+          (types clef-lsp/types/basic:*semantic-token-types*)
+          (modifiers clef-lsp/types/basic:*semantic-token-modifiers*)
+          (line 0) (char 0) (decoded '()))
+     (when data
+       (loop for i from 0 below (length data) by 5
+             do (let ((delta-line (aref data i))
+                      (delta-char (aref data (+ i 1))))
+                  (incf line delta-line)
+                  (setf char (if (zerop delta-line) (+ char delta-char) delta-char))
+                  (push (list line char (aref data (+ i 2))
+                              (aref types (aref data (+ i 3)))
+                              (let ((names '()))
+                                (dotimes (b (length modifiers) names)
+                                  (when (logbitp b (aref data (+ i 4)))
+                                    (push (aref modifiers b) names)))))
+                        decoded))))
+     (nreverse decoded)))
+
+(deftest test-semantic-tokens-distinguish-macros-from-functions
+  "The distinction no grammar can make: a macro call versus a function call"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/semantic.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *semantic-code*))
+                    :id nil)
+      (let ((tokens (decoded-semantic-tokens uri)))
+        (assert-not-nil tokens "Should produce tokens")
+        (flet ((type-at (line char)
+                 (fourth (find-if (lambda (tok) (and (= (first tok) line)
+                                                     (= (second tok) char)))
+                                  tokens))))
+          ;; DOLIST and INCF are macros; * and LIST are functions. They are
+          ;; spelled identically and only the image can tell them apart.
+          (assert-equal "macro" (type-at 3 5) "DOLIST is a macro")
+          (assert-equal "macro" (type-at 4 7) "INCF is a macro")
+          (assert-equal "function" (type-at 4 19) "* is a function")
+          ;; LIST is both a function and a type in Common Lisp. Checking the
+          ;; class first typed every call to it as a class.
+          (assert-equal "function" (type-at 5 5) "LIST is used as a function")
+          ;; LET is a special operator, not either.
+          (assert-equal "keyword" (type-at 2 3) "LET is a special operator"))))))
+
+(deftest test-semantic-tokens-mark-the-standard-library
+  "defaultLibrary separates CL's symbols from the user's"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/semantic-lib.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *semantic-code*))
+                    :id nil)
+      (let ((tokens (decoded-semantic-tokens uri)))
+        (flet ((modifiers-at (line char)
+                 (fifth (find-if (lambda (tok) (and (= (first tok) line)
+                                                    (= (second tok) char)))
+                                 tokens))))
+          (assert-true (member "defaultLibrary" (modifiers-at 3 5) :test #'string=)
+                       "DOLIST is from the standard library")
+          ;; COMPUTE is the user's own, defined right here.
+          (assert-nil (member "defaultLibrary" (modifiers-at 1 7) :test #'string=)
+                      "COMPUTE is not")
+          (assert-true (member "definition" (modifiers-at 1 7) :test #'string=)
+                       "And it is a definition"))))))
+
+(deftest test-semantic-tokens-classify-bindings
+  "Parameters and local variables are distinguished from globals"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/semantic-bind.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *semantic-code*))
+                    :id nil)
+      (let ((tokens (decoded-semantic-tokens uri)))
+        (flet ((type-at (line char)
+                 (fourth (find-if (lambda (tok) (and (= (first tok) line)
+                                                     (= (second tok) char)))
+                                  tokens))))
+          ;; ITEMS is a parameter both where it is bound and where it is used.
+          (assert-equal "parameter" (type-at 1 16) "ITEMS is a parameter")
+          (assert-equal "parameter" (type-at 3 18) "and still is at its use")
+          ;; TOTAL is a LET binding, which is not part of any interface.
+          (assert-equal "variable" (type-at 2 9) "TOTAL is a local variable"))))))
+
+(deftest test-semantic-tokens-include-literals-and-comments
+  "Comments, strings, numbers and keywords are tokenised"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/semantic-lit.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *semantic-code*))
+                    :id nil)
+      (let ((tokens (decoded-semantic-tokens uri)))
+        (flet ((token-at (line char)
+                 (find-if (lambda (tok) (and (= (first tok) line)
+                                             (= (second tok) char)))
+                          tokens)))
+          ;; The grammar ends a comment node at column 0 of the NEXT line, so
+          ;; measuring the token from the node made every comment look
+          ;; multi-line and threw them all away.
+          (let ((comment (token-at 0 0)))
+            (assert-not-nil comment "The comment should be tokenised")
+            (assert-equal "comment" (fourth comment) "as a comment")
+            (assert-equal 12 (third comment) "spanning only its own line"))
+          (assert-equal "string" (fourth (token-at 5 16)) "The string literal")
+          (assert-equal "number" (fourth (token-at 5 23)) "The number literal")
+          (assert-equal "property" (fourth (token-at 5 26)) "The keyword literal"))))))
+
+(deftest test-semantic-tokens-do-not-overlap
+  "Tokens must be ordered and non-overlapping, or the client mis-renders"
+  (with-direct-handler-test
+    (init-server)
+    (let ((uri "file:///tmp/semantic-order.lisp"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" *semantic-code*))
+                    :id nil)
+      (let ((tokens (decoded-semantic-tokens uri))
+            (previous nil))
+        (assert-not-nil tokens "Should produce tokens")
+        (dolist (token tokens)
+          (when previous
+            (assert-true (or (> (first token) (first previous))
+                             (and (= (first token) (first previous))
+                                  (>= (second token)
+                                      (+ (second previous) (third previous)))))
+                         (format nil "Token ~S overlaps or precedes ~S" token previous)))
+          (setf previous token))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Unknown requests fail properly
 ;;; ---------------------------------------------------------------------------
 

@@ -553,9 +553,45 @@ nothing. Both deduplicate the grammar's wrapper nodes, since a top-level
 > own coordinates instead. Verified by breaking it again and watching the test
 > fail.
 
+**`textDocument/semanticTokens/full`.** The one editor feature where clef beats a
+grammar outright, because two of the distinctions matter enormously in Common
+Lisp and are invisible to any regex or tree-sitter query:
+
+- **macro calls versus function calls.** `(dolist ...)` and `(list ...)` are
+  spelled identically and behave nothing alike. Knowing which is which requires
+  knowing what the symbol names.
+- **the standard library versus your own code**, via the `defaultLibrary`
+  modifier.
+
+Plus what clef's own index already knows: definitions, parameters, local
+bindings. Conservative by design — a semantic token *overrides* the grammar's
+highlighting, so a symbol that resolves to nothing gets no token rather than a
+guess.
+
+> **Four defects, every one found by decoding the output and reading it**, not by
+> reasoning about the code:
+>
+> - `let`, `dolist` and `incf` came out as plain **functions**. Resolution walks
+>   into the global scope, which holds an entry for every CL symbol, so the
+>   workspace branch matched and the image was never consulted — losing exactly
+>   the distinction the feature exists for.
+> - Parameters came out as **variables**: the recorded kind for a parameter *is*
+>   `:variable`, so matching on kind first never reached the lexical check.
+> - **Every comment was dropped.** The grammar ends a comment node at column 0 of
+>   the *following* line, so the single-line guard — which is required, since a
+>   token carries one length — threw them all away.
+> - `(list ...)` came out as a **class**, because `find-class` was checked before
+>   `fboundp` and a great many CL symbols are both.
+>
+> Also a live demonstration of a hazard the codebase had already flagged:
+> `clef-lsp/types/basic` does `(:shadow :position)` under a TODO asking *"Just
+> how dangerous is this?"*. A bare `position` in that package is the LSP class,
+> not the sequence function, and the failure is `UNDEFINED-FUNCTION` at run time
+> rather than a compile error. That is the answer to the TODO.
+
 ### Missing, recorded, not scoped now
 
-`codeAction`, `semanticTokens/full`, `inlayHint`, `documentLink`, `codeLens`,
+`codeAction`, `inlayHint`, `documentLink`, `codeLens`,
 `typeDefinition`, `declaration`, `rangeFormatting`,
 `workspace/didChangeWatchedFiles`,
 `textDocument/publishDiagnostics` as a push — **verified dead**: `send-notification`

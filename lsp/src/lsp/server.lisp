@@ -130,6 +130,7 @@
        (sethandler "textDocument/implementation" 'clef-lsp/document:handle-text-document-implementation)
        (sethandler "textDocument/foldingRange" 'clef-lsp/document:handle-text-document-folding-range)
        (sethandler "textDocument/selectionRange" 'clef-lsp/document:handle-text-document-selection-range)
+       (sethandler "textDocument/semanticTokens/full" 'clef-lsp/document:handle-text-document-semantic-tokens-full)
        (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
        (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
        (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)
