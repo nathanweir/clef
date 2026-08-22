@@ -191,6 +191,8 @@ through their own defparameters.")
                      :send-notification
                      :publish-diagnostics
                      :reset
+                     :exit-server
+                     :*exit-terminates-process*
                      *server-capabilities-json*))
 
 (defpackage :clef-lsp/types/base

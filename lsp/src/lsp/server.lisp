@@ -29,9 +29,20 @@ definition. Refreshing for those would be work with nothing to show for it.")
 (defun before-handle-request (request)
        "Hook to run before handling any request."
        (let ((endpoint-name (clef-jsonrpc/types:request-method request)))
-            ;; Error if server not initialized, unless these are requests to the endpoints that handle initialization
-            (when (and (not (string= endpoint-name "initialize"))
-                       (not (string= endpoint-name "initialized"))
+            ;; Error if server not initialized, unless this is one of the
+            ;; methods that must work outside an initialized session.
+            ;;
+            ;; `exit' and `shutdown' belong on that list as much as `initialize'
+            ;; does. The spec says exit "asks the server to exit its process"
+            ;; unconditionally, and it is a client's only way to stop a server
+            ;; that never finished starting. Blocking it meant a client that
+            ;; gave up between `initialize' and `initialized' could not clean up
+            ;; after itself: driving the binary over stdio, `initialize' then
+            ;; `exit' left the process to be reaped by EOF instead, exiting 0
+            ;; where the spec calls for 1.
+            (when (and (not (member endpoint-name '("initialize" "initialized"
+                                                    "shutdown" "exit")
+                                    :test #'string=))
                        (not ctx:initialized))
                   (slog :error "Server not initialized yet.")
                   (error 'clef-lsp/types/base:server-not-initialized-error))
@@ -94,19 +105,51 @@ definition. Refreshing for those would be work with nothing to show for it.")
                            (respond-error clef-jsonrpc/types:+internal-error+
                                           (format nil "Internal server error: ~A" e)))))))
 
+(defparameter *exit-terminates-process* t
+              "Whether the `exit' notification really ends the OS process.
+
+Bound to NIL by the test suite, which calls the handler in-process and would
+otherwise take the test runner down with it.")
+
+(defun exit-server ()
+       "End the server, as the LSP `exit' notification requires.
+
+The spec is specific about the code: 0 if a `shutdown' request came first,
+1 otherwise -- a client that never asked for shutdown is being told its server
+died unexpectedly.
+
+Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
+       (let ((code (if ctx:shutdown-received 0 1)))
+            (slog :info "Exiting with code ~D (shutdown ~:[was not~;was~] received)"
+                  code ctx:shutdown-received)
+            (reset)
+            (if *exit-terminates-process*
+                (sb-ext:exit :code code :abort nil)
+                code)))
+
 (defun run-lsp-server-stdio (&key (input *standard-input*) (output *standard-output*))
-       "Run LSP server over stdio"
+       "Run LSP server over stdio, until the client goes away."
        (setf ctx:output-stream output)
        (loop
          (let ((request (clef-jsonrpc/messages:read-lsp-message input)))
-              (when request
-                    (let* ((id (clef-jsonrpc/types:request-id request))
-                           (response (handle-lsp-request id request)))
-                          ;; NIL here now means "notification" for real --
-                          ;; HANDLE-LSP-REQUEST decides that from the id, not
-                          ;; from what the handler happened to return.
-                          (when response
-                                (clef-jsonrpc/messages:write-lsp-message response output)))))))
+              ;; NIL means the stream is finished -- EOF, or a header we cannot
+              ;; make sense of, after which there is no way to find where the
+              ;; next message starts. READ-LSP-MESSAGE's own docstring says it
+              ;; "returns NIL on EOF or stream error to allow graceful
+              ;; shutdown"; the graceful shutdown was designed and never wired
+              ;; up. This LOOP had no exit condition at all, so on EOF it spun
+              ;; on a dead stream forever, burning a core and leaving the
+              ;; process alive after every editor session.
+              (unless request
+                      (slog :info "Input stream closed; server loop exiting.")
+                      (return))
+              (let* ((id (clef-jsonrpc/types:request-id request))
+                     (response (handle-lsp-request id request)))
+                    ;; NIL here now means "notification" for real --
+                    ;; HANDLE-LSP-REQUEST decides that from the id, not
+                    ;; from what the handler happened to return.
+                    (when response
+                          (clef-jsonrpc/messages:write-lsp-message response output))))))
 
 (defun send-notification (method params)
        "Send an LSP notification (a message with no id that doesn't expect a response)."

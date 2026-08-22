@@ -1861,6 +1861,104 @@ undo it. A macro because CALL-HANDLER is an FLET."
                     "LABELS must resolve a backward reference to a sibling"))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Shutdown and exit
+;;; ---------------------------------------------------------------------------
+;;;
+;;; The server used to be unkillable. `exit' said "For now do nothing" and the
+;;; read loop had no exit condition, so neither the notification nor stdin
+;;; closing could stop it -- it spun on a dead stream and outlived every
+;;; session. Invisible to this suite, which calls handlers directly and never
+;;; runs the server as a process; found by driving the built binary over real
+;;; stdio (tmp/lsp-probe.py).
+
+(deftest test-shutdown-result-is-null-not-nested
+  "shutdown's result is null -- handlers return results, not envelopes"
+  (with-direct-handler-test
+    (init-server)
+    (let ((response (call-handler "shutdown" (dict) :id 7)))
+      (assert-true (answered-p response) "shutdown is a request and must be answered")
+      (assert-nil (response-is-error-p response) "and must not be an error")
+      ;; Returning (dict "result" nil) produced {"result":{"result":null}},
+      ;; because HANDLE-LSP-REQUEST already wraps the return value.
+      (assert-nil (clef-jsonrpc/types:response-result response)
+                  "The result must be null itself, not a dict containing null"))))
+
+(deftest test-shutdown-is-recorded
+  "shutdown must set the flag that decides the exit code"
+  (with-direct-handler-test
+    (init-server)
+    (assert-nil clef-context:shutdown-received
+                "Nothing has shut down yet")
+    (call-handler "shutdown" (dict) :id 7)
+    (assert-true clef-context:shutdown-received
+                 "shutdown must record that it happened")))
+
+(deftest test-exit-code-depends-on-whether-shutdown-came-first
+  "exit reports 0 after an orderly shutdown, 1 without one"
+  ;; Bound so the handler returns the code instead of taking the test runner
+  ;; down with it.
+  (let ((clef-lsp/server:*exit-terminates-process* nil))
+    (with-direct-handler-test
+      (init-server)
+      (call-handler "shutdown" (dict) :id 7)
+      (assert-equal 0 (clef-lsp/server:exit-server)
+                    "Exit after shutdown is success"))
+    (with-direct-handler-test
+      (init-server)
+      (assert-equal 1 (clef-lsp/server:exit-server)
+                    "Exit without shutdown means the client never asked"))))
+
+(deftest test-exit-and-shutdown-work-before-initialization
+  "A client that gives up mid-handshake must still be able to stop the server"
+  ;; `exit' is a client's only way to end a server, and the spec makes it
+  ;; unconditional. Blocking it behind the initialized flag meant a client that
+  ;; quit between `initialize' and `initialized' could not clean up: over real
+  ;; stdio the process was reaped by EOF instead and exited 0 where the spec
+  ;; calls for 1.
+  (let ((clef-lsp/server:*exit-terminates-process* nil))
+    (with-direct-handler-test
+      ;; Deliberately NO init-server.
+      (let ((response (call-handler "shutdown" (dict) :id 1)))
+        (assert-nil (response-is-error-p response)
+                    "shutdown must work before initialization"))
+      (assert-nil (call-handler "exit" (dict) :id nil)
+                  "exit must work before initialization too"))))
+
+(deftest test-definition-in-an-unindexed-document-is-not-an-error
+  "A position with no scope answers \"nothing here\", not an internal error"
+  ;; CLEF-INTERVAL-DATA is a type-checked accessor and (FIRST (LAST NIL)) is
+  ;; NIL, so an empty scope list signalled. Over stdio, go-to-definition in a
+  ;; buffer whose file is not on disk answered "Internal server error".
+  (with-direct-handler-test
+    (init-server)
+    (let* ((uri "file:///nonexistent/never/written.lisp")
+           (text "(defun hello (x) x)
+(defun caller () (hello 1))"))
+      (call-handler "textDocument/didOpen"
+                    (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                               "version" 1 "text" text))
+                    :id nil)
+      (dolist (method '("textDocument/definition" "textDocument/hover"
+                        "textDocument/references"))
+        (let ((response (call-handler method
+                                      (dict "textDocument" (dict "uri" uri)
+                                            "position" (dict "line" 1 "character" 18)
+                                            "context" (dict "includeDeclaration" t))
+                                      :id 5)))
+          (assert-true (answered-p response)
+                       (format nil "~A must answer" method))
+          (assert-nil (response-is-error-p response)
+                      (format nil "~A must not be an internal error" method)))))))
+
+(deftest test-exit-is-a-notification
+  "exit carries no id and must not be answered"
+  (let ((clef-lsp/server:*exit-terminates-process* nil))
+    (with-direct-handler-test
+      (init-server)
+      (assert-nil (call-handler "exit" (dict) :id nil)
+                  "A notification gets no reply, even this one"))))
+
+;;; ---------------------------------------------------------------------------
 ;;; DEF* forms with no dedicated checker
 ;;; ---------------------------------------------------------------------------
 ;;;

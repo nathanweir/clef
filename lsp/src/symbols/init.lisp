@@ -71,7 +71,15 @@ Note that symbol-ref can be nil if none is at the location"
              (values
                (when (and symbol-refs (consp symbol-refs))
                      (symbol-reference-symbol-name (clef-interval-data (first symbol-refs))))
-               (clef-interval-data (first (last scopes)))
+               ;; SCOPES can be empty -- for a position in a file that failed to
+               ;; index, or a document with no scope tree yet. (FIRST (LAST NIL))
+               ;; is NIL, and CLEF-INTERVAL-DATA is a type-checked struct
+               ;; accessor, so this signalled and every caller turned it into
+               ;; "Internal server error". Driving the binary over stdio,
+               ;; go-to-definition in a freshly opened buffer answered with that
+               ;; instead of "nothing here".
+               (when scopes
+                     (clef-interval-data (first (last scopes))))
                (when (and symbol-refs (consp symbol-refs))
                      (symbol-reference-package-name (clef-interval-data (first symbol-refs)))))))
 ;;
