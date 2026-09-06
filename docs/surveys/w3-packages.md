@@ -139,3 +139,33 @@ would migrate file-by-file, which is exactly the incremental adoption story
 the convention claims to support. That migration is the convention's real
 trial and should be attempted *after* the template and linter exist, not
 before.
+
+## 6. The modern-language mapping, stated once
+
+Motivation §5.4's pain was never one problem. A TypeScript `import` (or Rust
+`use` + Cargo.toml, or Python `import` + uv) does three jobs with one line:
+fetch-time dependency, build-order edge, namespace binding. CL split those
+jobs across three uncoordinated layers — quicklisp, the hand-written `.asd`,
+and `defpackage` — and the classic failure modes live in the **desync space
+between them**: the dependency imported but never declared (works locally
+because quicklisp installed it globally once, then breaks in CI), the system
+declared but never imported, the file order that only works by accident.
+
+The stack decided across this survey and [`w5-deps.md`](w5-deps.md) collapses
+all three jobs back into the one declaration the convention mandates anyway:
+
+| job | was | now |
+|---|---|---|
+| fetch + pin | quicklisp, global, unlocked | the `defpackage` clause → ocicl auto-vendors by digest into `ocicl.csv` |
+| build graph | `:components` + `:serial`, hand-ordered | the `defpackage` clause → inference orders files by the graph |
+| namespace | the `defpackage` clause | unchanged — its original job |
+
+One declaration, three jobs. This goes slightly further than TypeScript,
+where package.json is still a second place to edit.
+
+**The remaining ergonomic gap, named:** auto-import. In TypeScript the editor
+adds the import when you use the symbol. clef's workspace index and image
+enrichment already know which package exports any given symbol, so a
+`textDocument/codeAction` offering *"add `:import-from`"* (or a
+`:local-nicknames` entry) is the natural closing move — deferred to the LSP's
+codeAction work, recorded here so the reason it matters is not lost.
