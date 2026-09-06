@@ -302,6 +302,30 @@ new files costs about 4 ms now that it prunes."
 (defun build-file-symbol-map (file-path file-source)
        (slog :debug "Processing file for symbol-map: ~A" file-path)
 
+       ;; Index a *balanced* spelling of the buffer.
+       ;;
+       ;; A file being edited is unbalanced most of the time, and an unclosed
+       ;; form collapses the tree-sitter parse into an ERROR node that no
+       ;; checker below recognises -- so the file indexed to nothing but its
+       ;; document scope, with not one definition in it.
+       ;;
+       ;; That was invisible for every other feature, because you ask for hover
+       ;; or go-to-definition on code you have finished writing. Completion is
+       ;; only ever asked on an incomplete buffer, so it got the empty tree
+       ;; every time: typing `(al' inside (LET ((ALPHA 1)) ...) offered 978
+       ;; global symbols and not ALPHA. See
+       ;; docs/experiments/lsp/10-completion-scope-chain.lisp.
+       ;;
+       ;; REPAIR-SOURCE only ever APPENDS, which is what makes this safe to do
+       ;; unconditionally: every byte offset in the original text keeps its
+       ;; value, so node ranges, line offsets and scope intervals are all
+       ;; exactly what they would have been. Nothing downstream has to know.
+       ;;
+       ;; Diagnostics are unaffected -- they come from the compiler by way of
+       ;; clef-conditions, not from this map, so an unbalanced file is still
+       ;; reported as unbalanced.
+       (setf file-source (clef-parser/repair:repair-source file-source))
+
        ;; Remove any existing symbols from this file in the workspace index
        ;; (needed when re-processing files on save)
        (remove-file-from-workspace-index file-path)

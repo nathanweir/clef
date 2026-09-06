@@ -121,6 +121,15 @@ through their own defparameters.")
               (:ts :cl-tree-sitter/high-level))
             (:export :find-package-declaration))
 
+(defpackage :clef-parser/repair
+            (:use :cl)
+            (:export :repair-source
+                     :scan-source
+                     :scan-depth
+                     :scan-in-string
+                     :scan-in-line-comment
+                     :scan-block-comment-depth))
+
 (defpackage :clef-symbols
             (:use :cl :clef-log :clef-parser/parser)
             (:local-nicknames

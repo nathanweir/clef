@@ -2113,3 +2113,119 @@ fallback must not add a second entry beside the dedicated DEFUN path")))))
                     "Error code should be MethodNotFound")
       (assert-equal 99 (clef-jsonrpc/types:response-id response)
                     "The error reply must carry the request's id"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Completion on a buffer that is still being typed
+;;; ---------------------------------------------------------------------------
+;;;
+;;; Completion is the only endpoint whose input is ALWAYS syntactically
+;;; incomplete, and that turned out to be the whole problem: an unclosed form
+;;; collapsed the tree-sitter parse, the file indexed to an empty document
+;;; scope, and the handler fell back to offering all 978 global symbols
+;;; unfiltered while omitting the LET bindings and parameters actually in scope
+;;; -- the only candidates a language server can offer that a plain
+;;; word-completer cannot.
+;;;
+;;; The old suite could not see any of this. Two of its three completion tests
+;;; were written so that they cannot fail ("either success or error", `when
+;;; result'), and the third asked for completion with the cursor on `helper' in
+;;; `(helper)' -- a name that is already complete.
+;;;
+;;; Measured before and after in docs/experiments/lsp/09-completion-scenarios.lisp
+;;; (2 of 11 realistic scenarios useful, then 11 of 11) and diagnosed in
+;;; docs/experiments/lsp/10-completion-scope-chain.lisp.
+
+(defmacro complete-in (text line character)
+  "Open TEXT as a document and return the completion labels at LINE/CHARACTER.
+
+TEXT is deliberately allowed to be unbalanced -- that is the state a buffer is
+in at every keystroke, and the state this endpoint is always asked about."
+  `(let* ((temp (write-temp-file ,text))
+          (uri (format nil "file://~A" temp)))
+     (unwind-protect
+          (progn
+            (call-handler "textDocument/didOpen"
+                          (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                     "version" 1 "text" ,text))
+                          :id nil)
+            (let* ((result (response-result-safe
+                            (call-handler "textDocument/completion"
+                                          (dict "textDocument" (dict "uri" uri)
+                                                "position" (dict "line" ,line
+                                                                 "character" ,character)))))
+                   (items (and (hash-table-p result) (gethash "items" result))))
+              (values (when (vectorp items)
+                        (loop for i across items collect (gethash "label" i)))
+                      (and (hash-table-p result) (gethash "isIncomplete" result)))))
+       (delete-temp-file temp))))
+
+(deftest test-completion-offers-a-let-binding-in-an-unclosed-form
+  "A LET binding is offered while its own form is still unclosed"
+  (with-direct-handler-test
+    (init-server)
+    (let ((labels* (complete-in "(defun main ()
+  (let ((alpha 1))
+    (al" 2 7)))
+      (assert-true (member "alpha" labels* :test #'string=)
+                   "ALPHA is bound at the cursor and must be offered")
+      ;; The bug was not that ALPHA ranked low. It was absent entirely while 978
+      ;; global symbols were present, so assert the narrowing too.
+      (assert-true (< (length labels*) 100)
+                   "The list must be narrowed to the prefix, not the whole scope"))))
+
+(deftest test-completion-offers-a-parameter-in-an-unclosed-form
+  "A parameter is offered while its DEFUN is still unclosed"
+  (with-direct-handler-test
+    (init-server)
+    (let ((labels* (complete-in "(defun draw (widget)
+  (wid" 1 6)))
+      (assert-true (member "widget" labels* :test #'string=)
+                   "WIDGET is a parameter in scope and must be offered"))))
+
+(deftest test-completion-filters-by-the-typed-prefix
+  "A prefix that matches nothing offers nothing"
+  (with-direct-handler-test
+    (init-server)
+    (let ((labels* (complete-in "(defun helper () 42)
+(defun main ()
+  (zzzz" 2 7)))
+      (assert-nil labels*
+                  "No symbol starts with ZZZZ, so nothing should come back"))))
+
+(deftest test-completion-at-an-empty-head-position-is-not-empty
+  "An open paren with nothing typed yet still offers the scope"
+  (with-direct-handler-test
+    (init-server)
+    (multiple-value-bind (labels* incomplete)
+        (complete-in "(defun helper () 42)
+(defun main ()
+  (" 2 3)
+      (assert-true (member "helper" labels* :test #'string=)
+                   "HELPER is callable here and must be offered")
+      ;; An empty prefix legitimately matches everything, so the server caps the
+      ;; list -- but then it owes the client `isIncomplete', which is what tells
+      ;; it to re-query as the prefix grows.
+      (assert-true incomplete
+                   "A truncated list must be reported as incomplete"))))
+
+(deftest test-completion-keeps-the-package-qualifier-on-the-label
+  "A qualified prefix gets qualified labels back"
+  (with-direct-handler-test
+    (init-server)
+    (let ((labels* (complete-in "(defun main ()
+  (cl:for" 1 9)))
+      ;; A bare \"format\" would not start with what the user typed, so the
+      ;; client's own filtering would discard every candidate we sent.
+      (assert-true (member "cl:format" labels* :test #'string=)
+                   "The label must carry the qualification the user typed"))))
+
+(deftest test-completion-is-silent-inside-strings-and-comments
+  "Neither a string nor a comment is code"
+  (with-direct-handler-test
+    (init-server)
+    (assert-nil (complete-in "(defun main ()
+  \"hel" 1 6)
+                "A string is prose, not code")
+    (assert-nil (complete-in "(defun main ()
+  ; hel" 1 7)
+                "A comment is prose, not code")))
