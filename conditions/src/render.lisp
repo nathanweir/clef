@@ -120,6 +120,45 @@ cannot drag the caret into an unrelated later definition."
     (byte-search-ci (symbol-name symbol) octets form-offset
                     (min (length octets) (+ form-offset window)))))
 
+(defun forward-to-code (octets offset)
+  "OFFSET advanced past whitespace and comments to the next code byte.
+
+COMPILER-ERROR-CONTEXT-FILE-POSITION is where the READ of the enclosing
+top-level form began -- which is immediately after the PREVIOUS form, before
+any whitespace, blank lines or comments in between. Rendered as-is, the caret
+for a diagnostic with no symbol to narrow to landed on the end of the previous
+form: a type warning for line 5's (+ \"a string\" 1) pointed at line 2's
+(in-package :p2). The form the compiler means starts at the next code byte.
+
+A no-op when OFFSET already sits on code, so it is safe to apply uniformly --
+reader errors' form-start positions point directly at a paren and pass through
+unchanged."
+  (let ((len (length octets)))
+    (loop
+      (cond
+        ((>= offset len) (return offset))
+        ;; Whitespace: space, tab, newline, return, page.
+        ((member (aref octets offset) '(32 9 10 13 12)) (incf offset))
+        ;; Line comment: to end of line, then continue skipping.
+        ((= (aref octets offset) #.(char-code #\;))
+         (setf offset (or (position 10 octets :start offset) len)))
+        ;; Block comment: #| ... |#, and they NEST in Common Lisp.
+        ((and (< (1+ offset) len)
+              (= (aref octets offset) #.(char-code #\#))
+              (= (aref octets (1+ offset)) #.(char-code #\|)))
+         (let ((depth 1) (i (+ offset 2)))
+           (loop while (and (plusp depth) (< (1+ i) len))
+                 do (cond ((and (= (aref octets i) #.(char-code #\#))
+                                (= (aref octets (1+ i)) #.(char-code #\|)))
+                           (incf depth) (incf i 2))
+                          ((and (= (aref octets i) #.(char-code #\|))
+                                (= (aref octets (1+ i)) #.(char-code #\#)))
+                           (decf depth) (incf i 2))
+                          (t (incf i))))
+           ;; An unterminated block comment: stop rather than loop forever.
+           (if (plusp depth) (return offset) (setf offset i))))
+        (t (return offset))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Message
 ;;; ---------------------------------------------------------------------------
@@ -156,7 +195,8 @@ shows the message and whatever context it has."
     (format stream "~&~A: ~A~%" label (headline diag))
 
     (if (and octets offset (< offset (length octets)))
-        (let* ((sym (diagnostic-symbol diag))
+        (let* ((offset (forward-to-code octets offset))
+               (sym (diagnostic-symbol diag))
                (precise (narrow-to-symbol octets offset sym))
                (mark-width (if precise (length (symbol-name sym)) 1))
                (at (or precise offset)))

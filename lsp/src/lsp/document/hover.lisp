@@ -241,39 +241,142 @@ something to read."
                                   package (symbol-name sym))
                           (when source (format out "~%*~A*~%" source)))))))
 
+;;; ---------------------------------------------------------------------------
+;;; Hover for code the image has never seen
+;;;
+;;; Everything in HOVER-MARKDOWN asks the running image: FBOUNDP, DOCUMENTATION,
+;;; the ftype. That is fine for Common Lisp itself and for libraries the
+;;; workspace has loaded -- and it is precisely the code being written *right
+;;; now* that the image has never seen, so the richest hover went to the symbols
+;;; that needed it least.
+;;;
+;;; This used to render as `(defun repair-source)` plus an apology, while the
+;;; lambda list and docstring it apologised for sat in the very form-node the
+;;; indexer had stored. They are source text, not image state -- so read them
+;;; from the source. What genuinely cannot be had without the image is derived
+;;; TYPE information, and that is now all this path lacks.
+;;; ---------------------------------------------------------------------------
+
+(defun definition-source-text (def)
+       "The text of the file DEF was defined in, or NIL.
+
+The open buffer wins over the disk copy: the form-node's coordinates describe
+the text the indexer last saw, which for an open document is the buffer."
+       (let* ((location (clef-symbols:symbol-definition-location def))
+              (file (when location (clef-symbols:location-file-path location))))
+             (when file
+                   (or (let ((uri (clef-util:path-to-file-uri file)))
+                            (when uri (gethash uri ctx:documents)))
+                       (ignore-errors (uiop:read-file-string file))))))
+
+(defun string-literal-value (text)
+       "The value of a string literal's source TEXT: quotes stripped, escapes undone."
+       (when (and text (>= (length text) 2) (char= (char text 0) #\"))
+             (with-output-to-string (out)
+               (loop with i = 1 and n = (1- (length text))
+                     while (< i n)
+                     do (let ((c (char text i)))
+                             (cond ((and (char= c #\\) (< (1+ i) n))
+                                    (write-char (char text (1+ i)) out)
+                                    (incf i 2))
+                                   (t (write-char c out) (incf i))))))))
+
+(defparameter +lambda-list-kinds+ '(:function :macro :method)
+  "Definition kinds whose element 2 is a lambda list.
+
+The gate matters: element 2 of a DEFVAR is its value and element 2 of a DEFCLASS
+is its superclass list, and either would render as a convincing-looking wrong
+signature.")
+
+(defun indexed-signature-parts (def source)
+       "(values lambda-list-text docstring) read from DEF's defining form, either
+or both NIL.
+
+FORM-ELEMENTS -- the same flattening the diagnostics path uses to mirror how
+SBCL indexes a form -- turns the stored form-node into (head name . rest).
+The docstring rules follow the language's:
+
+  - after a lambda list, a string is the docstring only when more body follows;
+    (defun f () \"x\") RETURNS the string.
+  - a DEFVAR docstring is element 3, and there it may legally be last.
+  - otherwise a string at element 2 with anything after it is doc-like -- which
+    is what picks up DEFTEST-style project macros."
+       (let ((form (clef-symbols:symbol-definition-form-node def)))
+            (when (and form source)
+                  (let* ((elements (form-elements form))
+                         (name-node (nth 1 elements))
+                         (kind (clef-symbols:symbol-definition-kind def))
+                         (third-el (nth 2 elements)))
+                        ;; The stored form must actually be NAME's definition.
+                        ;; A defstruct's accessors all store the whole DEFSTRUCT
+                        ;; as their form-node, where element 1 names the struct,
+                        ;; not the accessor -- extracting would caption MAKE-FOO
+                        ;; with FOO's slot list.
+                        (when (and name-node
+                                   (string-equal
+                                     (string-upcase
+                                       (clef-symbols:symbol-definition-symbol-name def))
+                                     (string-upcase
+                                       (or (ignore-errors
+                                            (clef-parser/parser:node-text name-node source))
+                                           ""))))
+                              (let* ((lambda-node
+                                       (when (and (member kind +lambda-list-kinds+)
+                                                  third-el
+                                                  (eq (node-kind third-el) :list-lit))
+                                             third-el))
+                                     ;; A DEFVAR's element 2 is its VALUE; the
+                                     ;; docstring, when present, is element 3 --
+                                     ;; same slot as after a lambda list.
+                                     (doc-index (if (or lambda-node
+                                                        (member kind '(:variable :constant)))
+                                                    3
+                                                    2))
+                                     (doc-node (nth doc-index elements))
+                                     (docstring
+                                       (when (and doc-node
+                                                  (eq (node-kind doc-node) :str-lit)
+                                                  ;; Legally last only for DEFVAR.
+                                                  (or (nth (1+ doc-index) elements)
+                                                      (member kind '(:variable :constant))))
+                                             (string-literal-value
+                                               (ignore-errors
+                                                (clef-parser/parser:node-text doc-node source))))))
+                                   (values (when lambda-node
+                                                 (ignore-errors
+                                                  (clef-parser/parser:node-text lambda-node source)))
+                                           docstring)))))))
+
 (defun indexed-hover-markdown (name)
-       "Markdown from clef's own index, for a symbol the image does not have.
-
-Everything above needs the symbol to exist in the running image: FBOUNDP,
-DOCUMENTATION and the ftype all ask the image, not the source. That is fine for
-Common Lisp itself and for libraries the workspace has loaded, and useless for a
-file the user is writing right now -- whose functions clef has indexed but SBCL
-has never seen.
-
-So fall back to what the index knows. Less than the image can say, and much
-better than the blank the old implementation returned."
+       "Markdown from clef's own index, for a symbol the image does not have."
        (let ((defs (clef-symbols:lookup-in-workspace-index name)))
             (when defs
                   (let* ((def (first defs))
                          (location (clef-symbols:symbol-definition-location def))
                          (file (when location (clef-symbols:location-file-path location)))
                          (kind (clef-symbols:symbol-definition-kind def))
-                         (package (clef-symbols:symbol-definition-package-name def)))
-                        (with-output-to-string (out)
-                          (format out "```lisp~%(~A ~A)~%```~%"
-                                  (case kind
-                                    (:function "defun") (:macro "defmacro")
-                                    (:class "defclass") (:struct "defstruct")
-                                    (:type "deftype") (:variable "defvar")
-                                    (t "definition"))
-                                  (string-downcase name))
-                          (format out "~%Defined in this workspace but not loaded into the~
-                                       ~%language server's image, so no documentation or~
-                                       ~%type information is available.~%")
-                          (format out "~%---~%~%`~@[~A:~]~A`~%"
-                                  (when package (string-upcase (princ-to-string package)))
-                                  (string-upcase name))
-                          (when file (format out "~%*~A*~%" file)))))))
+                         (package (clef-symbols:symbol-definition-package-name def))
+                         (source (definition-source-text def)))
+                        (multiple-value-bind (lambda-list docstring)
+                                             (indexed-signature-parts def source)
+                          (with-output-to-string (out)
+                            (format out "```lisp~%(~A ~A~@[ ~A~])~%```~%"
+                                    (case kind
+                                      (:function "defun") (:macro "defmacro")
+                                      (:method "defmethod") (:class "defclass")
+                                      (:struct "defstruct") (:type "deftype")
+                                      (:variable "defvar") (:constant "defconstant")
+                                      (:package "defpackage")
+                                      (t "definition"))
+                                    (string-downcase name)
+                                    lambda-list)
+                            (when docstring (format out "~%~A~%" docstring))
+                            (format out "~%---~%~%`~@[~A:~]~A` ~A~%"
+                                    (when package (string-upcase (princ-to-string package)))
+                                    (string-upcase name)
+                                    ;; Say what is genuinely missing, not more.
+                                    "-- from source; not loaded, so no derived types")
+                            (when file (format out "~%*~A*~%" file))))))))
 
 (defun handle-text-document-hover (message)
        "Handle a textDocument/hover request."

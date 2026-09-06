@@ -58,6 +58,17 @@ the range's \"line\" and the line in its \"character\"."
                     (walk node))
             results))
 
+(defun position<= (a b)
+       (let ((la (gethash "line" a)) (lb (gethash "line" b)))
+            (or (< la lb)
+                (and (= la lb)
+                     (<= (gethash "character" a) (gethash "character" b))))))
+
+(defun ranges-overlap-p (a b)
+       "Do LSP ranges A and B share any position?"
+       (and (position<= (gethash "start" a) (gethash "end" b))
+            (position<= (gethash "start" b) (gethash "end" a))))
+
 (defun handle-text-document-diagnostic (message)
        ;; Ignore computing diag on .asd files
        (when (serapeum:string-suffix-p ".asd"
@@ -73,7 +84,22 @@ the range's \"line\" and the line in its \"character\"."
               (document-text (gethash document-uri ctx:documents))
               (syntax-errors (get-syntax-errors document-text))
               (compile-errors (collect-compile-diagnostics document-text))
-              (items (append syntax-errors compile-errors)))
+              ;; One problem, one entry. Tree-sitter flags an unclosed form as a
+              ;; generic "Syntax error" and the reader reports the same region
+              ;; with an actual explanation; before reader errors were located
+              ;; (they all said line 0) the two never met, but now they cover
+              ;; the same text. The generic entry adds nothing where a specific
+              ;; one overlaps it -- and tree-sitter errors AFTER the reader's
+              ;; stopping point, the reason both sources exist at all, overlap
+              ;; nothing and survive.
+              (items (append (remove-if (lambda (syn)
+                                                (member-if (lambda (comp)
+                                                                   (ranges-overlap-p
+                                                                     (gethash "range" syn)
+                                                                     (gethash "range" comp)))
+                                                           compile-errors))
+                                        syntax-errors)
+                             compile-errors)))
              (dict "kind" "full"
                    "items" (if items items #()))))
 
@@ -232,6 +258,60 @@ those are different node kinds."
               ((:warning :style-warning) +diagnostic-severity-warning+)
               (:note +diagnostic-severity-information+)))
 
+;;; ---------------------------------------------------------------------------
+;;; Locating by byte offset, for diagnostics that have no source path
+;;;
+;;; Reader errors carry no ORIGINAL-SOURCE-PATH by construction -- the reader
+;;; stopped before there was a form to have a path into. What they DO carry is
+;;; DIAGNOSTIC-FILE-POSITION: the form-tracking stream's record of where the
+;;; current top-level form began, which for an unclosed form is the very open
+;;; paren that was never closed, and for a stray close paren is that paren.
+;;;
+;;; DIAGNOSTICS-FOR resolved location through the source path alone, so every
+;;; reader error fell through to the head-of-file fallback and was reported at
+;;; line 0 -- while the exact answer sat unread in the diagnostic.
+;;; ---------------------------------------------------------------------------
+
+(defun line-starts (source)
+       "Byte offset of the start of each line of SOURCE, as a vector."
+       (let ((starts (list 0)))
+            (loop for i from 0 below (length source)
+                  when (char= (char source i) #\Newline)
+                    do (push (1+ i) starts))
+            (coerce (nreverse starts) 'vector)))
+
+(defun node-byte-span (node starts)
+       "The (values start end) byte offsets of NODE, via the line-start table."
+       (flet ((offset (row col)
+                      (if (< row (length starts))
+                          (+ (aref starts row) col)
+                          most-positive-fixnum)))
+             (values (offset (clef-parser/parser:node-start-point-row node)
+                             (clef-parser/parser:node-start-point-column node))
+                     (offset (clef-parser/parser:node-end-point-row node)
+                             (clef-parser/parser:node-end-point-column node)))))
+
+(defun toplevel-form-at-offset (tree source offset)
+       "The top-level node containing byte OFFSET, or the first one after it.
+
+The at-or-after fallback matters: a compiler-context position marks where the
+READ began -- after the previous form, before intervening whitespace -- so the
+offset can land between forms. The form it means is the next one."
+       (when (and tree offset)
+             (let ((starts (line-starts source))
+                   (best-after nil)
+                   (best-after-start most-positive-fixnum))
+                  (dolist (form (toplevel-forms tree)
+                                (when (< best-after-start most-positive-fixnum)
+                                      best-after))
+                          (multiple-value-bind (start end) (node-byte-span form starts)
+                                               (when (and (<= start offset) (< offset end))
+                                                     (return form))
+                                               (when (and (>= start offset)
+                                                          (< start best-after-start))
+                                                     (setf best-after form
+                                                           best-after-start start)))))))
+
 (defparameter +form-scoped-kinds+
   '(:undefined :undefined-function :undefined-variable :undefined-type)
   "Kinds SBCL signals once per top-level form rather than once per occurrence.
@@ -264,7 +344,9 @@ Each step below is a genuine fallback, not a guess dressed up as one:
   2. The symbol is not spelled in the scope -- a macroexpansion, most likely --
      so mark the scope itself.
   3. No symbol at all (reader errors, unclassified conditions): the scope.
-  4. No location at all: the head of the file, since a diagnostic still has to
+  4. No source path, but a file position -- every reader error, whose position
+     is the exact open paren or stray paren: the top-level node there.
+  5. No location at all: the head of the file, since a diagnostic still has to
      be reported somewhere."
        (let* ((severity (severity-for extracted))
               (message (clef-conditions:diagnostic-message extracted))
@@ -275,9 +357,16 @@ Each step below is a genuine fallback, not a guess dressed up as one:
               (forms (toplevel-forms tree))
               (form (when (and index (< index (length forms))) (nth index forms)))
               (subform (resolve-source-path tree source-path))
-              (scope (if (member kind +form-scoped-kinds+)
-                         (or form subform)
-                         (or subform form))))
+              (scope (or (if (member kind +form-scoped-kinds+)
+                             (or form subform)
+                             (or subform form))
+                         ;; Reader errors have no source path by construction --
+                         ;; see the section comment above. Their file position
+                         ;; is exact, so this is not a guess; it just needs
+                         ;; converting to a node.
+                         (toplevel-form-at-offset
+                           tree source
+                           (clef-conditions:diagnostic-file-position extracted)))))
              (flet ((diag (node)
                           (dict "range" (node-to-range node)
                                 "severity" severity

@@ -87,8 +87,12 @@
              (items (get-diagnostic-items response)))
         (assert-not-nil items "Should return diagnostic items")
         (assert-true (> (length items) 0) "Should have at least one diagnostic")
-        (let ((syntax-error (find-diagnostic-with-message items "syntax")))
-          (assert-not-nil syntax-error "Should have a syntax error diagnostic"))))))
+        ;; Used to look for the generic "Syntax error" from tree-sitter. The
+        ;; reader's located diagnostic now covers the same region with an actual
+        ;; explanation, and the generic entry is deduplicated away -- so the
+        ;; specific message is the contract.
+        (let ((syntax-error (find-diagnostic-with-message items "never closed")))
+          (assert-not-nil syntax-error "Should explain the unclosed form"))))))
 
 (deftest test-diagnostic-unbalanced-close-paren
   "Test that extra closing parenthesis is detected"
@@ -205,11 +209,17 @@ why bounds checking alone does not catch it, but pointing at the wrong line."
       (let* ((response (call-handler "textDocument/diagnostic"
                                      (dict "textDocument" (dict "uri" "file:///tmp/syntax-test.lisp"))))
              (items (get-diagnostic-items response))
+             ;; Message-agnostic on purpose. This used to select the generic
+             ;; "Syntax error" entry; now the reader's located diagnostic covers
+             ;; the same region and the generic one is deduplicated away. The
+             ;; transposition guard is about the RANGE, whichever message
+             ;; carries it -- so select by severity and let exactly-one assert
+             ;; the dedupe as well.
              (syntax-errors (remove-if-not
-                             (lambda (d) (equal "Syntax error" (gethash "message" d)))
+                             (lambda (d) (eql 1 (gethash "severity" d)))
                              items)))
         (assert-equal 1 (length syntax-errors)
-                      "Unclosed form should produce exactly one syntax error")
+                      "Unclosed form should produce exactly one error diagnostic")
         (let ((diag (first syntax-errors)))
           (assert-equal 1 (diagnostic-range-start-line diag)
                         "Syntax error should start on line 1, where the bad form is")

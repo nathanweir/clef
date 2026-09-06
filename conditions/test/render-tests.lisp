@@ -70,4 +70,25 @@
               (error (c) (clef-conditions:extract c))))
          (text (clef-conditions:render-to-string d)))
     (check-true "locationless diagnostic still renders"
-                (search "no location here" text))))
+                (search "no location here" text)))
+
+  ;; A diagnostic with NO symbol to narrow to -- a type conflict -- falls back
+  ;; to the enclosing form's position. COMPILER-ERROR-CONTEXT-FILE-POSITION is
+  ;; where the READ of that form began, which is immediately after the PREVIOUS
+  ;; form, before the blank line between them. Rendered as-is, the caret for
+  ;; line 5's (+ "a string" 1) landed on line 2's (in-package ...). The
+  ;; renderer must skip forward to the next code byte first.
+  (let ((rendered (render-all "(defpackage :rt-pkg2 (:use :cl))
+(in-package :rt-pkg2)
+
+(defun typo ()
+  (+ \"a string\" 1))
+")))
+    (let ((conflict (find-if (lambda (s) (search "conflicts with" s)) rendered)))
+      (check-true "type-conflict rendered" conflict)
+      (when conflict
+        (check-true "  points at the defun's line, not the previous form's"
+                    (search ":4:" conflict))
+        (check-true "  shows the defun line" (search "(defun typo ()" conflict))
+        (check-true "  still says the location is approximate"
+                    (search "enclosing form" conflict))))))

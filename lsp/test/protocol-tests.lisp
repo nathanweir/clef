@@ -2319,3 +2319,144 @@ not."
     (let ((edits (format-document (format nil "(defun main ()~%(print 1))~%"))))
       (assert-true (vectorp edits)
                    "A list here relies on the JSON encoder to guess right"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Reader errors are located, not dumped at line 0
+;;; ---------------------------------------------------------------------------
+;;;
+;;; Reader errors carry no ORIGINAL-SOURCE-PATH by construction -- the reader
+;;; stopped before there was a form to have a path into. DIAGNOSTICS-FOR
+;;; resolved location through the source path alone, so every reader error fell
+;;; through to the head-of-file fallback: an unclosed form on line 3 of a file
+;;; with a package preamble was reported at (0,0)-(0,0), pointing an editor (or
+;;; an agent) at the defpackage. The exact position -- the form-tracking
+;;; stream's record of where the unclosed form begins -- was in the diagnostic
+;;; all along.
+
+(defmacro diagnostics-of (text)
+  "Open TEXT and return its diagnostics as a list."
+  `(let ((uri "file:///tmp/reader-loc-test.lisp"))
+     (call-handler "textDocument/didOpen"
+                   (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                              "version" 1 "text" ,text))
+                   :id nil)
+     (let* ((result (response-result-safe
+                     (call-handler "textDocument/diagnostic"
+                                   (dict "textDocument" (dict "uri" uri)))))
+            (items (and (hash-table-p result) (gethash "items" result))))
+       (if (vectorp items) (coerce items 'list) items))))
+
+(defun diag-start-line (diag)
+  (gethash "line" (gethash "start" (gethash "range" diag))))
+
+(deftest test-unclosed-form-is-reported-where-it-opens
+  "The diagnostic for an unclosed form starts at its own open paren"
+  (with-direct-handler-test
+    (init-server)
+    (let* ((items (diagnostics-of "(defpackage :rl-pkg (:use :cl))
+(in-package :rl-pkg)
+
+(defun foo ()
+  (list 1 2)"))
+           (unclosed (find-if (lambda (d)
+                                (search "never closed" (gethash "message" d)))
+                              items)))
+      (assert-not-nil unclosed "The unclosed form must be reported")
+      (assert-equal 3 (diag-start-line unclosed)
+                    "It opens on line 3, and that is where the report belongs"))))
+
+(deftest test-stray-close-paren-is-reported-on-the-paren
+  "An unmatched close paren gets a range on the paren itself"
+  (with-direct-handler-test
+    (init-server)
+    (let* ((items (diagnostics-of "(defpackage :rl-pkg2 (:use :cl))
+(in-package :rl-pkg2)
+
+(defun foo ()
+  (list 1 2)))"))
+           (stray (find-if (lambda (d)
+                             (search "unmatched close" (gethash "message" d)))
+                           items)))
+      (assert-not-nil stray "The stray paren must be reported")
+      (assert-equal 4 (diag-start-line stray)
+                    "The paren is on line 4"))))
+
+(deftest test-one-problem-yields-one-diagnostic
+  "The generic tree-sitter entry is dropped where a specific one covers it"
+  (with-direct-handler-test
+    (init-server)
+    (let ((items (diagnostics-of "(defpackage :rl-pkg3 (:use :cl))
+(in-package :rl-pkg3)
+
+(defun foo ()
+  (list 1 2)")))
+      ;; One unclosed form. Before: TWO entries -- tree-sitter's bare "Syntax
+      ;; error" at the right place and the reader's explanation at line 0.
+      (assert-equal 1 (length (remove-if-not
+                               (lambda (d) (eql 1 (gethash "severity" d)))
+                               items))
+                    "One problem, one entry")
+      (assert-nil (find-if (lambda (d) (equal "Syntax error" (gethash "message" d)))
+                           items)
+                  "The uninformative generic entry is the one that goes"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Hover reads the source for code the image has never seen
+;;; ---------------------------------------------------------------------------
+;;;
+;;; The image-backed hover shows lambda list, docstring and derived types. The
+;;; index-backed fallback -- which serves exactly the code being written right
+;;; now -- used to show `(defun name)` plus an apology, while the lambda list
+;;; and docstring sat in the form-node the indexer had stored. They are source
+;;; text, not image state; only derived TYPES genuinely need the image.
+
+(deftest test-hover-fallback-shows-the-lambda-list
+  "A never-loaded function's hover carries its lambda list from source"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           (let* ((code "(defun fresh-fn (alpha &optional beta)
+  \"Frobs ALPHA using BETA.\"
+  (list alpha beta))
+(defun caller () (fresh-fn 1))")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             ;; Line 3 char 18 is the call site of FRESH-FN.
+             (let ((text (hover-contents uri 3 18)))
+               (assert-not-nil text "Fallback hover must answer")
+               (assert-not-nil (search "(alpha &optional beta)" text)
+                               "The lambda list is in the source; show it")
+               (assert-not-nil (search "Frobs ALPHA using BETA." text)
+                               "The docstring is in the source; show it"))))
+      (when temp-path (delete-temp-file temp-path)))))
+
+(deftest test-hover-fallback-does-not-invent-a-lambda-list
+  "A DEFVAR's value must not be dressed up as a lambda list"
+  (let ((temp-path nil))
+    (unwind-protect
+         (with-direct-handler-test
+           (init-server)
+           ;; Element 2 of this defvar is a list. Ungated, it would render as
+           ;; (defvar fresh-var (list 1 2)) -- a convincing wrong signature.
+           (let* ((code "(defvar fresh-var (list 1 2) \"Doc for the var.\")
+(defun caller () fresh-var)")
+                  (path (write-temp-file code))
+                  (uri (format nil "file://~A" path)))
+             (setf temp-path path)
+             (call-handler "textDocument/didOpen"
+                           (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                      "version" 1 "text" code))
+                           :id nil)
+             (let ((text (hover-contents uri 1 18)))
+               (assert-not-nil text "Fallback hover must answer")
+               (assert-nil (search "(list 1 2)" text)
+                           "The value is not a signature")
+               (assert-not-nil (search "Doc for the var." text)
+                               "A defvar docstring is legally its last element"))))
+      (when temp-path (delete-temp-file temp-path)))))
