@@ -1,0 +1,19 @@
+;;; <%= @ app-name %>.asd
+;;;
+;;; This file is the whole manifest, permanently. It never lists source files
+;;; and never lists dependencies -- both are derived from the DEFPACKAGE form
+;;; at the top of each file (ASDF's package-inferred-system). Adding a file or
+;;; a dependency means writing the import where you use it, nothing here.
+;;;
+;;; See docs/surveys/w3-packages.md in the clef repository for why.
+
+(asdf:defsystem #:<%= @ app-name %>
+  :description "<%= (or (@ description) "A clef golden-path application.") %>"
+  :author      "<%= (or (@ author) "Your Name") %>"
+  :license     "<%= (or (@ license) "MIT") %>"
+  :version     "0.1.0"
+  :class       :package-inferred-system
+  :depends-on  ("<%= @ app-name %>/src/main")
+  :in-order-to ((asdf:test-op (asdf:load-op "<%= @ app-name %>/test/main")))
+  :perform     (asdf:test-op (o c)
+                 (uiop:symbol-call :<%= @ app-name %>/test/main :run-tests)))

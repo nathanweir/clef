@@ -1,0 +1,13 @@
+# Vendored dependency sources. Restorable exactly, from the digests in
+# ocicl.csv, with `make deps` -- so they stay out of history. Commit this
+# directory instead if you want builds with zero network and zero registry
+# trust (it is a complete source closure).
+ocicl/
+
+# Compiled artifacts.
+*.fasl
+*.fas
+*.abcl
+
+*~
+.#*
