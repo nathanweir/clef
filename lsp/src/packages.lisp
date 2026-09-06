@@ -62,6 +62,17 @@ through their own defparameters.")
                      :file-to-system
                      :asd-files))
 
+(defpackage :clef-lint
+            (:use :cl)
+            (:documentation "The convention linter -- the golden-path package
+rules, checked statically. Rule list measured in docs/surveys/w3-packages.md;
+findings render through clef-conditions so lint and runtime diagnostics read
+as one tool.")
+            (:local-nicknames
+              (:ts :cl-tree-sitter/high-level))
+            (:export :lint-project
+                     :main))
+
 (defpackage :clef-scaffold
             (:use :cl)
             (:documentation "clef new: the bundled golden-path template. The

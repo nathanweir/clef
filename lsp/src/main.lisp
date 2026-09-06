@@ -58,6 +58,7 @@ Usage:
                           (all clef-run options apply; try `clef run --help')
   clef new NAME [k=v...]  scaffold a golden-path project
                           (parameters: author=..., description=..., license=...)
+  clef lint [DIR]         check the golden-path package convention
   clef version            print version
   clef help               this text
 
@@ -133,6 +134,11 @@ is the server.
                    (error (e)
                           (format *error-output* "clef new: ~A~%" e)
                           1))))))
+         ((string= command "lint")
+          (handler-case (clef-lint:main args)
+            (error (e)
+                   (format *error-output* "clef lint: ~A~%" e)
+                   1)))
          ((member command '("version" "--version" "-V") :test #'string=)
           (format t "clef ~A~%" (binary-version))
           0)

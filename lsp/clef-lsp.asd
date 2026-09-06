@@ -65,4 +65,5 @@
                                               (:file "lsp/misc/shutdown")
                                               (:file "lsp/misc/exit")
                                               (:file "scaffold")
+                                              (:file "lint")
                                               (:file "main")))))
