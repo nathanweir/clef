@@ -316,7 +316,7 @@ this repo?
 renders with real highlighting in-harness. Explicitly **not urgent** — noted so
 it isn't lost.
 
-#### W3. Package/import conventions + linter + `.asd` generation **[U]**
+#### W3. Package/import conventions + linter + `.asd` generation **[U]** — ***survey complete, 2026-09-06: generator cancelled, mechanism is package-inferred-system***
 
 The crux workstream (motivation §5.4). Convention, not language change:
 
@@ -325,9 +325,25 @@ The crux workstream (motivation §5.4). Convention, not language change:
 - explicit `:import-from`
 - never hand-edit `.asd` — generate it
 
-*First questions:* Does the convention survive contact with real code — macros,
-circular-ish dependencies, package-inferred-system layouts? What does the
-generator do about things ASDF can express that a declarative form can't?
+**Survey verdict ([`surveys/w3-packages.md`](surveys/w3-packages.md)): don't
+build the generator — ASDF's `package-inferred-system` already derives both
+the component list and the dependency list from exactly the defpackage
+clauses the convention mandates, and it works end-to-end through ocicl
+(measured: `:import-from` and `:local-nicknames` both feed inference, external
+deps auto-vendor by digest, hermetic restore green).** The `.asd` becomes a
+static stub the template emits once. `clef add` mostly dissolves — declaring
+the import *is* adding the dependency. What remains to build: the golden-path
+template, the linter (rule list measured from the failure modes: silent
+package-name/path mismatch, cycles, `:use` beyond `:cl`), the convention doc,
+and the hermetic init posture (`:ignore-inherited-configuration` — ambient
+`~/common-lisp/` checkouts silently outbid vendored deps otherwise).
+
+*First questions:* ~~Does the convention survive contact with real code~~ —
+probed for the mechanism itself; the real-code trial is migrating this repo,
+after the template and linter exist. ~~What does the generator do about things
+ASDF can express that a declarative form can't?~~ — moot: static metadata and
+build targets stay in the stub, hand-editable, since the order-dependent
+component list no longer exists.
 
 *Dependencies:* the repo's own restructure (§2) is the first customer.
 
