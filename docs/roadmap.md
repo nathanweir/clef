@@ -316,7 +316,16 @@ this repo?
 renders with real highlighting in-harness. Explicitly **not urgent** — noted so
 it isn't lost.
 
-#### W3. Package/import conventions + linter + `.asd` generation **[U]** — ***survey complete, 2026-09-06: generator cancelled, mechanism is package-inferred-system***
+#### W3. Package/import conventions + linter + `.asd` generation **[U]** — ***built, 2026-09-06, except the migration trial***
+
+Delivered the same day the survey ran: the golden-path template
+(`templates/clef/`, both delivery channels), the convention linter
+(`clef lint`, four measured rules, findings through the clef-conditions
+renderer), the hermetic init, and the convention document —
+[`golden-path/packages.md`](golden-path/packages.md), the first chapter of
+W8's guide. **Remaining: the migration trial** — converting this repo's own
+components file-by-file, which is when the lint gate flips on for our own
+code and the incremental-adoption claim gets tested for real.
 
 The crux workstream (motivation §5.4). Convention, not language change:
 

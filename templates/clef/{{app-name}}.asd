@@ -5,7 +5,8 @@
 ;;; at the top of each file (ASDF's package-inferred-system). Adding a file or
 ;;; a dependency means writing the import where you use it, nothing here.
 ;;;
-;;; See docs/surveys/w3-packages.md in the clef repository for why.
+;;; See docs/golden-path/packages.md in the clef repository for the
+;;; convention, and docs/surveys/w3-packages.md for the measurements behind it.
 
 (asdf:defsystem #:<%= @ app-name %>
   :description "<%= (or (@ description) "A clef golden-path application.") %>"
