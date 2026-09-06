@@ -329,7 +329,11 @@
                                                          "insertSpaces" t))))
            (result (response-result-safe response)))
       (assert-not-nil result "Should get formatting result")
-      (assert-true (listp result) "Result should be a list of edits"))))
+      ;; A vector, not a list. textDocument/formatting answers TextEdit[] -- a
+      ;; JSON array -- and every other handler in the server spells one as a
+      ;; vector; only this one returned a Lisp list and left the encoder to
+      ;; guess. This assertion read LISTP and so pinned the odd one out.
+      (assert-true (vectorp result) "Result should be an array of edits"))))
 
 (deftest test-formatting-edit-has-range
   "Test that formatting edit has range and newText"

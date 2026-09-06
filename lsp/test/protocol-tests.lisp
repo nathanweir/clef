@@ -2229,3 +2229,93 @@ in at every keystroke, and the state this endpoint is always asked about."
     (assert-nil (complete-in "(defun main ()
   ; hel" 1 7)
                 "A comment is prose, not code")))
+
+;;; ---------------------------------------------------------------------------
+;;; Formatting replaces the whole file, so its range has to be right
+;;; ---------------------------------------------------------------------------
+;;;
+;;; This endpoint had two tests -- "returns edits" and "the edit has a range" --
+;;; and neither looked at what the range said or what the replacement text
+;;; contained. It returns ONE edit covering the entire buffer, so a wrong range
+;;; or wrong text damages the file rather than merely answering badly.
+;;;
+;;; The range ended one line PAST the end of the document in every case
+;;; (docs/experiments/lsp/11-formatting-contract.lisp), because the end position
+;;; came from a 1-indexed line count while LSP positions are 0-indexed. It
+;;; looked fine only because clients clamp an out-of-range position.
+
+(defmacro format-document (text)
+  "Open TEXT and return the formatting edits, as a vector."
+  `(let* ((temp (write-temp-file ,text))
+          (uri (format nil "file://~A" temp)))
+     (unwind-protect
+          (progn
+            (call-handler "textDocument/didOpen"
+                          (dict "textDocument" (dict "uri" uri "languageId" "lisp"
+                                                     "version" 1 "text" ,text))
+                          :id nil)
+            (response-result-safe
+             (call-handler "textDocument/formatting"
+                           (dict "textDocument" (dict "uri" uri)
+                                 "options" (dict "tabSize" 2 "insertSpaces" t)))))
+       (delete-temp-file temp))))
+
+(defun top-level-forms (text)
+  "Every top-level form in TEXT, or :UNREADABLE.
+
+Reading both sides as data is the only way to assert that formatting preserved
+the program without reimplementing the formatter. Whitespace may move; forms may
+not."
+  (handler-case
+      (let ((*package* (find-package :cl-user))
+            (*read-eval* nil)
+            (forms '()))
+        (with-input-from-string (in text)
+          (loop (let ((form (read in nil :eof)))
+                  (when (eq form :eof) (return))
+                  (push form forms))))
+        (nreverse forms))
+    (error () :unreadable)))
+
+(deftest test-formatting-range-stays-inside-the-document
+  "The replace range must not end past the last line"
+  (with-direct-handler-test
+    (init-server)
+    (let* ((text (format nil "(defun main ()~%(let ((x 1))~%(print x)))~%"))
+           (edits (format-document text))
+           (line-count (length (uiop:split-string text :separator '(#\Newline)))))
+      (assert-true (plusp (length edits)) "Badly indented code should produce an edit")
+      (let ((end-line (gethash "line" (gethash "end" (gethash "range" (elt edits 0))))))
+        (assert-true (<= end-line (1- line-count))
+                     "The range must end within the document, not one line past it")))))
+
+(deftest test-formatting-preserves-the-program
+  "Formatting may move whitespace and may not change the forms"
+  (with-direct-handler-test
+    (init-server)
+    (let* ((text (format nil "(defun main ()~%(let ((x 1))~%(print \"a ) ; b\")~%(print x)))~%"))
+           (edits (format-document text)))
+      (when (plusp (length edits))
+        (let ((before (top-level-forms text))
+              (after (top-level-forms (gethash "newText" (elt edits 0)))))
+          (assert-true (not (eq after :unreadable))
+                       "Formatted output must still be readable Lisp")
+          (assert-equal before after
+                        "Formatting must not change the program"))))))
+
+(deftest test-formatting-already-formatted-code-makes-no-edit
+  "Replacing a file with itself dirties the buffer for nothing"
+  (with-direct-handler-test
+    (init-server)
+    (let* ((text (format nil "(defun main () 42)"))
+           (edits (format-document text)))
+      (assert-equal 0 (length edits)
+                    "Text the formatter would not change should produce no edits"))))
+
+(deftest test-formatting-returns-a-json-array
+  "Edits are a JSON array, spelled as a vector like every other handler"
+  (with-direct-handler-test
+    (init-server)
+    (let ((edits (format-document (format nil "(defun main ()~%(print 1))~%"))))
+      (assert-true (vectorp edits)
+                   "A list here relies on the JSON encoder to guess right"))))
