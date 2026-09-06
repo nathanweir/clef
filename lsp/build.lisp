@@ -50,6 +50,29 @@
        ((,*source-root* :**/ :*.*.*) (,*source-root* "build" :**/ :*.*.*))
        :inherit-configuration))))
 
+;; A from-scratch compile must not share a process with the dump.
+;;
+;; Compiling the whole tree in-process leaves compiler-generated code objects
+;; scattered through the heap in a way a full GC frees but does not compact out
+;; of the core: measured 2026-09-06, a from-scratch build dumped a 642 MB
+;; binary with only 70 MB of live dynamic space, while the identical image
+;; loaded from a warm fasl cache dumped 145 MB. So when the cache is cold,
+;; spawn a child of this same script to do the compiling (it exits before any
+;; dump), then proceed here by loading the fasls it left behind.
+(unless (uiop:getenv "CLEF_BUILD_COMPILE_ONLY")
+  (let ((self (or *load-truename* (merge-pathnames "build.lisp" *here*)))
+        (sbcl (first sb-ext:*posix-argv*)))
+    (format *error-output* "~&; warming the fasl cache in a child process~%")
+    (sb-ext:run-program sbcl
+                        (list "--noinform" "--non-interactive"
+                              "--load" (namestring self))
+                        :environment (cons "CLEF_BUILD_COMPILE_ONLY=1"
+                                           (sb-ext:posix-environ))
+                        :output *error-output*
+                        :error *error-output*
+                        ;; argv[0] may be a bare "sbcl" resolved via PATH.
+                        :search t)))
+
 ;; Keep build chatter off stdout so this is safe to run from a pipe.
 (let ((*standard-output* *error-output*))
   ;; Sibling components first.
@@ -57,7 +80,26 @@
                                               *source-root*))))
     (when sibling (asdf:load-asd sibling)))
   (asdf:load-asd (merge-pathnames "clef-lsp.asd" *here*))
-  (asdf:load-system :clef-lsp))
+  (asdf:load-system :clef-lsp)
+  ;; The runner rides in the same image: `clef run' dispatches to it by name
+  ;; at run time. Deliberately not in :clef-lsp's :depends-on -- from-source
+  ;; entry points load only the LSP and keep working unchanged.
+  (let ((runner (probe-file (merge-pathnames "runner/clef-runner.asd"
+                                             *source-root*))))
+    (when runner
+      (asdf:load-asd runner)
+      (asdf:load-system :clef-runner)))
+
+;; The compile-only child stops here: its job was filling the fasl cache.
+(when (uiop:getenv "CLEF_BUILD_COMPILE_ONLY")
+  (format *error-output* "~&; fasl cache warmed; child exiting before dump~%")
+  (sb-ext:exit :code 0))
+  ;; Bake the golden-path template into the image, so `clef new' works with no
+  ;; repo checkout and no ocicl template registration -- the distribution
+  ;; problem W8-and-a-half exists to solve.
+  (let ((n (uiop:symbol-call :clef-scaffold :load-template-files
+                             (merge-pathnames "templates/clef/" *source-root*))))
+    (format *error-output* "; bundled ~D template file(s)~%" n)))
 
 ;;; SBCL records each dlopen'd library by the name it was asked for. Deps here
 ;;; are requested by bare soname ("libffi.so.8") and only resolve because the
@@ -128,6 +170,15 @@
 ;; final store path rather than a scratch copy -- which leaves nowhere next to
 ;; build.lisp to write to. CLEF_OUTPUT redirects the dump; `just build' leaves it
 ;; unset and still gets ./clef.
+;; Collect the compiler's leavings before dumping. This is not optional
+;; hygiene: SAVE-LISP-AND-DIE's own collection left ~480 MB of tenured
+;; compilation garbage in the heap after a full from-scratch build, and the
+;; binary ballooned from 145 MB to 624 MB. An explicit full GC reclaims it.
+;; Measured 2026-09-06 while adding the runner to the image.
+(sb-ext:gc :full t)
+(format *error-output* "~&; live heap at dump: ~D MB~%"
+        (floor (sb-kernel:dynamic-usage) (* 1024 1024)))
+
 (let ((out (or (uiop:getenv "CLEF_OUTPUT")
                (merge-pathnames "clef" *here*))))
   (format *error-output* "~&Dumping executable to ~A~%" out)

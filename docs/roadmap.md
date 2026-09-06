@@ -437,6 +437,36 @@ Motivation §5.8. Viable precisely because CL libraries are unusually durable �
 curated set stays true for years here in a way it wouldn't in a fast-rotting
 ecosystem. Pairs naturally with W4 tier 3.
 
+#### W8½. The umbrella binary — ***decided 2026-09-06: subcommands on the existing `clef`***
+
+The long-open naming collision (umbrella tool vs. language-server binary both
+wanting `clef`) resolves without breaking anything: the LSP binary grows
+subcommands. Bare invocation over pipes — how every editor launches it —
+still serves LSP; bare on a terminal prints help. `clef run` embeds the
+runner's MAIN (which returns an exit code rather than exiting, built for
+this); `clef new` scaffolds from the template *bundled into the image*, which
+solves template distribution — otherwise a newcomer needs four artifacts and
+a registration step before their first project. The binary's job is
+distribution and coherence, not capability: every capability lives in ocicl,
+ASDF, the runner, or the LSP already. Deferred until real: `clef test`,
+`clef repl`, `clef lint` (waits for the convention linter — no stub
+commands).
+
+#### W9. The live channel **[U]** — *not yet surveyed*
+
+The §5.2 promise — liveness as an option, outside Emacs — has no workstream
+until now. Shape to survey, not assume: golden-path programs opt into a dev
+channel exposing recompile-form/eval/query against the running image; the
+natural transport is the LSP itself (custom methods), so any LSP editor gets
+"reload this function into my running program". Prior personal evidence
+(Nathan's AVDL game project): a file-watcher calling an in-process reload
+worked when it worked, and was undiagnosable when it didn't — the survey must
+map the actual semantic limits of redefinition (methods, structs, state) and
+make reload failures *legible*, or the feature is a trap. **DAP rides the
+same substrate later and is deliberately deprioritised:** unclear that
+either AI coders (who re-run and test) or CL-raised humans (who never had
+one) would use it; needs editor-side spikes (Zed extension) before belief.
+
 #### W8. The golden-path guide **[U]**
 
 *"Here's how to write Common Lisp well in 2026."*

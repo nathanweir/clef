@@ -62,6 +62,15 @@ through their own defparameters.")
                      :file-to-system
                      :asd-files))
 
+(defpackage :clef-scaffold
+            (:use :cl)
+            (:documentation "clef new: the bundled golden-path template. The
+files come from templates/clef/ at the repo root -- the same tree ocicl's
+template search path serves -- read into the image at build time.")
+            (:export :new-project
+                     :load-template-files
+                     :*template-files*))
+
 (defpackage :clef-root
             (:use :cl :clef-log)
             (:export :start-server

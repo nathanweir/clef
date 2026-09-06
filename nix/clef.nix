@@ -51,6 +51,11 @@ let
       ../lsp/src
       ../conditions/clef-conditions.asd
       ../conditions/src
+      # The umbrella: `clef run' embeds the runner, `clef new' bundles the
+      # golden-path template at dump time.
+      ../runner/clef-runner.asd
+      ../runner/src
+      ../templates
     ];
   };
 

@@ -20,9 +20,12 @@ Three components exist today, one ASDF system each:
   bare name `clef` because editors point at it.
 - Lisp package names (`clef-root`, `clef-lsp/document`, ...) are a separate
   namespace from ASDF system names and were not renamed.
-- **Open question:** the roadmap wants a single `clef` umbrella tool with
-  subcommands. That would collide with the language-server binary's name and
-  break existing editor configuration, so it has not been done unilaterally.
+- **Resolved (2026-09-06): the `clef` binary is the umbrella.** Subcommands
+  grow on the existing language-server binary; invoked bare over pipes it
+  serves LSP exactly as before (editors unaffected), bare on a terminal it
+  prints help. `clef run` embeds `:clef-runner`'s main; `clef new` scaffolds
+  from the bundled golden-path template. `clef-run` remains as a standalone
+  binary for now. See roadmap §W5/W3 notes.
 
 `conditions/` is the shared layer and the thing to reach for first: it turns a
 condition into `{severity, kind, symbol, message, file, byte offset, source path,
