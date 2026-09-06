@@ -58,6 +58,10 @@
       packages.x86_64-linux = rec {
         clef = pkgs.callPackage ./nix/clef.nix { };
         clef-run = pkgs.callPackage ./nix/clef-run.nix { };
+        # Dependency management under evaluation for W5 -- see
+        # docs/surveys/w5-deps.md. Not in nixpkgs, so packaged here from the
+        # upstream release binary.
+        ocicl = pkgs.callPackage ./nix/ocicl.nix { };
         default = clef;
       };
 
@@ -86,6 +90,11 @@
             # Task runner. The toolchain itself stays pinned by this flake --
             # mise is used for tasks only, not tool installation.
             mise
+
+            # Dependency management under evaluation for W5 (docs/surveys/
+            # w5-deps.md). Wrapped from the upstream release binary in
+            # nix/ocicl.nix; not in nixpkgs.
+            (pkgs.callPackage ./nix/ocicl.nix { })
 
             # editors/zed: the Zed extension is a wasm component in Rust.
             rustToolchain

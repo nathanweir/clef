@@ -363,13 +363,24 @@ built:
 that HM's all-or-nothing module boundaries disqualify it as a base layer but
 leave it viable as an opt-in tier for new, self-contained modules.
 
-#### W5. Project / dependency management **[U]** mostly
+#### W5. Project / dependency management **[U]** mostly — ***survey complete, 2026-09-06: wrap ocicl***
 
 *Survey step is unusually important here — this may be `wrap`, not `build`.*
 
-**ocicl evaluation is the gate.** It appears to do per-project dependency
-management well. Concerns noted: `.csv` lockfiles, and a grab-bag of unrelated
-utilities bundled in. Not yet properly evaluated.
+**ocicl evaluation is the gate — RUN. Verdict: `wrap`.** Measured hands-on in
+[`surveys/w5-deps.md`](surveys/w5-deps.md): digest-pinned `ocicl.csv` lockfile
+with a bit-identical restore from pins alone, project-local vendoring of the
+full transitive closure, a 329-line non-invasive ASDF runtime, prebuilt
+binaries (no bootstrap problem), and an extensible template system. The `.csv`
+concern dissolved on inspection (the rows are digest-addressed — a real
+lockfile); the grab-bag concern likewise (extras are additive subcommands, not
+entanglements). What ocicl deliberately does not do — edit the `.asd`,
+scaffold a golden path, integrate with nix — is the seam clef fills: W5's
+build scope shrinks to *fronting* ocicl (`clef new`/`clef add`), shared with
+W3's manifest generation. The §5.5 metadata fork is decided as pin-exact now,
+with a curated registry layerable later via ocicl's registry indirection
+(revisit at W7). Packaged in `nix/ocicl.nix` (not in nixpkgs; upstreaming is a
+candidate contribution).
 
 *The design fork that must be decided before any building* (motivation §5.5):
 CL libraries mostly don't declare version constraints, so you cannot have
