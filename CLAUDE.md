@@ -8,13 +8,21 @@ This repo is a monorepo. Its long-term goal is the developer tooling layer
 Common Lisp never got — see `docs/motivation.md` and `docs/roadmap.md`, which
 are the authority on scope and ordering.
 
-Three components exist today, one ASDF system each:
+Components, one ASDF system each:
 
 | directory | system | what it is |
 |---|---|---|
-| `lsp/` | `:clef-lsp` (tests `:clef-lsp-test`) | CLEF, an LSP 3.17 server for Common Lisp, built for Zed and Helix |
+| `lsp/` | `:clef-lsp` (tests `:clef-lsp-test`) | CLEF: LSP 3.17 server AND the umbrella CLI (`clef run/new/lint`) in one binary |
 | `conditions/` | `:clef-conditions` | structured condition extraction + a humane renderer; a library, used by both the others |
-| `runner/` | `:clef-runner` | runs a program with legible errors and a meaningful exit code |
+| `runner/` | `:clef-runner` | runs a program with legible errors and a meaningful exit code; also embedded in the umbrella as `clef run` |
+| `editors/zed/` | (Rust/wasm, not ASDF) | the Zed extension |
+| `templates/clef/` | (not a system) | the golden-path project template — served both by `clef new` (bundled at build) and ocicl's template search path |
+
+The golden-path package convention is normative for scaffolded projects and
+documented in `docs/golden-path/packages.md`; `clef lint` checks it. Surveys
+in `docs/surveys/` are the decision record (ocicl: wrap; package-inferred
+over generated .asd; ocicl's linter for style, ours for the convention).
+**Next major task: the W3 migration trial — see `docs/handoff/w3-migration.md`.**
 
 - Built binaries: `lsp/clef` and `runner/clef-run`. The language server keeps the
   bare name `clef` because editors point at it.
