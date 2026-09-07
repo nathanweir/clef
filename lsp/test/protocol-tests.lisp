@@ -2010,6 +2010,19 @@ undo it. A macro because CALL-HANDLER is an FLET."
         (assert-true (member "thing" names :test #'string=)
                      "And the function alongside it")))))
 
+(deftest test-define-package-is-indexed
+  "uiop:define-package names a package too; the qualified head must not hide it"
+  ;; The package convention's library facade (conditions/src/main.lisp) is a
+  ;; uiop:define-package, and the real-code sweep reported both facades as
+  ;; missing: the generic definer check accepted only bare symbol heads.
+  (with-direct-handler-test
+    (init-server)
+    (with-scoping-fixture (uri "(uiop:define-package :my-facade
+  (:nicknames :facade)
+  (:use-reexport :cl))")
+      (assert-true (member "my-facade" (symbol-names uri) :test #'string=)
+                   "The facade's package name must be indexed"))))
+
 (deftest test-defpackage-name-spellings-normalise
   "A package named as a keyword, a string or #:uninterned is one name"
   (with-direct-handler-test

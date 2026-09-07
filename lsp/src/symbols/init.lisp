@@ -1338,7 +1338,9 @@ list-shaped name such as (setf area) without having to inspect node types."
 A guess, and marked as one. The alternative is :UNKNOWN for every project macro,
 which tells an editor nothing and shows no icon."
        (cond
-         ((string-equal head "defpackage") :package)
+         ((or (string-equal head "defpackage")
+              (string-equal head "define-package"))
+          :package)
          ((or (search "var" head) (search "global" head)
               (search "param" head) (search "constant" head))
           :variable)
@@ -1351,10 +1353,18 @@ which tells an editor nothing and shows no icon."
        (let* ((children (ts:node-children node))
               (head-node (first children))
               (name-node (second children)))
+            ;; A package-qualified head -- uiop:define-package, the facade
+            ;; the package convention uses for a library's public name --
+            ;; parses as :package-lit, and is judged by its symbol part.
             (unless (and head-node name-node
-                         (equal (ts:node-type head-node) '(:value :sym-lit)))
+                         (member (ts:node-type head-node)
+                                 '((:value :sym-lit) (:value :package-lit))
+                                 :test #'equal))
                     (return-from check-for-generic-define nil))
-            (let ((head (fast-node-text head-node source file-path)))
+            (let* ((raw-head (fast-node-text head-node source file-path))
+                   (head (and raw-head
+                              (subseq raw-head
+                                      (1+ (or (position #\: raw-head :from-end t) -1))))))
                  (unless (and head
                               (>= (length head) 4)
                               (string-equal "def" (subseq head 0 3))
