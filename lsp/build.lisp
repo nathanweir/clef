@@ -8,6 +8,11 @@
 ;;;; a working C toolchain in whatever environment the editor happens to spawn
 ;;;; the server with. Dumping an image moves all of that to build time.
 
+(defpackage :clef-lsp/build
+  (:use :cl))
+
+(in-package :clef-lsp/build)
+
 (require :asdf)
 (require :sb-introspect)
 (require :sb-concurrency)
@@ -97,7 +102,7 @@
   ;; Bake the golden-path template into the image, so `clef new' works with no
   ;; repo checkout and no ocicl template registration -- the distribution
   ;; problem W8-and-a-half exists to solve.
-  (let ((n (uiop:symbol-call :clef-scaffold :load-template-files
+  (let ((n (uiop:symbol-call :clef-lsp/src/scaffold :load-template-files
                              (merge-pathnames "templates/clef/" *source-root*))))
     (format *error-output* "; bundled ~D template file(s)~%" n)))
 
@@ -185,7 +190,7 @@
   (sb-ext:save-lisp-and-die
     out
     :executable t
-    :toplevel #'clef-root:main
+    :toplevel #'clef-lsp/src/main:main
     ;; Keep the runtime from interpreting the editor's argv as SBCL options,
     ;; and preserve the dumped dynamic-space size.
     :save-runtime-options t))

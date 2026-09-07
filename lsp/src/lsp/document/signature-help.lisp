@@ -1,9 +1,22 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/signature-help
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/lambda-lists #:normalize-lambda-list)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init))
+  (:export
+   #:handle-text-document-signature-help))
+
+(in-package :clef-lsp/src/lsp/document/signature-help)
 
 (defun handle-text-document-signature-help (message)
   "Handle a textDocument/signatureHelp request.
 Returns signature information for the function call at the cursor position."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
@@ -164,22 +177,22 @@ Tries workspace index first, then falls back to sb-introspect for loaded functio
       (parse-package-qualified-name func-name)
 
     ;; First try our workspace index (with bare name, without package prefix)
-    (let ((defs (clef-symbols:lookup-in-workspace-index bare-name)))
+    (let ((defs (symbols:lookup-in-workspace-index bare-name)))
       (when defs
         (let* ((def (first defs))
-               (node (clef-symbols:symbol-definition-node def)))
+               (node (sym:symbol-definition-node def)))
           (when node
             ;; Try to extract arglist from the definition's scope
-            (let ((scope (clef-symbols:symbol-definition-defining-scope def)))
-              (when (and scope (eq (clef-symbols:lexical-scope-kind scope) :defun))
+            (let ((scope (sym:symbol-definition-defining-scope def)))
+              (when (and scope (eq (sym:lexical-scope-kind scope) :defun))
                 ;; Get parameter names from the scope's symbol definitions
                 (let ((params (remove-if-not
                                 (lambda (d)
-                                  (eq (clef-symbols:symbol-definition-kind d) :parameter))
-                                (clef-symbols:lexical-scope-symbol-definitions scope))))
+                                  (eq (sym:symbol-definition-kind d) :parameter))
+                                (sym:lexical-scope-symbol-definitions scope))))
                   (when params
                     (return-from get-function-arglist
-                      (mapcar #'clef-symbols:symbol-definition-symbol-name
+                      (mapcar #'sym:symbol-definition-symbol-name
                               (reverse params)))))))))))
 
     ;; Fall back to sb-introspect for loaded functions

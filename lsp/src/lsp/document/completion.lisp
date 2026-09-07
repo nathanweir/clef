@@ -1,4 +1,18 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/completion
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:base :clef-lsp/src/lsp/types/base/types)
+    (:ctx :clef-lsp/src/context)
+    (:repair :clef-lsp/src/parser/repair)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init))
+  (:export
+   #:handle-text-document-completion))
+
+(in-package :clef-lsp/src/lsp/document/completion)
 
 ;;;; textDocument/completion.
 ;;;;
@@ -19,7 +33,7 @@
 ;;;;   - the missing lexical bindings were not a completion bug at all. An
 ;;;;     unclosed form collapsed the parse and the file indexed to an empty
 ;;;;     document scope. Fixed in the indexer -- see
-;;;;     clef-parser/repair:repair-source.
+;;;;     clef-lsp/src/parser/repair:repair-source.
 ;;;;   - no prefix filtering whatsoever. Fixed here.
 ;;;;   - nothing offered at an empty head position `(', because the handler
 ;;;;     required a symbol reference to already exist at the cursor. Fixed here:
@@ -95,16 +109,16 @@ caller rather than treated as a package named \"\"."
 
 (defun determine-symbol-kind (symbol-def)
   "Determine the LSP CompletionItemKind for SYMBOL-DEF."
-  (let ((kind (clef-symbols:symbol-definition-kind symbol-def)))
+  (let ((kind (sym:symbol-definition-kind symbol-def)))
     (cond
-      ((eq kind :function) clef-lsp/types/base:+completion-item-kind-function+)
-      ((eq kind :macro) clef-lsp/types/base:+completion-item-kind-function+)
-      ((eq kind :variable) clef-lsp/types/base:+completion-item-kind-variable+)
-      ((eq kind :class) clef-lsp/types/base:+completion-item-kind-class+)
-      ((eq kind :package) clef-lsp/types/base:+completion-item-kind-module+)
-      ((eq kind :constant) clef-lsp/types/base:+completion-item-kind-constant+)
-      ((eq kind :type) clef-lsp/types/base:+completion-item-kind-type-parameter+)
-      (t clef-lsp/types/base:+completion-item-kind-text+))))
+      ((eq kind :function) base:+completion-item-kind-function+)
+      ((eq kind :macro) base:+completion-item-kind-function+)
+      ((eq kind :variable) base:+completion-item-kind-variable+)
+      ((eq kind :class) base:+completion-item-kind-class+)
+      ((eq kind :package) base:+completion-item-kind-module+)
+      ((eq kind :constant) base:+completion-item-kind-constant+)
+      ((eq kind :type) base:+completion-item-kind-type-parameter+)
+      (t base:+completion-item-kind-text+))))
 
 (defun prefix-match-p (candidate prefix)
   "Does CANDIDATE start with PREFIX, case-insensitively?
@@ -121,8 +135,8 @@ An empty PREFIX matches everything, which is what makes an empty head position
 Lambda-list markers are dropped. They are interned symbols and so live in the
 global scope like anything else, but `&body' is never a thing you are trying to
 call, and they crowded the top of every list."
-  (loop for def in (clef-symbols:lexical-scope-symbol-definitions scope)
-        for name = (clef-symbols:symbol-definition-symbol-name def)
+  (loop for def in (sym:lexical-scope-symbol-definitions scope)
+        for name = (sym:symbol-definition-symbol-name def)
         when (and (prefix-match-p name prefix)
                   (not (and (plusp (length name)) (char= (char name 0) #\&))))
           collect def))
@@ -152,7 +166,7 @@ image accumulates a great many symbols."
 
 (defun handle-text-document-completion (message)
   "Handle a textDocument/completion request."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (line (href params "position" "line"))
          (character (href params "position" "character"))
@@ -166,11 +180,11 @@ image accumulates a great many symbols."
                ;; text up to the cursor. Inside a string or a comment there is
                ;; nothing to complete, and offering symbols there is actively
                ;; annoying -- it fires while you are writing prose.
-               (state (clef-parser/repair:scan-source (subseq text 0 offset)))
+               (state (repair:scan-source (subseq text 0 offset)))
                (in-inert-context
-                 (or (clef-parser/repair:scan-in-string state)
-                     (clef-parser/repair:scan-in-line-comment state)
-                     (plusp (clef-parser/repair:scan-block-comment-depth state))))
+                 (or (repair:scan-in-string state)
+                     (repair:scan-in-line-comment state)
+                     (plusp (repair:scan-block-comment-depth state))))
                (prefix (prefix-at text offset)))
           (cond
             (in-inert-context (dict "isIncomplete" nil "items" #()))
@@ -186,23 +200,23 @@ image accumulates a great many symbols."
                                   (lambda (n)
                                     (completion-item
                                      (format nil ":~A" n)
-                                     clef-lsp/types/base:+completion-item-kind-constant+))
+                                     base:+completion-item-kind-constant+))
                                   kept))))
 
             (t
              (multiple-value-bind (package-part name-part separator)
                  (split-qualified prefix)
                (multiple-value-bind (ref-name ref-scope)
-                   (clef-symbols:get-ref-for-doc-pos document-uri line character)
+                   (symbols:get-ref-for-doc-pos document-uri line character)
                  (declare (ignore ref-name))
                  (let ((seen (make-hash-table :test #'equal))
                        (items (make-array 0 :adjustable t :fill-pointer 0))
                        (truncated nil))
                    (loop for scope = ref-scope
-                           then (clef-symbols:lexical-scope-parent-scope scope)
+                           then (sym:lexical-scope-parent-scope scope)
                          while (and scope (not truncated))
                          do (dolist (def (scope-candidates scope name-part))
-                              (let* ((name (clef-symbols:symbol-definition-symbol-name def))
+                              (let* ((name (sym:symbol-definition-symbol-name def))
                                      ;; Give the qualification back, so that the
                                      ;; text the client sees still starts with
                                      ;; what the user typed -- otherwise its own

@@ -3,6 +3,11 @@
 ;;; Run with: sbcl --script test/run-tests.lisp
 ;;; Or via: just test
 
+(defpackage :clef-lsp/test/run-tests
+  (:use :cl))
+
+(in-package :clef-lsp/test/run-tests)
+
 #-quicklisp
 (let ((quicklisp-init
         (merge-pathnames "quicklisp/setup.lisp"
@@ -54,11 +59,10 @@
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
 
 ;; Completely suppress logging during tests
-(setf clef-log:*log-mode* :none)
+(setf clef-lsp/src/log:*log-mode* :none)
 
 ;; Load test files with warnings suppressed
 (handler-bind ((warning #'muffle-warning))
-  (load (project-path "test/package.lisp"))
   (load (project-path "test/framework.lisp"))
   (load (project-path "test/protocol-tests.lisp"))
   (load (project-path "test/lifecycle-tests.lisp"))
@@ -68,5 +72,5 @@
   (load (project-path "test/lint-tests.lisp")))
 
 ;; Run tests
-(let ((success (clef-test:run-all-tests)))
+(let ((success (clef-lsp/test/framework:run-all-tests)))
   (sb-ext:exit :code (if success 0 1)))

@@ -1,4 +1,21 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/highlight
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/definition #:search-up-for-symbol-def)
+  (:import-from :clef-lsp/src/lsp/document/references #:binding-of #:find-definition-at-position
+                #:get-all-intervals-from-tree #:lexical-binding-scope-p)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/symbols/init #:get-ref-for-doc-pos)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-highlight))
+
+(in-package :clef-lsp/src/lsp/document/highlight)
 
 ;; DocumentHighlightKind constants (LSP spec)
 (defconstant +highlight-kind-text+ 1 "A textual occurrence.")
@@ -34,12 +51,12 @@ which is the point: highlighting used to match by name, so putting the cursor on
 a LET-bound variable lit up every same-named symbol in the file including a
 DEFCLASS slot and a shadowing FLET parameter. Sharing the resolution means the
 three cannot disagree about what a symbol refers to."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
          (character (href position "character"))
-         (file-path (clef-util:cleanup-path document-uri)))
+         (file-path (util:cleanup-path document-uri)))
     (slog :debug "[textDocument/documentHighlight] Document: ~A" document-uri)
 
     (multiple-value-bind (ref-name ref-scope ref-package)
@@ -49,38 +66,38 @@ three cannot disagree about what a symbol refers to."
                              (find-definition-at-position document-uri line character)))
              (symbol-name (or ref-name
                               (when definition
-                                (clef-symbols:symbol-definition-symbol-name definition)))))
+                                (sym:symbol-definition-symbol-name definition)))))
         (unless symbol-name
           (slog :debug "[textDocument/documentHighlight] No symbol at position")
           (return-from handle-text-document-highlight #()))
 
         (let* ((lexical (and definition
                              (lexical-binding-scope-p
-                              (clef-symbols:symbol-definition-defining-scope definition))))
+                              (sym:symbol-definition-defining-scope definition))))
                (highlights '()))
           ;; Uses, from this file only -- documentHighlight is per-document.
           (let ((refs-tree (gethash file-path ctx:symbol-refs)))
             (when refs-tree
               (dolist (interval (get-all-intervals-from-tree refs-tree))
-                (let ((ref (clef-symbols::clef-interval-data interval)))
+                (let ((ref (sym::clef-interval-data interval)))
                   (when (and ref
-                             (string= (clef-symbols:symbol-reference-symbol-name ref)
+                             (string= (sym:symbol-reference-symbol-name ref)
                                       symbol-name)
                              ;; A lexical binding's occurrences are only those
                              ;; that actually resolve to it. A top-level name
                              ;; keeps the name match, which is right for it.
                              (or (not lexical)
                                  (eq (binding-of ref file-path) definition)))
-                    (push (make-highlight (clef-symbols:symbol-reference-node ref)
+                    (push (make-highlight (sym:symbol-reference-node ref)
                                           +highlight-kind-read+)
                           highlights))))))
 
           ;; The binding itself, when it lives in this file.
           (when definition
-            (let ((node (clef-symbols:symbol-definition-node definition))
-                  (location (clef-symbols:symbol-definition-location definition)))
+            (let ((node (sym:symbol-definition-node definition))
+                  (location (sym:symbol-definition-location definition)))
               (when (and node location
-                         (string= (clef-symbols:location-file-path location) file-path))
+                         (string= (sym:location-file-path location) file-path))
                 (push (make-highlight node +highlight-kind-write+) highlights))))
 
           (let ((unique (dedupe-highlights (nreverse highlights))))

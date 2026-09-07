@@ -1,4 +1,23 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/semantic-tokens
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/hover #:lookup-symbol)
+  (:import-from :clef-lsp/src/lsp/document/references #:binding-of #:get-all-intervals-from-tree)
+  (:import-from :clef-lsp/src/lsp/types/basic/semantic-legend #:semantic-token-modifier-bit #:semantic-token-type-index)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:parser-utils :clef-lsp/src/parser/utils)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-semantic-tokens-full))
+
+(in-package :clef-lsp/src/lsp/document/semantic-tokens)
 
 ;;;; textDocument/semanticTokens/full.
 ;;;;
@@ -54,9 +73,9 @@ discarded. A DEFPACKAGE name came out as `variable', which is not what it is."
 
 Editors theme the two differently and the distinction is real: a parameter is
 part of the interface, a LET binding is not."
-  (let ((scope (clef-symbols:symbol-definition-defining-scope definition)))
+  (let ((scope (sym:symbol-definition-defining-scope definition)))
     (if (and scope
-             (member (clef-symbols:lexical-scope-kind scope)
+             (member (sym:lexical-scope-kind scope)
                      '(:defun :defmacro :lambda :flet :labels)))
         "parameter"
         "variable")))
@@ -64,7 +83,7 @@ part of the interface, a LET binding is not."
 (defun binding-scope-p (scope)
   "Is SCOPE a binding form rather than a file or the workspace?"
   (and scope
-       (member (clef-symbols:lexical-scope-kind scope)
+       (member (sym:lexical-scope-kind scope)
                '(:let :flet :labels :lambda :defun :defmacro))
        t))
 
@@ -75,10 +94,10 @@ A binding form's contents are checked FIRST. Going by the recorded kind alone
 typed every parameter as `variable', because that is the kind the indexer
 records for one -- and a parameter is not the same thing as a global, which is
 the whole reason the legend has both."
-  (let ((scope (clef-symbols:symbol-definition-defining-scope definition)))
+  (let ((scope (sym:symbol-definition-defining-scope definition)))
     (if (binding-scope-p scope)
         (lexical-token-type definition)
-        (or (kind-token-type (clef-symbols:symbol-definition-kind definition))
+        (or (kind-token-type (sym:symbol-definition-kind definition))
             "variable"))))
 
 (defun image-token-type (name package-designator)
@@ -117,8 +136,8 @@ the image does not have get no token at all rather than a guess."
 A semantic token carries one length and cannot span lines, so a multi-line
 string or comment must be skipped rather than encoded wrongly. The spec is
 explicit that tokens are per-line."
-  (= (clef-parser/parser:node-start-point-row node)
-     (clef-parser/parser:node-end-point-row node)))
+  (= (parser:node-start-point-row node)
+     (parser:node-end-point-row node)))
 
 (defun make-token (node type modifiers &optional length)
   "A token as (line char length type-index modifiers), or NIL.
@@ -128,10 +147,10 @@ grammar ends a comment node at column 0 of the FOLLOWING line, so measuring it
 from the node makes every comment look multi-line and the single-line guard
 throws them all away."
   (when (and node type (or length (single-line-node-p node)))
-    (let* ((line (clef-parser/parser:node-start-point-row node))
-           (start (clef-parser/parser:node-start-point-column node))
+    (let* ((line (parser:node-start-point-row node))
+           (start (parser:node-start-point-column node))
            (width (or length
-                      (- (clef-parser/parser:node-end-point-column node) start))))
+                      (- (parser:node-end-point-column node) start))))
       (when (plusp width)
         (list line start width (semantic-token-type-index type) modifiers)))))
 
@@ -140,7 +159,7 @@ throws them all away."
   (let ((tokens '()))
     (labels ((walk (node)
                (when node
-                 (let ((type (case (clef-symbols:node-kind-of node)
+                 (let ((type (case (symbols:node-kind-of node)
                                (:comment "comment")
                                (:block-comment "comment")
                                (:str-lit "string")
@@ -151,8 +170,8 @@ throws them all away."
                                (:kwd-lit "property")
                                (t nil))))
                    (if type
-                       (let* ((row (clef-parser/parser:node-start-point-row node))
-                              (col (clef-parser/parser:node-start-point-column node))
+                       (let* ((row (parser:node-start-point-row node))
+                              (col (parser:node-start-point-column node))
                               ;; A comment runs to the end of its own line.
                               (width (when (and (string= type "comment")
                                                 (< row (length lines)))
@@ -173,10 +192,10 @@ throws them all away."
         (tree (gethash file-path ctx:lexical-scopes)))
     (when tree
       (dolist (interval (get-all-intervals-from-tree tree))
-        (let ((scope (clef-symbols::clef-interval-data interval)))
+        (let ((scope (sym::clef-interval-data interval)))
           (when scope
-            (dolist (def (clef-symbols:lexical-scope-symbol-definitions scope))
-              (let* ((node (clef-symbols:symbol-definition-node def))
+            (dolist (def (sym:lexical-scope-symbol-definitions scope))
+              (let* ((node (sym:symbol-definition-node def))
                      (type (definition-token-type def))
                      (token (make-token node type (semantic-token-modifier-bit "definition"))))
                 (when token (push token tokens))))))))
@@ -188,10 +207,10 @@ throws them all away."
         (tree (gethash file-path ctx:symbol-refs)))
     (when tree
       (dolist (interval (get-all-intervals-from-tree tree))
-        (let ((ref (clef-symbols::clef-interval-data interval)))
+        (let ((ref (sym::clef-interval-data interval)))
           (when ref
-            (let* ((node (clef-symbols:symbol-reference-node ref))
-                   (name (clef-symbols:symbol-reference-symbol-name ref))
+            (let* ((node (sym:symbol-reference-node ref))
+                   (name (sym:symbol-reference-symbol-name ref))
                    (definition (binding-of ref file-path))
                    (type nil)
                    (modifiers 0))
@@ -208,8 +227,8 @@ throws them all away."
                 ;; the image instead also gets them the defaultLibrary modifier,
                 ;; which is the other distinction no grammar can make.
                 ((and definition
-                      (not (eq (clef-symbols:lexical-scope-kind
-                                (clef-symbols:symbol-definition-defining-scope definition))
+                      (not (eq (sym:lexical-scope-kind
+                                (sym:symbol-definition-defining-scope definition))
                                :workspace)))
                  (setf type (definition-token-type definition)))
                 ;; Otherwise ask the image, which is the only thing that can
@@ -267,17 +286,17 @@ line delta is zero -- getting that wrong shifts every token after the first."
 
 (defun handle-text-document-semantic-tokens-full (message)
   "Handle a textDocument/semanticTokens/full request."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (text (gethash document-uri ctx:documents))
-         (file-path (clef-util:cleanup-path document-uri)))
+         (file-path (util:cleanup-path document-uri)))
     (slog :debug "[semanticTokens/full] Document: ~A" document-uri)
     (if (null text)
         (dict "data" #())
-        (let* ((tree (clef-parser/parser:parse-string text))
+        (let* ((tree (parser:parse-string text))
                (lines (coerce (uiop:split-string text :separator '(#\Newline)) 'vector))
                (package-designator
-                 (let ((pkg (clef-parser/utils:find-package-declaration tree text)))
+                 (let ((pkg (parser-utils:find-package-declaration tree text)))
                    (when pkg (package-name pkg))))
                (tokens (sort-and-dedupe-tokens
                         (append (definition-tokens file-path)

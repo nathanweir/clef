@@ -1,4 +1,22 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/rename
+  (:use :cl)
+  (:import-from :interval)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/references #:find-definition-at-position #:locations-for-symbol
+                #:resolve-symbol-at)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-prepare-rename
+   #:handle-text-document-rename))
+
+(in-package :clef-lsp/src/lsp/document/rename)
 
 ;;;; textDocument/rename and textDocument/prepareRename.
 ;;;;
@@ -9,7 +27,7 @@
 ;;;; than accepting a new name and then doing nothing with it.
 ;;;;
 ;;;; The second question is not idle in Common Lisp. A qualified reference is
-;;;; written `clef-jsonrpc/types:request-params', and only the name half is the
+;;;; written `clef-lsp/src/jsonrpc/types:request-params', and only the name half is the
 ;;;; symbol -- the grammar splits it, so the recorded reference covers exactly
 ;;;; that half and the package prefix survives a rename untouched. prepareRename
 ;;;; is where the editor is told which characters those are.
@@ -33,10 +51,10 @@ attempt.
 The test is the defining scope: anything from :WORKSPACE came from the image,
 not from a file we can edit."
   (and definition
-       (clef-symbols:symbol-definition-location definition)
-       (let ((scope (clef-symbols:symbol-definition-defining-scope definition)))
+       (sym:symbol-definition-location definition)
+       (let ((scope (sym:symbol-definition-defining-scope definition)))
          (and scope
-              (not (eq (clef-symbols:lexical-scope-kind scope) :workspace))))
+              (not (eq (sym:lexical-scope-kind scope) :workspace))))
        t))
 
 (defun symbol-node-at (document-uri line character)
@@ -45,17 +63,17 @@ not from a file we can edit."
 Needed for the range prepareRename reports. For a qualified reference this is
 the name half only, which is what makes renaming leave the package prefix
 alone."
-  (let* ((file-path (clef-util:cleanup-path document-uri))
+  (let* ((file-path (util:cleanup-path document-uri))
          (offset (ignore-errors
-                  (clef-symbols:line-char-to-byte-offset file-path line character)))
+                  (symbols:line-char-to-byte-offset file-path line character)))
          (refs (when offset
                  (ignore-errors
                   (interval:find-all (gethash file-path ctx:symbol-refs) offset)))))
     (cond
-      (refs (clef-symbols:symbol-reference-node
-             (clef-symbols::clef-interval-data (first refs))))
+      (refs (sym:symbol-reference-node
+             (sym::clef-interval-data (first refs))))
       (t (let ((def (find-definition-at-position document-uri line character)))
-           (when def (clef-symbols:symbol-definition-node def)))))))
+           (when def (sym:symbol-definition-node def)))))))
 
 (defun handle-text-document-prepare-rename (message)
   "Handle a textDocument/prepareRename request.
@@ -63,7 +81,7 @@ alone."
 Returns the range that will be replaced and a placeholder for the input box, or
 NIL when the position cannot be renamed -- which the editor turns into a refusal
 before the user has typed anything."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
@@ -114,7 +132,7 @@ list defensively costs nothing."
   "Handle a textDocument/rename request.
 
 Edits exactly the set find-references reports, including the declaration."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))

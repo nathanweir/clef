@@ -1,4 +1,14 @@
-(in-package :clef-parser/repair)
+(defpackage :clef-lsp/src/parser/repair
+  (:use :cl)
+  (:export
+   #:repair-source
+   #:scan-block-comment-depth
+   #:scan-depth
+   #:scan-in-line-comment
+   #:scan-in-string
+   #:scan-source))
+
+(in-package :clef-lsp/src/parser/repair)
 
 ;;;; Making a half-typed buffer parseable.
 ;;;;

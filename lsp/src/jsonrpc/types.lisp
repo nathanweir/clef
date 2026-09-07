@@ -1,4 +1,34 @@
-(in-package :clef-jsonrpc/types)
+(defpackage :clef-lsp/src/jsonrpc/types
+  (:use :cl)
+  (:local-nicknames
+    (:util :clef-lsp/src/util))
+  (:export
+   #:+internal-error+
+   #:+invalid-params+
+   #:+invalid-request+
+   #:+method-not-found+
+   #:+parse-error+
+   #:error-code
+   #:error-data
+   #:error-message
+   #:hash-table-to-request
+   #:jsonrpc-data
+   #:jsonrpc-error
+   #:jsonrpc-error-response
+   #:jsonrpc-id
+   #:jsonrpc-params
+   #:jsonrpc-request
+   #:jsonrpc-response
+   #:notification-p
+   #:request-id
+   #:request-method
+   #:request-params
+   #:response-error
+   #:response-id
+   #:response-jsonrpc
+   #:response-result))
+
+(in-package :clef-lsp/src/jsonrpc/types)
 
 (defconstant +parse-error+ -32700
              "Parse error (JSON-RPC).")
@@ -97,7 +127,7 @@ null, but answering \"the message with id null\" is meaningless either way."
     (make-instance 'jsonrpc-request
         :jsonrpc (gethash "jsonrpc" hash-table)
         :method (gethash "method" hash-table)
-        :params (clef-util:hash-table-to-instance (gethash "params" hash-table) params-class)
+        :params (util:hash-table-to-instance (gethash "params" hash-table) params-class)
         :id (gethash "id" hash-table)))
 
 (defclass jsonrpc-response ()

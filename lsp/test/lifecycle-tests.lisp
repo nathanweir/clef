@@ -1,4 +1,14 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/lifecycle-tests
+  (:use :cl)
+  (:import-from :clef-lsp/test/framework #:assert-equal #:assert-nil #:assert-not-nil
+                #:assert-true #:call-handler #:deftest
+                #:response-result-safe #:with-direct-handler-test)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)))
+
+(in-package :clef-lsp/test/lifecycle-tests)
 
 ;;; Lifecycle tests: initialize, initialized, shutdown
 
@@ -24,7 +34,7 @@
   (with-direct-handler-test
     (call-handler "initialize" (make-minimal-initialize-params))
     (assert-equal "file:///tmp/test-workspace"
-                  clef-context:workspace-root
+                  ctx:workspace-root
                   "Workspace root should be set")))
 
 (deftest test-initialize-stores-client-capabilities
@@ -36,7 +46,7 @@
                         "workspaceFolders" (vector (dict "uri" "file:///tmp/test"
                                                          "name" "test")))))
       (call-handler "initialize" params)
-      (assert-not-nil clef-context:client-capabilities
+      (assert-not-nil ctx:client-capabilities
                       "Client capabilities should be stored"))))
 
 (deftest test-initialized-sets-flag
@@ -46,7 +56,7 @@
     (call-handler "initialize" (make-minimal-initialize-params))
     ;; Then send initialized notification
     (call-handler "initialized" (dict) :id nil)
-    (assert-true clef-context:initialized
+    (assert-true ctx:initialized
                  "Server should be marked as initialized")))
 
 (deftest test-server-not-initialized-error
@@ -58,7 +68,7 @@
                                         "position" (dict "line" 0 "character" 0)))))
       (assert-not-nil response)
       ;; Should be an error response
-      (assert-true (typep response 'clef-jsonrpc/types:jsonrpc-error-response)
+      (assert-true (typep response 'rpc:jsonrpc-error-response)
                    "Expected error response for uninitialized server"))))
 
 (deftest test-shutdown-resets-state
@@ -68,11 +78,11 @@
     (call-handler "initialize" (make-minimal-initialize-params))
     (call-handler "initialized" (dict) :id nil)
     ;; Verify initialized
-    (assert-true clef-context:initialized)
+    (assert-true ctx:initialized)
     ;; Shutdown
     (call-handler "shutdown" (dict))
     ;; State should be reset
-    (assert-nil clef-context:initialized
+    (assert-nil ctx:initialized
                 "Server should not be initialized after shutdown")))
 
 (deftest test-capabilities-include-expected-providers

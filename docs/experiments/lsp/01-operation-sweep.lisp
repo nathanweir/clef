@@ -44,13 +44,13 @@
   (asdf:load-system :clef-lsp))
 
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
-(setf clef-log:*log-mode* :none)
+(setf clef-lsp/src/log:*log-mode* :none)
 
 (handler-bind ((warning #'muffle-warning))
-  (dolist (f '("test/package.lisp" "test/framework.lisp" "test/document-tests.lisp"))
+  (dolist (f '("test/framework.lisp" "test/document-tests.lisp"))
     (load (merge-pathnames f *lsp-root*))))
 
-(in-package :clef-test)
+(in-package :clef-lsp/test/framework)
 
 ;;; ---------------------------------------------------------------------------
 ;;; The specimen.

@@ -1,4 +1,18 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/selection-range
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/call-hierarchy #:node-contains-position-p)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:make-range #:node-to-range)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:ts :cl-tree-sitter))
+  (:export
+   #:handle-text-document-selection-range))
+
+(in-package :clef-lsp/src/lsp/document/selection-range)
 
 ;;;; textDocument/selectionRange -- "expand selection".
 ;;;;
@@ -42,10 +56,10 @@ chain continues\" to some clients."
       ;; so comparing the dicts deduplicated nothing -- and the grammar wraps: a
       ;; :LIST-LIT holds a :DEFUN over exactly the same text, which showed up as
       ;; an expand step that visibly selected nothing.
-      (let ((extent (list (clef-parser/parser:node-start-point-row node)
-                          (clef-parser/parser:node-start-point-column node)
-                          (clef-parser/parser:node-end-point-row node)
-                          (clef-parser/parser:node-end-point-column node))))
+      (let ((extent (list (parser:node-start-point-row node)
+                          (parser:node-start-point-column node)
+                          (parser:node-end-point-row node)
+                          (parser:node-end-point-column node))))
         (unless (equal extent seen)
           (setf seen extent)
           (setf chain (let ((entry (dict "range" (node-to-range node))))
@@ -58,14 +72,14 @@ chain continues\" to some clients."
 Answers one chain per requested position, in the same order. A position with no
 node under it still gets an entry -- the array is positional, and dropping one
 would silently misalign every chain after it."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (positions (href params "positions"))
          (text (gethash document-uri ctx:documents)))
     (slog :debug "[textDocument/selectionRange] Document: ~A" document-uri)
     (if (or (null text) (null positions))
         #()
-        (let ((tree (clef-parser/parser:parse-string text))
+        (let ((tree (parser:parse-string text))
               (results '()))
           (map nil
                (lambda (position)

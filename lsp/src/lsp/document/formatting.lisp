@@ -1,4 +1,15 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/formatting
+  (:use :cl)
+  (:import-from :indentify)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types))
+  (:export
+   #:handle-text-document-formatting))
+
+(in-package :clef-lsp/src/lsp/document/formatting)
 
 ;;;; textDocument/formatting.
 ;;;;
@@ -30,7 +41,7 @@ a client entitled to reject the range instead would have lost the edit."
 
 (defun handle-text-document-formatting (message)
   "Handle a textDocument/formatting request."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (file-uri (href params "text-document" "uri"))
          (document-text (gethash file-uri ctx:documents)))
     (slog :debug "About to do formatting on ~A" file-uri)

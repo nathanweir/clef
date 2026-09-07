@@ -1,4 +1,17 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/did-open
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :serapeum #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-did-close
+   #:handle-text-document-did-open))
+
+(in-package :clef-lsp/src/lsp/document/did-open)
 
 ;;; Document lifecycle: didOpen and didClose.
 ;;;
@@ -15,10 +28,10 @@ the first edit produced a didChange. Every test in the suite worked around this
 by sending a redundant didChange straight after didOpen, which is what kept it
 hidden. See docs/surveys/lsp-review.md §1.4."
        (setf (gethash document-uri ctx:documents) text)
-       (clef-symbols:build-file-symbol-map (clef-util:cleanup-path document-uri) text))
+       (symbols:build-file-symbol-map (util:cleanup-path document-uri) text))
 
 (defun handle-text-document-did-open (message)
-       (let* ((params-hash (clef-jsonrpc/types:request-params message))
+       (let* ((params-hash (rpc:request-params message))
               (document-uri (href params-hash "text-document" "uri"))
               (document-text (href params-hash "text-document" "text")))
              (slog :debug "[textDocument/didOpen] Document: ~A" document-uri)
@@ -36,7 +49,7 @@ The symbol map is deliberately NOT discarded. didClose means the client is no
 longer tracking the file, not that the file stopped existing -- its definitions
 still belong in the workspace index, and dropping them would make go-to-definition
 fail for anything not currently open."
-       (let* ((params (clef-jsonrpc/types:request-params message))
+       (let* ((params (rpc:request-params message))
               (document-uri (href params "text-document" "uri")))
              (slog :debug "[textDocument/didClose] Document: ~A" document-uri)
              (remhash document-uri ctx:documents)

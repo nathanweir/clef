@@ -1,9 +1,23 @@
-(in-package :clef-parser/parser)
+(defpackage :clef-lsp/src/parser/parser
+  (:use :cl)
+  (:local-nicknames
+    (:ts :cl-tree-sitter))
+  (:export
+   #:node-end-point-column
+   #:node-end-point-row
+   #:node-range
+   #:node-start-point-column
+   #:node-start-point-row
+   #:node-text
+   #:parse-file
+   #:parse-string))
+
+(in-package :clef-lsp/src/parser/parser)
 
 ;; TODO: All of this src/parser code is old and messy; could do with a complete rewrite & restructuring
 
 ;; Register tree-sitter language using path relative to the ASDF system
-(cl-tree-sitter:register-language
+(ts:register-language
   :commonlisp
   #.(namestring (asdf:system-relative-pathname :clef-lsp "src/parser/tree-sitter-commonlisp")))
 
@@ -14,11 +28,11 @@
                        (let ((contents (let ((str (make-string (file-length in))))
                                             (read-sequence str in)
                                             str)))
-                            (cl-tree-sitter:parse-string :commonlisp contents))))
+                            (ts:parse-string :commonlisp contents))))
 
 (declaim (ftype (function (string)) ts-parse-string))
 (defun parse-string (input)
-       (cl-tree-sitter:parse-string :commonlisp input))
+       (ts:parse-string :commonlisp input))
 
 ;; These helper functions are just to bridge the gap of missing functions from Claude
 ;; They could have more ergonomic names and be placed along other tree sitter utils
@@ -31,16 +45,16 @@
                (node-end-point-column node)))
 
 (defun node-start-point-column (node)
-       (first (first (cl-tree-sitter:node-range node))))
+       (first (first (ts:node-range node))))
 
 (defun node-start-point-row (node)
-       (second (first (cl-tree-sitter:node-range node))))
+       (second (first (ts:node-range node))))
 
 (defun node-end-point-column (node)
-       (first (second (cl-tree-sitter:node-range node))))
+       (first (second (ts:node-range node))))
 
 (defun node-end-point-row (node)
-       (second (second (cl-tree-sitter:node-range node))))
+       (second (second (ts:node-range node))))
 
 (defun node-text (node source)
        "Return the text slice for NODE from SOURCE using character offsets."

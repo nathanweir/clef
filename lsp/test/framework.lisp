@@ -1,4 +1,29 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/framework
+  (:use :cl)
+  (:import-from :babel)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:bt :bordeaux-threads)
+    (:handlers :clef-lsp/src/lsp/handlers)
+    (:jzon :com.inuoe.jzon)
+    (:messages :clef-lsp/src/jsonrpc/messages)
+    (:ppcre :cl-ppcre)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:server :clef-lsp/src/lsp/server))
+  (:export
+   #:*test-results*
+   #:assert-equal
+   #:assert-nil
+   #:assert-not-nil
+   #:assert-true
+   #:call-handler
+   #:deftest
+   #:make-lsp-request
+   #:run-all-tests
+   #:send-request
+   #:with-test-server))
+
+(in-package :clef-lsp/test/framework)
 
 ;;; Test registry and results
 
@@ -67,19 +92,19 @@
 (defun response-result-safe (response)
   "Get the result from a response, returning NIL for error responses"
   (typecase response
-    (clef-jsonrpc/types:jsonrpc-response
-     (clef-jsonrpc/types::response-result response))
-    (clef-jsonrpc/types:jsonrpc-error-response
+    (rpc:jsonrpc-response
+     (rpc::response-result response))
+    (rpc:jsonrpc-error-response
      nil)
     (t nil)))
 
 (defun response-is-error-p (response)
   "Check if response is an error response"
-  (typep response 'clef-jsonrpc/types:jsonrpc-error-response))
+  (typep response 'rpc:jsonrpc-error-response))
 
 (defun response-is-success-p (response)
   "Check if response is a successful (non-error) response."
-  (typep response 'clef-jsonrpc/types:jsonrpc-response))
+  (typep response 'rpc:jsonrpc-response))
 
 (defun answered-p (response)
   "Did the server reply at all?
@@ -109,7 +134,7 @@ RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
 
 (defun encode-lsp-message (request)
   "Encode an LSP request to bytes with Content-Length header"
-  (let* ((json (com.inuoe.jzon:stringify request))
+  (let* ((json (jzon:stringify request))
          (body-bytes (babel:string-to-octets json :encoding :utf-8))
          (header (format nil "Content-Length: ~D~C~C~C~C"
                          (length body-bytes)
@@ -125,14 +150,14 @@ RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
          (header-end (search header-end-marker text)))
     (when header-end
       (let* ((header-text (subseq text 0 header-end))
-             (content-length-match (cl-ppcre:scan-to-strings "Content-Length:\\s*(\\d+)" header-text)))
+             (content-length-match (ppcre:scan-to-strings "Content-Length:\\s*(\\d+)" header-text)))
         (when content-length-match
           (let* ((content-length (parse-integer
-                                  (aref (nth-value 1 (cl-ppcre:scan-to-strings
+                                  (aref (nth-value 1 (ppcre:scan-to-strings
                                                       "Content-Length:\\s*(\\d+)" header-text)) 0)))
                  (body-start (+ header-end 4))
                  (body-text (subseq text body-start (+ body-start content-length))))
-            (values (com.inuoe.jzon:parse body-text)
+            (values (jzon:parse body-text)
                     (+ start (length (babel:string-to-octets
                                       (subseq text 0 (+ body-start content-length))
                                       :encoding :utf-8))))))))))
@@ -160,21 +185,21 @@ RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
          (unwind-protect
              (progn
                ;; Reset server state
-               (clef-lsp/server:reset)
+               (server:reset)
                ;; Register handlers
-               (clef-lsp/handlers:register-handlers)
+               (handlers:register-handlers)
                ;; Start server thread
                (setf server-thread
-                     (bordeaux-threads:make-thread
+                     (bt:make-thread
                       (lambda ()
                         (handler-case
                             (loop
-                              (let ((request (clef-jsonrpc/messages:read-lsp-message server-input)))
+                              (let ((request (messages:read-lsp-message server-input)))
                                 (when request
-                                  (let* ((id (clef-jsonrpc/types:request-id request))
-                                         (response (clef-lsp/server::handle-lsp-request id request)))
+                                  (let* ((id (rpc:request-id request))
+                                         (response (server::handle-lsp-request id request)))
                                     (when response
-                                      (clef-jsonrpc/messages:write-lsp-message response server-output))))))
+                                      (messages:write-lsp-message response server-output))))))
                           (end-of-file () nil)
                           (error (e)
                             (format *error-output* "Server error: ~A~%" e))))
@@ -203,7 +228,7 @@ RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
                  ,@body))
            ;; Cleanup
            (when server-thread
-             (ignore-errors (bordeaux-threads:destroy-thread server-thread)))
+             (ignore-errors (bt:destroy-thread server-thread)))
            (ignore-errors (close client-output))
            (ignore-errors (close client-input))
            (ignore-errors (close server-output))
@@ -271,22 +296,22 @@ which silently aliased file-a and file-b in the cross-file tests.")
 
 CALL-HANDLER is an FLET, so it exists only inside this macro's body. A top-level
 helper function that calls it compiles fine and fails at run time with \"The
-function CLEF-TEST::CALL-HANDLER is undefined\" -- a message pointing nowhere
+function CLEF-LSP/TEST/FRAMEWORK::CALL-HANDLER is undefined\" -- a message pointing nowhere
 near the cause. Helpers that need it must be macros, or take the response as an
 argument. This has bitten three times."
   `(progn
      ;; Reset server state
-     (clef-lsp/server:reset)
+     (server:reset)
      ;; Register handlers
-     (clef-lsp/handlers:register-handlers)
+     (handlers:register-handlers)
      ;; Provide call-handler function
      (flet ((call-handler (method params &key (id 1))
               "Call an LSP handler directly and get the result"
-              (let ((request (make-instance 'clef-jsonrpc/types:jsonrpc-request
+              (let ((request (make-instance 'rpc:jsonrpc-request
                                             :id id
                                             :method method
-                                            :params (clef-jsonrpc/messages::make-hash-table-hyphen-case params))))
-                (clef-lsp/server::handle-lsp-request id request))))
+                                            :params (messages::make-hash-table-hyphen-case params))))
+                (server::handle-lsp-request id request))))
        ,@body)))
 
 ;;; Test runner

@@ -1,3 +1,8 @@
+(defpackage :clef-lsp/test/client
+  (:use :cl))
+
+(in-package :clef-lsp/test/client)
+
 #-quicklisp
  (let ((quicklisp-init
          (merge-pathnames "quicklisp/setup.lisp"
@@ -55,7 +60,7 @@
                                                        ;; Start the server in a thread
                                                        (bordeaux-threads:make-thread
                                                          (lambda ()
-                                                                 (clef-lsp/server:start :input server-input :output server-output :log-mode :console)))
+                                                                 (clef-lsp/src/lsp/server:start :input server-input :output server-output :log-mode :console)))
                                                        ;; Connect the client
                                                        (jsonrpc:client-connect *client*
                                                                                :mode :stdio

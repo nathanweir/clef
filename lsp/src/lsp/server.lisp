@@ -1,9 +1,31 @@
-(in-package :clef-lsp/server)
+(defpackage :clef-lsp/src/lsp/server
+  (:use :cl)
+  (:import-from :serapeum)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:error-codes :clef-lsp/src/lsp/types/base/error-codes)
+    (:log :clef-lsp/src/log)
+    (:messages :clef-lsp/src/jsonrpc/messages)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:symbols :clef-lsp/src/symbols/init))
+  (:export
+   #:*exit-terminates-process*
+   #:before-handle-request
+   #:exit-server
+   #:handle-lsp-request
+   #:publish-diagnostics
+   #:reset
+   #:send-notification
+   #:sethandler
+   #:start))
+
+(in-package :clef-lsp/src/lsp/server)
 
 ;;; LSP server loop and handler dispatch.
 ;;;
-;;; All persistent state lives on the CLEF-CONTEXT:SERVER-CONTEXT struct held
-;;; in CLEF-CONTEXT:*SERVER*. This file used to own several defparameters
+;;; All persistent state lives on the CLEF-LSP/SRC/CONTEXT:SERVER-CONTEXT struct held
+;;; in CLEF-LSP/SRC/CONTEXT:*SERVER*. This file used to own several defparameters
 ;;; (*initialized*, *documents*, *workspace-root*, ...) that have been moved
 ;;; there; see src/context.lisp for the canonical definitions.
 
@@ -28,7 +50,7 @@ definition. Refreshing for those would be work with nothing to show for it.")
 
 (defun before-handle-request (request)
        "Hook to run before handling any request."
-       (let ((endpoint-name (clef-jsonrpc/types:request-method request)))
+       (let ((endpoint-name (rpc:request-method request)))
             ;; Error if server not initialized, unless this is one of the
             ;; methods that must work outside an initialized session.
             ;;
@@ -45,12 +67,12 @@ definition. Refreshing for those would be work with nothing to show for it.")
                                     :test #'string=))
                        (not ctx:initialized))
                   (slog :error "Server not initialized yet.")
-                  (error 'clef-lsp/types/base:server-not-initialized-error))
+                  (error 'error-codes:server-not-initialized-error))
             ;; Pick up edits made outside the protocol before answering from the
             ;; index. Centralised here rather than repeated in nine handlers, so
-            ;; a tenth cannot forget. See CLEF-SYMBOLS:REFRESH-STALE-INDEX.
+            ;; a tenth cannot forget. See CLEF-LSP/SRC/SYMBOLS/INIT:REFRESH-STALE-INDEX.
             (when (member endpoint-name *index-consulting-methods* :test #'string=)
-                  (ignore-errors (clef-symbols:refresh-stale-index)))))
+                  (ignore-errors (symbols:refresh-stale-index)))))
 
 (defun capture-backtrace ()
        "Capture current backtrace as a string."
@@ -63,8 +85,8 @@ definition. Refreshing for those would be work with nothing to show for it.")
                             ;; NIL result is not silence -- it serialises to
                             ;; "result": null, which is the correct answer to a
                             ;; request that found nothing.
-                            (unless (clef-jsonrpc/types:notification-p request)
-                                    (make-instance 'clef-jsonrpc/types:jsonrpc-response
+                            (unless (rpc:notification-p request)
+                                    (make-instance 'rpc:jsonrpc-response
                                                    :result result
                                                    :id id)))
                    (respond-error (code message &optional data)
@@ -73,9 +95,9 @@ definition. Refreshing for those would be work with nothing to show for it.")
                                   ;; or an uninitialised server produced an error
                                   ;; response carrying a null id, which is itself
                                   ;; a protocol violation.
-                                  (unless (clef-jsonrpc/types:notification-p request)
-                                          (make-instance 'clef-jsonrpc/types:jsonrpc-error-response
-                                                         :error (make-instance 'clef-jsonrpc/types:jsonrpc-error
+                                  (unless (rpc:notification-p request)
+                                          (make-instance 'rpc:jsonrpc-error-response
+                                                         :error (make-instance 'rpc:jsonrpc-error
                                                                                :code code
                                                                                :message message
                                                                                :data data)
@@ -85,24 +107,24 @@ definition. Refreshing for those would be work with nothing to show for it.")
                       ((error (lambda (e)
                                 (declare (ignore e))
                                 (setf captured-backtrace (capture-backtrace)))))
-                      (let* ((endpoint-name (clef-jsonrpc/types:request-method request))
+                      (let* ((endpoint-name (rpc:request-method request))
                              (handler (gethash endpoint-name ctx:handlers)))
                             (if handler
                                 (respond (funcall handler request))
                                 (progn
                                   (slog :error "[~A] No handler found" endpoint-name)
-                                  (error 'clef-lsp/types/base:method-not-found-error
+                                  (error 'error-codes:method-not-found-error
                                          :endpoint endpoint-name)))))
-                    (clef-lsp/types/base:lsp-error (e)
-                                                   (respond-error (clef-lsp/types/base:lsp-error-code e)
-                                                                  (clef-lsp/types/base:lsp-error-message e)
-                                                                  (ignore-errors (clef-lsp/types/base:lsp-error-data e))))
+                    (error-codes:lsp-error (e)
+                                                   (respond-error (error-codes:lsp-error-code e)
+                                                                  (error-codes:lsp-error-message e)
+                                                                  (ignore-errors (error-codes:lsp-error-data e))))
                     (error (e)
                            (slog :error "[~A] Internal error: ~A"
-                                 (clef-jsonrpc/types:request-method request) e)
+                                 (rpc:request-method request) e)
                            (when captured-backtrace
                                  (slog :error "Backtrace:~%~A" captured-backtrace))
-                           (respond-error clef-jsonrpc/types:+internal-error+
+                           (respond-error rpc:+internal-error+
                                           (format nil "Internal server error: ~A" e)))))))
 
 (defparameter *exit-terminates-process* t
@@ -131,7 +153,7 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
        "Run LSP server over stdio, until the client goes away."
        (setf ctx:output-stream output)
        (loop
-         (let ((request (clef-jsonrpc/messages:read-lsp-message input)))
+         (let ((request (messages:read-lsp-message input)))
               ;; NIL means the stream is finished -- EOF, or a header we cannot
               ;; make sense of, after which there is no way to find where the
               ;; next message starts. READ-LSP-MESSAGE's own docstring says it
@@ -143,13 +165,13 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
               (unless request
                       (slog :info "Input stream closed; server loop exiting.")
                       (return))
-              (let* ((id (clef-jsonrpc/types:request-id request))
+              (let* ((id (rpc:request-id request))
                      (response (handle-lsp-request id request)))
                     ;; NIL here now means "notification" for real --
                     ;; HANDLE-LSP-REQUEST decides that from the id, not
                     ;; from what the handler happened to return.
                     (when response
-                          (clef-jsonrpc/messages:write-lsp-message response output))))))
+                          (messages:write-lsp-message response output))))))
 
 (defun send-notification (method params)
        "Send an LSP notification (a message with no id that doesn't expect a response)."
@@ -159,7 +181,7 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
                                         "jsonrpc" "2.0"
                                         "method" method
                                         "params" params)))
-                       (clef-jsonrpc/messages:write-lsp-message notification stream)))))
+                       (messages:write-lsp-message notification stream)))))
 
 (defun publish-diagnostics (uri diagnostics)
        "Publish diagnostics for a document using textDocument/publishDiagnostics notification."
@@ -186,7 +208,7 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
        "Starts the CLEF LSP server.
 
         REGISTER is called once, before the loop, to fill the handler table;
-        the entry point passes CLEF-LSP/HANDLERS:REGISTER-HANDLERS. The server
+        the entry point passes CLEF-LSP/SRC/LSP/HANDLERS:REGISTER-HANDLERS. The server
         does not name its handlers itself -- they depend on it, so it must not
         depend on them (see handlers.lisp).
 
@@ -195,7 +217,7 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
         binary opts in only when CLEF_LOG_FILE is set."
 
        ;; Controls verbosity and whether to output logs to console or a file
-       (clef-log:init log-mode :file-path log-file-path)
+       (log:init log-mode :file-path log-file-path)
 
        (slog :debug "Starting CLEF LSP server...")
        (slog :debug "Registering handlers...")

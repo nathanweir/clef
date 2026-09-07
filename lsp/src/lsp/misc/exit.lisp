@@ -1,4 +1,12 @@
-(in-package :clef-lsp/misc)
+(defpackage :clef-lsp/src/lsp/misc/exit
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:local-nicknames
+    (:server :clef-lsp/src/lsp/server))
+  (:export
+   #:handle-exit))
+
+(in-package :clef-lsp/src/lsp/misc/exit)
 
 ;;;; The LSP `exit' notification.
 ;;;;
@@ -16,4 +24,4 @@
 (defun handle-exit (message)
         (declare (ignore message))
         (slog :info "Received exit notification")
-        (clef-lsp/server:exit-server))
+        (server:exit-server))

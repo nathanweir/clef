@@ -1,4 +1,14 @@
-(in-package :clef-lsp/types/basic)
+(defpackage :clef-lsp/src/lsp/types/basic/range
+  (:use :cl)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:parser :clef-lsp/src/parser/parser))
+  (:export
+   #:make-position
+   #:make-range
+   #:node-to-range))
+
+(in-package :clef-lsp/src/lsp/types/basic/range)
 
 ;;; LSP Position and Range, as the plain dicts that actually go on the wire.
 ;;;
@@ -14,7 +24,7 @@
 ;;;
 ;;; On orientation, which is the whole reason to have one definition:
 ;;; cl-tree-sitter's NODE-RANGE returns ((col row) (col row)) -- column first.
-;;; CLEF-PARSER/PARSER:NODE-RANGE normalises that to the line-first order LSP
+;;; CLEF-LSP/SRC/PARSER/PARSER:NODE-RANGE normalises that to the line-first order LSP
 ;;; wants. Destructuring either one by hand at a call site is what transposed
 ;;; line and character in every syntax-error diagnostic for as long as
 ;;; GET-SYNTAX-ERRORS built its own ranges. Call NODE-TO-RANGE instead.
@@ -32,6 +42,6 @@
        "The LSP Range covering tree-sitter NODE, or NIL if NODE is NIL."
        (when node
              (multiple-value-bind (start-line start-char end-line end-char)
-                                  (clef-parser/parser:node-range node)
+                                  (parser:node-range node)
                                   (make-range start-line start-char
                                               end-line end-char))))

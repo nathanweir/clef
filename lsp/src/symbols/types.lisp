@@ -1,4 +1,37 @@
-(in-package :clef-symbols)
+(defpackage :clef-lsp/src/symbols/types
+  (:use :cl)
+  (:import-from :interval)
+  (:export
+   #:lexical-scope-kind
+   #:lexical-scope-location
+   #:lexical-scope-node
+   #:lexical-scope-parent-scope
+   #:lexical-scope-symbol-definitions
+   #:location-end
+   #:location-file-path
+   #:location-start
+   #:make-system-info
+   #:symbol-definition-defining-scope
+   #:symbol-definition-form-node
+   #:symbol-definition-kind
+   #:symbol-definition-location
+   #:symbol-definition-name-start-shift
+   #:symbol-definition-node
+   #:symbol-definition-package-name
+   #:symbol-definition-symbol-name
+   #:symbol-reference-location
+   #:symbol-reference-node
+   #:symbol-reference-package-name
+   #:symbol-reference-symbol-name
+   #:symbol-reference-usage-scope
+   #:system-info
+   #:system-info-asd-path
+   #:system-info-dependencies
+   #:system-info-loaded-p
+   #:system-info-name
+   #:system-info-source-files))
+
+(in-package :clef-lsp/src/symbols/types)
 
 ;; Custom struct for adding data to the :cl-interval interval tree
 (defstruct (clef-interval (:include interval:interval))

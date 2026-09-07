@@ -29,12 +29,12 @@
   (asdf:load-asd (merge-pathnames "clef-lsp.asd" *lsp-root*))
   (asdf:load-system :clef-lsp))
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
-(setf clef-log:*log-mode* :none)
+(setf clef-lsp/src/log:*log-mode* :none)
 (handler-bind ((warning #'muffle-warning))
-  (dolist (f '("test/package.lisp" "test/framework.lisp"))
+  (dolist (f '("test/framework.lisp"))
     (load (merge-pathnames f *lsp-root*))))
 
-(in-package :clef-test)
+(in-package :clef-lsp/test/framework)
 
 ;;; (name want text line character)
 (defparameter *cases*
@@ -67,15 +67,15 @@
 (defun scope-chain (file-path offset)
   "The scope chain at OFFSET, innermost first, as (kind . names) pairs."
   (let* ((scopes (ignore-errors
-                  (interval:find-all (gethash file-path clef-context:lexical-scopes) offset)))
+                  (interval:find-all (gethash file-path clef-lsp/src/context:lexical-scopes) offset)))
          (innermost (when scopes
-                      (clef-symbols::clef-interval-data (first (last scopes)))))
+                      (clef-lsp/src/symbols/types::clef-interval-data (first (last scopes)))))
          (chain '()))
-    (loop for s = innermost then (clef-symbols:lexical-scope-parent-scope s)
+    (loop for s = innermost then (clef-lsp/src/symbols/types:lexical-scope-parent-scope s)
           while s
-          do (push (cons (clef-symbols:lexical-scope-kind s)
-                         (mapcar #'clef-symbols:symbol-definition-symbol-name
-                                 (clef-symbols:lexical-scope-symbol-definitions s)))
+          do (push (cons (clef-lsp/src/symbols/types:lexical-scope-kind s)
+                         (mapcar #'clef-lsp/src/symbols/types:symbol-definition-symbol-name
+                                 (clef-lsp/src/symbols/types:lexical-scope-symbol-definitions s)))
                    chain))
     (nreverse chain)))
 
@@ -85,18 +85,18 @@
     (destructuring-bind (name want text line character) case
       (let* ((temp (write-temp-file text))
              (uri (format nil "file://~A" temp))
-             (path (clef-util:cleanup-path uri)))
+             (path (clef-lsp/src/util:cleanup-path uri)))
         (call-handler "textDocument/didOpen"
                       (dict "textDocument" (dict "uri" uri "languageId" "lisp"
                                                  "version" 1 "text" text))
                       :id nil)
         (format t "~&~%---------- ~A ----------~%" name)
-        (let ((offset (clef-symbols:line-char-to-byte-offset path line character)))
+        (let ((offset (clef-lsp/src/symbols/init:line-char-to-byte-offset path line character)))
           (multiple-value-bind (ref-name ref-scope)
-              (clef-symbols:get-ref-for-doc-pos uri line character)
+              (clef-lsp/src/symbols/init:get-ref-for-doc-pos uri line character)
             (format t "  offset ~A   ref-name: ~S   ref-scope kind: ~S~%"
                     offset ref-name
-                    (when ref-scope (clef-symbols:lexical-scope-kind ref-scope))))
+                    (when ref-scope (clef-lsp/src/symbols/types:lexical-scope-kind ref-scope))))
           (format t "  scope chain, innermost first:~%")
           (let ((chain (scope-chain path offset)))
             (if (null chain)

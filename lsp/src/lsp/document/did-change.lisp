@@ -1,4 +1,14 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/did-change
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/did-open #:index-document)
+  (:import-from :serapeum #:href)
+  (:local-nicknames
+    (:rpc :clef-lsp/src/jsonrpc/types))
+  (:export
+   #:handle-text-document-did-change))
+
+(in-package :clef-lsp/src/lsp/document/did-change)
 
 (defun update-document-text (document-text start-line start-char end-line end-char new-text)
        "Replace text in document-text from (start-line, start-char) to (end-line, end-char) with new-text."
@@ -40,7 +50,7 @@
 
 (defun handle-text-document-did-change (message)
        ;; Unpack the params into the document uri and range/text data
-       (let* ((params (clef-jsonrpc/types:request-params message))
+       (let* ((params (rpc:request-params message))
               (document-uri (href params "text-document" "uri"))
               (content-changes (href params "content-changes")))
              (slog :debug "[textDocument/didChange] Document: ~A" document-uri)
@@ -71,7 +81,7 @@
 ;;     (dotimes (i (length content-changes))
 ;;         (let ((content-change (aref content-changes i)))
 ;;             ;; (slog :debug "[textDocument/didChange] Content-change is: ~A" content-change)
-;;             (slog :debug "[textDocument/didChange] content-change: ~A" (clef-util:shallow-hash-vals content-change))
+;;             (slog :debug "[textDocument/didChange] content-change: ~A" (clef-lsp/src/util:shallow-hash-vals content-change))
 ;;             (let* ((document (gethash document-uri clef-lsp/server:*documents*))
 ;;                    (range-start-line (href content-change "range" "start" "line"))
 ;;                    (range-start-char (href content-change "range" "start" "character"))

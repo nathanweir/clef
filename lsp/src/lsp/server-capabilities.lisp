@@ -1,4 +1,12 @@
-(in-package :clef-lsp/server)
+(defpackage :clef-lsp/src/lsp/server-capabilities
+  (:use :cl)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:legend :clef-lsp/src/lsp/types/basic/semantic-legend))
+  (:export
+   #:*server-capabilities-json*))
+
+(in-package :clef-lsp/src/lsp/server-capabilities)
 
 ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverCapabilities
 (defvar *server-capabilities-json*
@@ -32,8 +40,8 @@
                     ;; into. Retyping it here is how the two drift, and an index
                     ;; off by one recolours every token in the file.
                     "semanticTokensProvider"
-                    (dict "legend" (dict "tokenTypes" clef-lsp/types/basic:*semantic-token-types*
-                                         "tokenModifiers" clef-lsp/types/basic:*semantic-token-modifiers*)
+                    (dict "legend" (dict "tokenTypes" legend:*semantic-token-types*
+                                         "tokenModifiers" legend:*semantic-token-modifiers*)
                           "full" t)
                     "workspaceSymbolProvider" t
                     "signatureHelpProvider" (dict)

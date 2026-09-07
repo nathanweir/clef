@@ -1,4 +1,14 @@
-(in-package :clef-lint)
+(defpackage :clef-lsp/src/lint
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:local-nicknames
+    (:parser :clef-lsp/src/parser/parser)
+    (:ts :cl-tree-sitter))
+  (:export
+   #:lint-project
+   #:main))
+
+(in-package :clef-lsp/src/lint)
 
 ;;;; The convention linter.
 ;;;;
@@ -43,7 +53,7 @@
   (remove :comment (ts:node-children node) :key #'node-kind))
 
 (defun node-source-text (node source)
-  (ignore-errors (clef-parser/parser:node-text node source)))
+  (ignore-errors (parser:node-text node source)))
 
 (defun package-designator-name (text)
   "The package name in TEXT, however it was spelled: :foo, #:foo, foo, \"FOO\".
@@ -140,7 +150,7 @@ separately -- :USE has its own rule, and nicknames name deps per entry.")
 (defun read-decl (file)
   "The leading defpackage of FILE as a DECL. NODE is NIL when there is none."
   (let* ((source (uiop:read-file-string file))
-         (tree (clef-parser/parser:parse-string source))
+         (tree (parser:parse-string source))
          (first-form (find-if (lambda (n)
                                 (not (member (node-kind n) '(:comment))))
                               (ts:node-children tree))))
@@ -158,8 +168,8 @@ separately -- :USE has its own rule, and nicknames name deps per entry.")
 (defun byte-offset-of (node source)
   "Byte offset of NODE's start in SOURCE, via its row/column."
   (when node
-    (let ((row (clef-parser/parser:node-start-point-row node))
-          (col (clef-parser/parser:node-start-point-column node))
+    (let ((row (parser:node-start-point-row node))
+          (col (parser:node-start-point-column node))
           (offset 0))
       (dotimes (i row)
         (declare (ignore i))

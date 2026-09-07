@@ -1,4 +1,15 @@
-(in-package :clef-util)
+(defpackage :clef-lsp/src/util
+  (:use :cl)
+  (:local-nicknames
+    (:ppcre :cl-ppcre))
+  (:export
+   #:cleanup-path
+   #:hash-table-to-instance
+   #:path-to-file-uri
+   #:read-file-text
+   #:shallow-hash-vals))
+
+(in-package :clef-lsp/src/util)
 
 (defun hash-table-to-instance (hash-table class)
        "Create an instance of CLASS using HASH-TABLE's keys/values as initargs.
@@ -18,8 +29,8 @@ HASH-TABLE should have keyword keys matching the class's initargs."
 
 (defun cleanup-path (root-uri)
        "Convert a 'file://' URI to a local pathname, optionally keeping any trailing slash."
-       (let* ((without-file (cl-ppcre:regex-replace "^file://" root-uri ""))
-              (no-trailing-slash (cl-ppcre:regex-replace "/$" without-file "")))
+       (let* ((without-file (ppcre:regex-replace "^file://" root-uri ""))
+              (no-trailing-slash (ppcre:regex-replace "/$" without-file "")))
              (namestring (uiop:parse-native-namestring no-trailing-slash))))
 
 (defun path-to-file-uri (path)

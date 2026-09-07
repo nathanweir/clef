@@ -1,4 +1,22 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/hover
+  (:use :cl)
+  (:import-from :clef-lsp/src/lsp/document/diagnostic #:form-elements #:node-kind)
+  (:import-from :clef-lsp/src/lsp/document/lambda-lists #:lambda-list-marker-p #:normalize-lambda-list)
+  (:import-from :clef-lsp/src/lsp/document/references #:position-in-range-p)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:parser-utils :clef-lsp/src/parser/utils)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-hover))
+
+(in-package :clef-lsp/src/lsp/document/hover)
 
 ;;;; textDocument/hover.
 ;;;;
@@ -38,11 +56,11 @@
                 find-symbol-at-position))
 (defun find-symbol-at-position (document-text line char)
        "Finds the symbol within some text at a given position"
-       (let* ((tree (clef-parser/parser:parse-string document-text))
+       (let* ((tree (parser:parse-string document-text))
               (result nil))
              (labels ((position-in-range-p (node)
                                            (multiple-value-bind (start-line start-char end-line end-char)
-                                                                (clef-parser/parser:node-range node)
+                                                                (parser:node-range node)
                                                                 (or
                                                                   ;; Same line, char in range
                                                                   (and (= line start-line) (= line end-line)
@@ -62,7 +80,7 @@
                                           (when (not result) (visit-node child)))))
                      (when tree (visit-node tree))
                      (when result
-                           (clef-parser/parser:node-text result document-text)))))
+                           (parser:node-text result document-text)))))
 
 (defun lookup-symbol (name &optional pkg-name)
        "The symbol NAME names, in PKG-NAME or the current package."
@@ -262,10 +280,10 @@ something to read."
 
 The open buffer wins over the disk copy: the form-node's coordinates describe
 the text the indexer last saw, which for an open document is the buffer."
-       (let* ((location (clef-symbols:symbol-definition-location def))
-              (file (when location (clef-symbols:location-file-path location))))
+       (let* ((location (sym:symbol-definition-location def))
+              (file (when location (sym:location-file-path location))))
              (when file
-                   (or (let ((uri (clef-util:path-to-file-uri file)))
+                   (or (let ((uri (util:path-to-file-uri file)))
                             (when uri (gethash uri ctx:documents)))
                        (ignore-errors (uiop:read-file-string file))))))
 
@@ -301,11 +319,11 @@ The docstring rules follow the language's:
   - a DEFVAR docstring is element 3, and there it may legally be last.
   - otherwise a string at element 2 with anything after it is doc-like -- which
     is what picks up DEFTEST-style project macros."
-       (let ((form (clef-symbols:symbol-definition-form-node def)))
+       (let ((form (sym:symbol-definition-form-node def)))
             (when (and form source)
                   (let* ((elements (form-elements form))
                          (name-node (nth 1 elements))
-                         (kind (clef-symbols:symbol-definition-kind def))
+                         (kind (sym:symbol-definition-kind def))
                          (third-el (nth 2 elements)))
                         ;; The stored form must actually be NAME's definition.
                         ;; A defstruct's accessors all store the whole DEFSTRUCT
@@ -315,10 +333,10 @@ The docstring rules follow the language's:
                         (when (and name-node
                                    (string-equal
                                      (string-upcase
-                                       (clef-symbols:symbol-definition-symbol-name def))
+                                       (sym:symbol-definition-symbol-name def))
                                      (string-upcase
                                        (or (ignore-errors
-                                            (clef-parser/parser:node-text name-node source))
+                                            (parser:node-text name-node source))
                                            ""))))
                               (let* ((lambda-node
                                        (when (and (member kind +lambda-list-kinds+)
@@ -341,21 +359,21 @@ The docstring rules follow the language's:
                                                       (member kind '(:variable :constant))))
                                              (string-literal-value
                                                (ignore-errors
-                                                (clef-parser/parser:node-text doc-node source))))))
+                                                (parser:node-text doc-node source))))))
                                    (values (when lambda-node
                                                  (ignore-errors
-                                                  (clef-parser/parser:node-text lambda-node source)))
+                                                  (parser:node-text lambda-node source)))
                                            docstring)))))))
 
 (defun indexed-hover-markdown (name)
        "Markdown from clef's own index, for a symbol the image does not have."
-       (let ((defs (clef-symbols:lookup-in-workspace-index name)))
+       (let ((defs (symbols:lookup-in-workspace-index name)))
             (when defs
                   (let* ((def (first defs))
-                         (location (clef-symbols:symbol-definition-location def))
-                         (file (when location (clef-symbols:location-file-path location)))
-                         (kind (clef-symbols:symbol-definition-kind def))
-                         (package (clef-symbols:symbol-definition-package-name def))
+                         (location (sym:symbol-definition-location def))
+                         (file (when location (sym:location-file-path location)))
+                         (kind (sym:symbol-definition-kind def))
+                         (package (sym:symbol-definition-package-name def))
                          (source (definition-source-text def)))
                         (multiple-value-bind (lambda-list docstring)
                                              (indexed-signature-parts def source)
@@ -380,7 +398,7 @@ The docstring rules follow the language's:
 
 (defun handle-text-document-hover (message)
        "Handle a textDocument/hover request."
-       (let* ((params (clef-jsonrpc/types:request-params message))
+       (let* ((params (rpc:request-params message))
               (document-uri (href params "text-document" "uri"))
               (hover-line (href params "position" "line"))
               (hover-char (href params "position" "character"))
@@ -389,8 +407,8 @@ The docstring rules follow the language's:
                  (dict "contents" #())
                  (let* ((symbol-at-pos (find-symbol-at-position document-text
                                                                 hover-line hover-char))
-                        (tree (clef-parser/parser:parse-string document-text))
-                        (symbol-pkg (or (clef-parser/utils:find-package-declaration
+                        (tree (parser:parse-string document-text))
+                        (symbol-pkg (or (parser-utils:find-package-declaration
                                           tree document-text)
                                         *package*))
                         (sym (when symbol-at-pos

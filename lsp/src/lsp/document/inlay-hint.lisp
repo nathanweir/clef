@@ -1,4 +1,23 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/inlay-hint
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/hover #:lookup-symbol)
+  (:import-from :clef-lsp/src/lsp/document/lambda-lists #:trim-lambda-list)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:make-position)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:parser-utils :clef-lsp/src/parser/utils)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-inlay-hint))
+
+(in-package :clef-lsp/src/lsp/document/inlay-hint)
 
 ;;;; textDocument/inlayHint -- parameter names at call sites.
 ;;;;
@@ -44,34 +63,34 @@ lambda list is right there in it.
 Only consults documents the client has open, so this costs no file I/O. The
 common case it is meant for -- calling something defined in the file you are
 editing -- is covered by that."
-  (let ((definition (first (clef-symbols:lookup-in-workspace-index name))))
+  (let ((definition (first (symbols:lookup-in-workspace-index name))))
     (when definition
-      (let* ((location (clef-symbols:symbol-definition-location definition))
-             (file-path (when location (clef-symbols:location-file-path location)))
+      (let* ((location (sym:symbol-definition-location definition))
+             (file-path (when location (sym:location-file-path location)))
              (source (when file-path
-                       (gethash (clef-util:path-to-file-uri file-path) ctx:documents)))
-             (form (clef-symbols:symbol-definition-form-node definition)))
+                       (gethash (util:path-to-file-uri file-path) ctx:documents)))
+             (form (sym:symbol-definition-form-node definition)))
         (when (and source form)
           ;; FORM-NODE for a DEFUN is already the :DEFUN node -- CHECK-FOR-DEFUN
           ;; fires on that node and records it. Looking for a :DEFUN child of it
           ;; finds nothing, which is why the first version of this silently
           ;; produced no hints for user code at all.
-          (let* ((defun-node (if (eq (clef-symbols:node-kind-of form) :defun)
+          (let* ((defun-node (if (eq (symbols:node-kind-of form) :defun)
                                  form
                                  (find :defun (ts:node-children form)
-                                       :key #'clef-symbols:node-kind-of)))
+                                       :key #'symbols:node-kind-of)))
                  (header (when defun-node
                            (find :defun-header (ts:node-children defun-node)
-                                 :key #'clef-symbols:node-kind-of)))
+                                 :key #'symbols:node-kind-of)))
                  (lambda-list (when header
                                 (find :list-lit (ts:node-children header)
-                                      :key #'clef-symbols:node-kind-of))))
+                                      :key #'symbols:node-kind-of))))
             (when lambda-list
               (trim-lambda-list
                (loop for child in (ts:node-children lambda-list)
-                     when (eq (clef-symbols:node-kind-of child) :sym-lit)
+                     when (eq (symbols:node-kind-of child) :sym-lit)
                        collect (let ((text (ignore-errors
-                                            (clef-parser/parser:node-text child source))))
+                                            (parser:node-text child source))))
                                  (when text (intern (string-upcase text) :keyword))))))))))))
 
 (defun required-parameter-names (sym name)
@@ -89,7 +108,7 @@ clef's own index second, for code the image has never seen."
 
 An argument already spelled like its parameter -- (make-point x y) -- gains
 nothing from being told so, and the clutter costs more than the information."
-  (let ((text (ignore-errors (clef-parser/parser:node-text argument-node source))))
+  (let ((text (ignore-errors (parser:node-text argument-node source))))
     (not (and text
               (string-equal (string-trim "'" text)
                             (princ-to-string parameter-name))))))
@@ -97,11 +116,11 @@ nothing from being told so, and the clutter costs more than the information."
 (defun call-inlay-hints (node source package-designator)
   "Hints for one call form, or NIL if it is not a call worth hinting."
   (let ((children (remove :comment (ts:node-children node)
-                          :key #'clef-symbols:node-kind-of)))
+                          :key #'symbols:node-kind-of)))
     (when (and children
-               (eq (clef-symbols:node-kind-of (first children)) :sym-lit))
+               (eq (symbols:node-kind-of (first children)) :sym-lit))
       (let* ((operator-text (ignore-errors
-                             (clef-parser/parser:node-text (first children) source)))
+                             (parser:node-text (first children) source)))
              (sym (when operator-text (lookup-symbol operator-text package-designator))))
         ;; Hintable when the image says it is a plain function, OR when the image
         ;; has never heard of it and clef's index has -- which is the case for
@@ -117,8 +136,8 @@ nothing from being told so, and the clutter costs more than the information."
                 when (hint-worth-showing-p name argument source)
                   collect (dict "position"
                                 (make-position
-                                 (clef-parser/parser:node-start-point-row argument)
-                                 (clef-parser/parser:node-start-point-column argument))
+                                 (parser:node-start-point-row argument)
+                                 (parser:node-start-point-column argument))
                                 "label" (format nil "~A:" (string-downcase
                                                            (princ-to-string name)))
                                 "kind" +inlay-hint-kind-parameter+
@@ -139,21 +158,21 @@ nothing from being told so, and the clutter costs more than the information."
 
 The client asks for a range -- the visible window -- rather than the whole file,
 and honouring that matters: hints are recomputed on every scroll."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (range (href params "range"))
          (text (gethash document-uri ctx:documents)))
     (slog :debug "[textDocument/inlayHint] Document: ~A" document-uri)
     (if (null text)
         #()
-        (let* ((tree (clef-parser/parser:parse-string text))
+        (let* ((tree (parser:parse-string text))
                (package-designator
-                 (let ((pkg (clef-parser/utils:find-package-declaration tree text)))
+                 (let ((pkg (parser-utils:find-package-declaration tree text)))
                    (when pkg (package-name pkg))))
                (hints '()))
           (labels ((walk (node)
                      (when node
-                       (when (member (clef-symbols:node-kind-of node) '(:list-lit :vec-lit))
+                       (when (member (symbols:node-kind-of node) '(:list-lit :vec-lit))
                          (dolist (hint (call-inlay-hints node text package-designator))
                            (let ((position (gethash "position" hint)))
                              (when (or (null range)

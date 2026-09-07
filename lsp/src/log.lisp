@@ -1,4 +1,14 @@
-(in-package :clef-log)
+(defpackage :clef-lsp/src/log
+  (:use :cl)
+  (:export
+   #:*log-file-path*
+   #:*log-level*
+   #:*log-levels*
+   #:*log-mode*
+   #:init
+   #:slog))
+
+(in-package :clef-lsp/src/log)
 
 ;; Log level configuration (mutable, so use * convention)
 (defvar *log-level* :debug

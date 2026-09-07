@@ -1,4 +1,13 @@
-(in-package :clef-scaffold)
+(defpackage :clef-lsp/src/scaffold
+  (:use :cl)
+  (:local-nicknames
+    (:ppcre :cl-ppcre))
+  (:export
+   #:*template-files*
+   #:load-template-files
+   #:new-project))
+
+(in-package :clef-lsp/src/scaffold)
 
 ;;;; clef new: scaffold a golden-path project from the bundled template.
 ;;;;
@@ -37,7 +46,7 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
   "Fail loudly on template syntax the embedded renderer does not support."
   (let ((stripped content))
     (dolist (pattern *supported-syntax*)
-      (setf stripped (cl-ppcre:regex-replace-all pattern stripped "")))
+      (setf stripped (ppcre:regex-replace-all pattern stripped "")))
     (when (search "<%" stripped)
       (error "Template ~A uses syntax the bundled renderer does not support.~%~
               Keep templates/clef/ to: <%= @ key %> and (or (@ key) \"default\")."
@@ -65,7 +74,7 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
   (let ((out content))
     ;; Optional with default: <%= (or (@ key) "default") %>
     (setf out
-          (cl-ppcre:regex-replace-all
+          (ppcre:regex-replace-all
            "<%= \\(or \\(@ ([a-z-]+)\\) \"([^\"]*)\"\\) %>"
            out
            (lambda (match key default &rest _)
@@ -74,7 +83,7 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
            :simple-calls t))
     ;; Required: <%= @ key %>
     (setf out
-          (cl-ppcre:regex-replace-all
+          (ppcre:regex-replace-all
            "<%= @ ([a-z-]+) %>"
            out
            (lambda (match key &rest _)
@@ -107,7 +116,7 @@ Returns the project directory. Signals on any problem; refuses to overwrite."
              (uiop:native-namestring dest)))
     (dolist (entry *template-files*)
       (destructuring-bind (rel . content) entry
-        (let* ((rel-rendered (cl-ppcre:regex-replace-all "{{app-name}}" rel name))
+        (let* ((rel-rendered (ppcre:regex-replace-all "{{app-name}}" rel name))
                (target (merge-pathnames rel-rendered dest)))
           (ensure-directories-exist target)
           (with-open-file (out target :direction :output :if-exists :error)

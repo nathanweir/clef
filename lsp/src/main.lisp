@@ -1,4 +1,15 @@
-(in-package :clef-root)
+(defpackage :clef-lsp/src/main
+  (:use :cl)
+  (:local-nicknames
+    (:handlers :clef-lsp/src/lsp/handlers)
+    (:lint :clef-lsp/src/lint)
+    (:scaffold :clef-lsp/src/scaffold)
+    (:server :clef-lsp/src/lsp/server))
+  (:export
+   #:main
+   #:start-server))
+
+(in-package :clef-lsp/src/main)
 
 ;; claim-protocol-stream needs sb-posix at read time. Required here rather than
 ;; via an ASDF (:require ...) dependency: clef's own workspace-system loader
@@ -20,10 +31,10 @@
 
 (defun start-server (&key (input *standard-input*) (output *standard-output*)
                           (log-mode :none) log-file-path)
-       ;; Nothing may be logged before clef-lsp/server:start calls clef-log:init.
-       (clef-lsp/server:start :input input :output output
+       ;; Nothing may be logged before clef-lsp/src/lsp/server:start calls clef-lsp/src/log:init.
+       (server:start :input input :output output
                               :log-mode log-mode :log-file-path log-file-path
-                              :register #'clef-lsp/handlers:register-handlers))
+                              :register #'handlers:register-handlers))
 
 (defun claim-protocol-stream ()
        "Move the real stdout to a private fd and point fd 1 at stderr.
@@ -127,7 +138,7 @@ is the server.
             (cond
               (err (format *error-output* "clef new: ~A~%" err) 2)
               (t (handler-case
-                     (let ((dir (clef-scaffold:new-project name :params params)))
+                     (let ((dir (scaffold:new-project name :params params)))
                           (format t "Created ~A from the clef golden-path template.~%~
                                      Next: cd ~A && make test~%"
                                   (uiop:native-namestring dir) name)
@@ -136,7 +147,7 @@ is the server.
                           (format *error-output* "clef new: ~A~%" e)
                           1))))))
          ((string= command "lint")
-          (handler-case (clef-lint:main args)
+          (handler-case (lint:main args)
             (error (e)
                    (format *error-output* "clef lint: ~A~%" e)
                    1)))

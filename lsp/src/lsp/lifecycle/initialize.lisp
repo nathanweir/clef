@@ -1,9 +1,34 @@
-(in-package :clef-lsp/lifecycle)
+(defpackage :clef-lsp/src/lsp/lifecycle/initialize
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :serapeum #:href)
+  (:local-nicknames
+    (:capabilities :clef-lsp/src/lsp/server-capabilities)
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:build-file-to-system-mapping
+   #:discover-asd-files
+   #:get-file-system
+   #:handle-initialize
+   #:list-workspace-systems
+   #:load-all-workspace-systems
+   #:load-asd
+   #:load-system-with-info
+   #:load-workspace-asd
+   #:parse-asd-file))
+
+(in-package :clef-lsp/src/lsp/lifecycle/initialize)
 
 ;;; Workspace ASDF system discovery and loading.
 ;;;
 ;;; The loaded-systems / file-to-system / asd-files tables formerly defined
-;;; here as defparameters now live on CLEF-CONTEXT:*SERVER* so that all
+;;; here as defparameters now live on CLEF-LSP/SRC/CONTEXT:*SERVER* so that all
 ;;; CLEF state resets atomically on shutdown. This file just reads and
 ;;; writes them through the CTX: aliases.
 
@@ -93,7 +118,7 @@
 (defun load-workspace-asd (root-uri)
        "Finds the first .asd file in the workspace root uri, and loads it"
        ;; TODO: Handle missing trailing slash
-       (let* ((path-root (clef-util:cleanup-path root-uri))
+       (let* ((path-root (util:cleanup-path root-uri))
               (wildcard-path (concatenate 'string path-root "/" "*.asd"))
               (asd-files (uiop:directory* wildcard-path)))
              (if asd-files
@@ -108,7 +133,7 @@
 
 (defun discover-asd-files (root-uri)
   "Find all .asd files in the workspace: root + common subdirectories (test/, tests/, t/)."
-  (let* ((path-root (clef-util:cleanup-path root-uri))
+  (let* ((path-root (util:cleanup-path root-uri))
          (search-dirs (list path-root
                             (concatenate 'string path-root "/test")
                             (concatenate 'string path-root "/tests")
@@ -125,10 +150,10 @@
 
 (defun get-node-text-simple (node source)
   "Extract text for a tree-sitter node without requiring line offset caching."
-  (let* ((start-row (clef-parser/parser:node-start-point-row node))
-         (start-col (clef-parser/parser:node-start-point-column node))
-         (end-row (clef-parser/parser:node-end-point-row node))
-         (end-col (clef-parser/parser:node-end-point-column node)))
+  (let* ((start-row (parser:node-start-point-row node))
+         (start-col (parser:node-start-point-column node))
+         (end-row (parser:node-end-point-row node))
+         (end-col (parser:node-end-point-column node)))
     ;; Calculate byte offsets by counting through newlines
     (let ((start-offset 0)
           (end-offset 0)
@@ -158,21 +183,21 @@
 (defun parse-asd-file (asd-path)
   "Parse an .asd file and return a list of system-info structs for each defsystem found."
   (handler-case
-      (let* ((source (clef-util:read-file-text (namestring asd-path)))
-             (tree (clef-parser/parser:parse-string source))
+      (let* ((source (util:read-file-text (namestring asd-path)))
+             (tree (parser:parse-string source))
              (systems '()))
         ;; Walk tree looking for defsystem forms
         (labels ((walk (node)
-                   (let ((node-type (cl-tree-sitter/high-level:node-type node)))
+                   (let ((node-type (ts:node-type node)))
                      ;; Look for list literals that might be defsystem
                      (when (eq node-type :LIST-LIT)
                        (let ((parsed-system (try-parse-defsystem node source)))
                          (when parsed-system
-                           (setf (clef-symbols:system-info-asd-path parsed-system)
+                           (setf (sym:system-info-asd-path parsed-system)
                                  (namestring asd-path))
                            (push parsed-system systems))))
                      ;; Recurse into children
-                     (dolist (child (cl-tree-sitter/high-level:node-children node))
+                     (dolist (child (ts:node-children node))
                        (walk child)))))
           (walk tree))
         (nreverse systems))
@@ -182,11 +207,11 @@
 
 (defun try-parse-defsystem (list-node source)
   "Attempt to parse a LIST-LIT node as a defsystem form. Returns system-info or nil."
-  (let* ((children (cl-tree-sitter/high-level:node-children list-node))
+  (let* ((children (ts:node-children list-node))
          (first-child (first children)))
     ;; Check if first child is 'defsystem' or 'asdf:defsystem' symbol
     (when (and first-child
-               (let ((first-type (cl-tree-sitter/high-level:node-type first-child)))
+               (let ((first-type (ts:node-type first-child)))
                  (or (equal first-type '(:value :sym-lit))
                      (equal first-type '(:value :kwd-lit)))))
       (let ((first-text (string-downcase (get-node-text-simple first-child source))))
@@ -200,7 +225,7 @@
                      (system-name (string-downcase
                                    (string-trim '(#\: #\" #\' #\#) name-text)))
                      (dependencies (extract-depends-on children source)))
-                (clef-symbols:make-system-info
+                (sym:make-system-info
                  :name system-name
                  :asd-path nil  ; Set by caller
                  :dependencies dependencies
@@ -211,7 +236,7 @@
   "Extract the :depends-on list from defsystem children nodes."
   (let ((found-depends-on nil))
     (dolist (child children)
-      (let ((child-type (cl-tree-sitter/high-level:node-type child)))
+      (let ((child-type (ts:node-type child)))
         (cond
           ;; If we previously found :depends-on, the next list is our deps
           ((and found-depends-on
@@ -256,7 +281,7 @@ Systems with no local dependencies are loaded first."
          (with-local-deps '()))
     ;; Partition systems by whether they have local dependencies
     (maphash (lambda (name sys-info)
-               (let* ((deps (clef-symbols:system-info-dependencies sys-info))
+               (let* ((deps (sym:system-info-dependencies sys-info))
                       ;; Convert deps to strings for comparison
                       (deps-as-strings (mapcar (lambda (d)
                                                  (string-downcase (if (stringp d) d (symbol-name d))))
@@ -272,8 +297,8 @@ Systems with no local dependencies are loaded first."
 
 (defun load-system-with-info (sys-info)
   "Load a single system using its system-info struct."
-  (let* ((asd-path (clef-symbols:system-info-asd-path sys-info))
-         (system-name (clef-symbols:system-info-name sys-info)))
+  (let* ((asd-path (sym:system-info-asd-path sys-info))
+         (system-name (sym:system-info-name sys-info)))
     ;; Skip the "clef" system as that's the name of this LSP
     (when (string-equal system-name "clef")
       (slog :debug "Skipping system 'clef' (self)")
@@ -291,9 +316,9 @@ Systems with no local dependencies are loaded first."
             (slog :debug "Loading system: ~A" system-name)
             (safe-load-system system-name)
             ;; After loading, populate source files from ASDF
-            (setf (clef-symbols:system-info-source-files sys-info)
+            (setf (sym:system-info-source-files sys-info)
                   (get-system-source-files system-name))
-            (setf (clef-symbols:system-info-loaded-p sys-info) t)
+            (setf (sym:system-info-loaded-p sys-info) t)
             (slog :info "Successfully loaded system: ~A" system-name)))
       (error (e)
         (slog :warn "Failed to load system ~A: ~A" system-name e)))))
@@ -303,7 +328,7 @@ Systems with no local dependencies are loaded first."
   (let ((mapping ctx:file-to-system))
     (clrhash mapping)
     (maphash (lambda (system-name sys-info)
-               (dolist (file-path (clef-symbols:system-info-source-files sys-info))
+               (dolist (file-path (sym:system-info-source-files sys-info))
                  (setf (gethash file-path mapping) system-name)))
              ctx:loaded-systems)))
 
@@ -325,8 +350,8 @@ Systems with no local dependencies are loaded first."
             (slog :debug "Parsing .asd file: ~A" asd-path)
             (let ((systems (parse-asd-file asd-path)))
               (dolist (sys systems)
-                (slog :debug "Found system: ~A" (clef-symbols:system-info-name sys))
-                (setf (gethash (clef-symbols:system-info-name sys) ctx:loaded-systems) sys))))
+                (slog :debug "Found system: ~A" (sym:system-info-name sys))
+                (setf (gethash (sym:system-info-name sys) ctx:loaded-systems) sys))))
 
           ;; Phase 2: Determine load order based on dependencies
           (let ((load-order (compute-system-load-order)))
@@ -356,7 +381,7 @@ Systems with no local dependencies are loaded first."
         collect name))
 
 (defun handle-initialize (request)
-       (let* ((params-hash (clef-jsonrpc/types:request-params request))
+       (let* ((params-hash (rpc:request-params request))
               (capabilities (href params-hash "capabilities")))
 
              ;; Get the workspace root and load the .ASD to power LSP diagnostics & symbols
@@ -378,7 +403,7 @@ Systems with no local dependencies are loaded first."
                     (handler-case
                       (let ((start-time (get-internal-real-time)))
                            (slog :debug "Building project symbol map...")
-                           (clef-symbols:build-project-symbol-map (clef-util:cleanup-path workspace-root))
+                           (symbols:build-project-symbol-map (util:cleanup-path workspace-root))
                            (slog :debug "Built project symbol map in ~A ms."
                                  (/ (* (- (get-internal-real-time) start-time) 1000.0)
                                     internal-time-units-per-second)))
@@ -399,7 +424,7 @@ Systems with no local dependencies are loaded first."
 
              ;; TODO: use *server-capabilities*
              ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#initializeResult
-             clef-lsp/server:*server-capabilities-json*))
+             capabilities:*server-capabilities-json*))
 ; (dict "capabilities"
 ;       (dict "textDocumentSync" (dict "change" 2)
 ;             "documentFormattingProvider" t))))

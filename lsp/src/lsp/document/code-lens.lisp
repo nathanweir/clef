@@ -1,4 +1,19 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/code-lens
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/document-symbol #:document-scope-for)
+  (:import-from :clef-lsp/src/lsp/document/references #:get-all-intervals-from-tree)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-code-lens))
+
+(in-package :clef-lsp/src/lsp/document/code-lens)
 
 ;;;; textDocument/codeLens -- a reference count above each definition.
 ;;;;
@@ -25,21 +40,21 @@ reference than it does."
      (lambda (path refs-tree)
        (when refs-tree
          (dolist (interval (get-all-intervals-from-tree refs-tree))
-           (let ((ref (clef-symbols::clef-interval-data interval)))
+           (let ((ref (sym::clef-interval-data interval)))
              (when (and ref
-                        (string= (clef-symbols:symbol-reference-symbol-name ref) name)
+                        (string= (sym:symbol-reference-symbol-name ref) name)
                         ;; The declaration itself is in the reference index too.
                         (not (and (string= path file-path)
-                                  (eq (clef-symbols:symbol-reference-node ref)
-                                      (clef-symbols:symbol-definition-node definition)))))
+                                  (eq (sym:symbol-reference-node ref)
+                                      (sym:symbol-definition-node definition)))))
                (incf count))))))
      ctx:symbol-refs)
     count))
 
 (defun definition-code-lens (definition file-path)
   "A lens for one top-level definition, or NIL."
-  (let ((node (clef-symbols:symbol-definition-node definition))
-        (name (clef-symbols:symbol-definition-symbol-name definition)))
+  (let ((node (sym:symbol-definition-node definition))
+        (name (sym:symbol-definition-symbol-name definition)))
     (when (and node name)
       (let ((count (count-workspace-references name definition file-path)))
         (dict "range" (node-to-range node)
@@ -56,14 +71,14 @@ reference than it does."
 Top-level definitions only. A lens above every LET binding would bury the file
 in annotations, and the count that matters is the one for something other code
 can call."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
-         (file-path (clef-util:cleanup-path document-uri)))
+         (file-path (util:cleanup-path document-uri)))
     (slog :debug "[textDocument/codeLens] Document: ~A" document-uri)
     (let* ((scope (document-scope-for file-path))
            (lenses (when scope
                      (loop for definition in (reverse
-                                              (clef-symbols:lexical-scope-symbol-definitions
+                                              (sym:lexical-scope-symbol-definitions
                                                scope))
                            for lens = (definition-code-lens definition file-path)
                            when lens collect lens))))

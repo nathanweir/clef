@@ -1,4 +1,15 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/diagnostic-tests
+  (:use :cl)
+  (:import-from :clef-lsp/test/framework #:assert-equal #:assert-nil #:assert-not-nil
+                #:assert-true #:call-handler #:deftest #:init-server
+                #:response-result-safe #:with-direct-handler-test)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:diagnostic :clef-lsp/src/lsp/document/diagnostic)
+    (:parser :clef-lsp/src/parser/parser)
+    (:range :clef-lsp/src/lsp/types/basic/range)))
+
+(in-package :clef-lsp/test/diagnostic-tests)
 
 ;;; Diagnostic tests: syntax errors, compile errors, warnings
 
@@ -167,11 +178,11 @@ Hand-checked against the source below rather than against whatever the parser
 happens to emit: line 1 is \"(beta gamma)\", which starts at column 0 and is 12
 characters long. A transposed conversion would report line 0 / character 1."
   (let* ((code (format nil "(alpha)~%(beta gamma)"))
-         (tree (clef-parser/parser:parse-string code))
-         (forms (clef-lsp/document::toplevel-forms tree))
+         (tree (parser:parse-string code))
+         (forms (diagnostic::toplevel-forms tree))
          (second-form (second forms)))
     (assert-not-nil second-form "Source should have a second top-level form")
-    (let* ((range (clef-lsp/types/basic:node-to-range second-form))
+    (let* ((range (range:node-to-range second-form))
            (start (gethash "start" range))
            (end (gethash "end" range)))
       (assert-not-nil range "Should produce a range")
@@ -184,7 +195,7 @@ characters long. A transposed conversion would report line 0 / character 1."
   "node-to-range returns nil for a nil node rather than erroring.
 
 workspace/symbol relied on this guard in its own copy; the shared one keeps it."
-  (assert-nil (clef-lsp/types/basic:node-to-range nil)
+  (assert-nil (range:node-to-range nil)
               "nil node should give nil range"))
 
 (deftest test-diagnostic-syntax-error-range-covers-the-offending-line

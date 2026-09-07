@@ -1,4 +1,22 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/references
+  (:use :cl)
+  (:import-from :interval)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/definition #:search-up-for-symbol-def)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/symbols/init #:get-ref-for-doc-pos)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-references))
+
+(in-package :clef-lsp/src/lsp/document/references)
 
 (defun resolve-symbol-at (document-uri line character)
   "What the symbol at a position names.
@@ -18,19 +36,19 @@ find-references reports is a data-loss bug, not a cosmetic one."
       (unless symbol-name
         (let ((def (find-definition-at-position document-uri line character)))
           (when def
-            (setf symbol-name (clef-symbols:symbol-definition-symbol-name def)
+            (setf symbol-name (sym:symbol-definition-symbol-name def)
                   definition-at-point def))))
       (if (null symbol-name)
           (values nil nil nil)
           (let* ((offset (ignore-errors
-                          (clef-symbols:line-char-to-byte-offset
-                           (clef-util:cleanup-path document-uri) line character)))
+                          (symbols:line-char-to-byte-offset
+                           (util:cleanup-path document-uri) line character)))
                  (definition (or definition-at-point
                                  (search-up-for-symbol-def ref-scope symbol-name
                                                            ref-package offset)))
                  (lexical (and definition
                                (lexical-binding-scope-p
-                                (clef-symbols:symbol-definition-defining-scope definition)))))
+                                (sym:symbol-definition-defining-scope definition)))))
             (values symbol-name definition lexical))))))
 
 (defun locations-for-symbol (symbol-name definition lexical include-declaration)
@@ -43,14 +61,14 @@ find-references and rename."
                        (find-all-symbol-references symbol-name))))
     (when (and include-declaration
                definition
-               (clef-symbols:symbol-definition-location definition))
+               (sym:symbol-definition-location definition))
       (push (symbol-definition-to-location definition) locations))
     (dedupe-locations locations)))
 
 (defun handle-text-document-references (message)
   "Handle a textDocument/references request.
 Returns all locations where the symbol at the given position is referenced."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
@@ -73,25 +91,25 @@ Returns all locations where the symbol at the given position is referenced."
   "Find a symbol definition at the given position.
 This handles the case where the cursor is on a function/variable name in a definition
 (e.g., the 'foo' in '(defun foo ...)'), rather than on a usage."
-  (let* ((file-path (clef-util:cleanup-path document-uri))
-         (offset (clef-symbols:line-char-to-byte-offset file-path line character)))
+  (let* ((file-path (util:cleanup-path document-uri))
+         (offset (symbols:line-char-to-byte-offset file-path line character)))
     ;; Get the lexical scope at this position
     (let ((scopes (interval:find-all
                    (gethash file-path ctx:lexical-scopes)
                    offset)))
       ;; Check each scope (from innermost to outermost) for definitions at this position
       (dolist (scope-interval scopes)
-        (let ((scope (clef-symbols::clef-interval-data scope-interval)))
+        (let ((scope (sym::clef-interval-data scope-interval)))
           (when scope
             ;; Check symbol definitions in this scope
-            (dolist (def (clef-symbols:lexical-scope-symbol-definitions scope))
-              (let ((def-node (clef-symbols:symbol-definition-node def)))
+            (dolist (def (sym:lexical-scope-symbol-definitions scope))
+              (let ((def-node (sym:symbol-definition-node def)))
                 (when def-node
                   ;; Check if cursor is within this definition's node
-                  (let* ((start-row (clef-parser/parser:node-start-point-row def-node))
-                         (start-col (clef-parser/parser:node-start-point-column def-node))
-                         (end-row (clef-parser/parser:node-end-point-row def-node))
-                         (end-col (clef-parser/parser:node-end-point-column def-node)))
+                  (let* ((start-row (parser:node-start-point-row def-node))
+                         (start-col (parser:node-start-point-column def-node))
+                         (end-row (parser:node-end-point-row def-node))
+                         (end-col (parser:node-end-point-column def-node)))
                     (when (position-in-range-p line character
                                                start-row start-col
                                                end-row end-col)
@@ -135,7 +153,7 @@ This handles the case where the cursor is on a function/variable name in a defin
 A lexical binding's references are bounded by its scope. A top-level definition's
 genuinely are workspace-wide, so those keep the name-matching path."
   (and scope
-       (member (clef-symbols:lexical-scope-kind scope)
+       (member (sym:lexical-scope-kind scope)
                '(:let :flet :labels :lambda :defun :defmacro))
        t))
 
@@ -146,7 +164,7 @@ Mirrors what GET-REF-FOR-DOC-POS does for a line/character position."
   (let ((scopes (ignore-errors
                  (interval:find-all (gethash file-path ctx:lexical-scopes) offset))))
     (when scopes
-      (clef-symbols::clef-interval-data (first (last scopes))))))
+      (sym::clef-interval-data (first (last scopes))))))
 
 (defun binding-of (ref file-path)
   "The definition REF actually refers to.
@@ -157,14 +175,14 @@ parameter's scope covers one binding, but the walk has FLET's own scope current
 while it visits that binding's body, so a reference there carries the outer
 scope. Going by position gets the innermost scope that actually contains the
 reference, and matches how go-to-definition resolves."
-  (let* ((location (clef-symbols:symbol-reference-location ref))
+  (let* ((location (sym:symbol-reference-location ref))
          (scope (or (when location
-                      (innermost-scope-at file-path (clef-symbols:location-start location)))
-                    (clef-symbols:symbol-reference-usage-scope ref))))
+                      (innermost-scope-at file-path (sym:location-start location)))
+                    (sym:symbol-reference-usage-scope ref))))
     (search-up-for-symbol-def scope
-                              (clef-symbols:symbol-reference-symbol-name ref)
-                              (clef-symbols:symbol-reference-package-name ref)
-                              (when location (clef-symbols:location-start location)))))
+                              (sym:symbol-reference-symbol-name ref)
+                              (sym:symbol-reference-package-name ref)
+                              (when location (sym:location-start location)))))
 
 (defun find-references-to-binding (definition symbol-name)
   "Locations of every reference that resolves to DEFINITION.
@@ -176,9 +194,9 @@ without needing any special-case knowledge of what shadows what."
     (maphash (lambda (file-path refs-tree)
                (when refs-tree
                  (dolist (interval (get-all-intervals-from-tree refs-tree))
-                   (let ((ref (clef-symbols::clef-interval-data interval)))
+                   (let ((ref (sym::clef-interval-data interval)))
                      (when (and ref
-                                (string= (clef-symbols:symbol-reference-symbol-name ref)
+                                (string= (sym:symbol-reference-symbol-name ref)
                                          symbol-name)
                                 (eq (binding-of ref file-path) definition))
                        (push (symbol-reference-to-location ref file-path) locations))))))
@@ -232,9 +250,9 @@ Returns a list of LSP Location dicts."
     (handler-case
         (let ((all-intervals (get-all-intervals-from-tree refs-tree)))
           (dolist (interval all-intervals)
-            (let ((ref (clef-symbols::clef-interval-data interval)))
+            (let ((ref (sym::clef-interval-data interval)))
               (when (and ref
-                         (string= (clef-symbols:symbol-reference-symbol-name ref)
+                         (string= (sym:symbol-reference-symbol-name ref)
                                   symbol-name))
                 (push (symbol-reference-to-location ref file-path) results)))))
       (error (e)
@@ -252,14 +270,14 @@ This is a workaround since cl-interval doesn't expose a direct iteration method.
 
 (defun symbol-reference-to-location (ref file-path)
   "Convert a symbol-reference struct to an LSP Location dict."
-  (let ((node (clef-symbols:symbol-reference-node ref)))
+  (let ((node (sym:symbol-reference-node ref)))
     (dict "uri" (format nil "file://~A" file-path)
           "range" (node-to-range node))))
 
 (defun symbol-definition-to-location (def)
   "Convert a symbol-definition struct to an LSP Location dict."
-  (let* ((location (clef-symbols:symbol-definition-location def))
-         (file-path (clef-symbols:location-file-path location))
-         (node (clef-symbols:symbol-definition-node def)))
+  (let* ((location (sym:symbol-definition-location def))
+         (file-path (sym:location-file-path location))
+         (node (sym:symbol-definition-node def)))
     (dict "uri" (format nil "file://~A" file-path)
           "range" (node-to-range node))))

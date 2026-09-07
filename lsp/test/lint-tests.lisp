@@ -1,4 +1,11 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/lint-tests
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:import-from :clef-lsp/test/framework #:assert-equal #:assert-nil #:assert-not-nil #:deftest)
+  (:local-nicknames
+    (:lint :clef-lsp/src/lint)))
+
+(in-package :clef-lsp/test/lint-tests)
 
 ;;;; Tests for the convention linter.
 ;;;;
@@ -35,7 +42,7 @@ package-inferred-system, which is the linter's gate."
 
 (defun lint-kinds (root)
   "The kinds of every finding for ROOT, in order."
-  (mapcar #'clef-conditions:diagnostic-kind (clef-lint:lint-project root)))
+  (mapcar #'clef-conditions:diagnostic-kind (lint:lint-project root)))
 
 (deftest test-lint-passes-conforming-code
   "A project that follows the convention produces no findings"
@@ -70,7 +77,7 @@ package-inferred-system, which is the linter's gate."
                '(("src/main.lisp" . "(defpackage :fixture/src/wrong-name
   (:use :cl))
 (in-package :fixture/src/wrong-name)")))))
-    (let ((findings (clef-lint:lint-project root)))
+    (let ((findings (lint:lint-project root)))
       (assert-equal '(:lint-name-mismatch) (mapcar #'clef-conditions:diagnostic-kind findings)
                     "Exactly the mismatch, nothing else")
       ;; The message must say what the path DEMANDS, since that is the fix.
@@ -102,7 +109,7 @@ package-inferred-system, which is the linter's gate."
   (:use :cl)
   (:local-nicknames (:a :fixture/src/a)))
 (in-package :fixture/src/b)")))))
-    (let* ((findings (clef-lint:lint-project root))
+    (let* ((findings (lint:lint-project root))
            (cycle (find :lint-import-cycle findings
                         :key #'clef-conditions:diagnostic-kind)))
       (assert-not-nil cycle "The a<->b cycle must be found")
@@ -129,7 +136,7 @@ package-inferred-system, which is the linter's gate."
                :asd-content "(asdf:defsystem \"fixture\"
   :serial t
   :components ((:file \"src/main\")))")))
-    (multiple-value-bind (findings reason) (clef-lint:lint-project root)
+    (multiple-value-bind (findings reason) (lint:lint-project root)
       (assert-nil findings "No findings for a project outside the convention")
       (assert-equal :not-a-convention-project reason
                     "And the caller is told why"))))

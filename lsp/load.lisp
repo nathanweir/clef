@@ -1,6 +1,11 @@
 ;;; Load script for CLEF
 ;;; Configures build output directory and loads the system
 
+(defpackage :clef-lsp/load
+  (:use :cl))
+
+(in-package :clef-lsp/load)
+
 (require :asdf)
 (require :sb-introspect)
 (require :sb-concurrency)

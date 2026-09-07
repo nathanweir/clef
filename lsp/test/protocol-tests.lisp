@@ -1,4 +1,22 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/protocol-tests
+  (:use :cl)
+  (:import-from :clef-lsp/test/framework #:answered-p #:assert-equal #:assert-nil
+                #:assert-not-nil #:assert-true #:call-handler #:deftest
+                #:delete-temp-file #:init-server #:response-is-error-p
+                #:response-is-success-p #:response-result-safe
+                #:test-temp-dir #:with-direct-handler-test
+                #:write-temp-file)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:lambda-lists :clef-lsp/src/lsp/document/lambda-lists)
+    (:legend :clef-lsp/src/lsp/types/basic/semantic-legend)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:server :clef-lsp/src/lsp/server)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util)))
+
+(in-package :clef-lsp/test/protocol-tests)
 
 ;;; JSON-RPC protocol contract tests.
 ;;;
@@ -37,7 +55,7 @@
                      "Having no result is success, not an error")
         (assert-nil (response-result-safe response)
                     "And the result itself should be null")
-        (assert-equal 42 (clef-jsonrpc/types:response-id response)
+        (assert-equal 42 (rpc:response-id response)
                       "The reply must carry the request's id")))))
 
 (deftest test-definition-that-resolves-nothing-is-still-answered
@@ -58,7 +76,7 @@
                                     :id 7)))
         (assert-true (answered-p response)
                      "Server must answer even when the definition is not found")
-        (assert-equal 7 (clef-jsonrpc/types:response-id response)
+        (assert-equal 7 (rpc:response-id response)
                       "The reply must carry the request's id")))))
 
 ;;; ---------------------------------------------------------------------------
@@ -132,13 +150,13 @@
                                                "version" 1
                                                "text" "(defun closing () 1)"))
                     :id nil)
-      (assert-not-nil (gethash uri clef-context:documents)
+      (assert-not-nil (gethash uri ctx:documents)
                       "Document should be present after didOpen")
       (let ((response (call-handler "textDocument/didClose"
                                     (dict "textDocument" (dict "uri" uri))
                                     :id nil)))
         (assert-nil response "didClose is a notification and must not be answered"))
-      (assert-nil (gethash uri clef-context:documents)
+      (assert-nil (gethash uri ctx:documents)
                   "Document should be gone after didClose"))))
 
 ;;; ---------------------------------------------------------------------------
@@ -920,7 +938,7 @@ by WITH-DIRECT-HANDLER-TEST and is not visible to a top-level function."
 
 A MACRO, not a function. CALL-HANDLER is an FLET bound by
 WITH-DIRECT-HANDLER-TEST, so a top-level function cannot see it -- and the
-failure reads \"The function CLEF-TEST::CALL-HANDLER is undefined\", which points
+failure reads \"The function CLEF-LSP/TEST/FRAMEWORK::CALL-HANDLER is undefined\", which points
 nowhere near the cause. Expanding at the call site puts the body inside the FLET
 where it belongs."
   `(let* ((response (call-handler "textDocument/hover"
@@ -1212,8 +1230,8 @@ undo it. A macro because CALL-HANDLER is an FLET."
                    (call-handler "textDocument/semanticTokens/full"
                                  (dict "textDocument" (dict "uri" ,uri)))))
           (data (when (hash-table-p result) (gethash "data" result)))
-          (types clef-lsp/types/basic:*semantic-token-types*)
-          (modifiers clef-lsp/types/basic:*semantic-token-modifiers*)
+          (types legend:*semantic-token-types*)
+          (modifiers legend:*semantic-token-modifiers*)
           (line 0) (char 0) (decoded '()))
      (when data
        (loop for i from 0 below (length data) by 5
@@ -1360,7 +1378,7 @@ undo it. A macro because CALL-HANDLER is an FLET."
                   (path (write-temp-file "(defun before-the-edit () 1)"))
                   (uri (format nil "file://~A" path)))
              (setf temp-path path)
-             (setf clef-context:workspace-root (format nil "file://~A" dir))
+             (setf ctx:workspace-root (format nil "file://~A" dir))
              ;; Index it as the workspace scan would, then close it -- the point
              ;; is a file clef knows about but the editor is not holding open.
              (call-handler "textDocument/didOpen"
@@ -1370,8 +1388,8 @@ undo it. A macro because CALL-HANDLER is an FLET."
                            :id nil)
              (call-handler "textDocument/didClose"
                            (dict "textDocument" (dict "uri" uri)) :id nil)
-             (clef-symbols::index-file-from-disk (clef-util:cleanup-path uri))
-             (assert-not-nil (clef-symbols:lookup-in-workspace-index "before-the-edit")
+             (symbols::index-file-from-disk (util:cleanup-path uri))
+             (assert-not-nil (symbols:lookup-in-workspace-index "before-the-edit")
                              "The original symbol should be indexed")
 
              ;; Now edit it the way an agent does: straight to disk, no
@@ -1380,12 +1398,12 @@ undo it. A macro because CALL-HANDLER is an FLET."
              ;; write the clock cannot distinguish.
              (with-open-file (out path :direction :output :if-exists :supersede)
                (write-string "(defun after-the-edit () 2)" out))
-             (remhash (clef-util:cleanup-path uri) clef-context:file-index-times)
+             (remhash (util:cleanup-path uri) ctx:file-index-times)
 
-             (clef-symbols:refresh-stale-index)
-             (assert-not-nil (clef-symbols:lookup-in-workspace-index "after-the-edit")
+             (symbols:refresh-stale-index)
+             (assert-not-nil (symbols:lookup-in-workspace-index "after-the-edit")
                              "The new symbol should be picked up")
-             (assert-nil (clef-symbols:lookup-in-workspace-index "before-the-edit")
+             (assert-nil (symbols:lookup-in-workspace-index "before-the-edit")
                          "And the deleted one should be gone")))
       (when temp-path (delete-temp-file temp-path)))))
 
@@ -1399,16 +1417,16 @@ undo it. A macro because CALL-HANDLER is an FLET."
                   (path (write-temp-file "(defun soon-to-vanish () 1)"))
                   (uri (format nil "file://~A" path)))
              (setf temp-path path)
-             (setf clef-context:workspace-root (format nil "file://~A" dir))
-             (clef-symbols::index-file-from-disk (clef-util:cleanup-path uri))
-             (assert-not-nil (clef-symbols:lookup-in-workspace-index "soon-to-vanish")
+             (setf ctx:workspace-root (format nil "file://~A" dir))
+             (symbols::index-file-from-disk (util:cleanup-path uri))
+             (assert-not-nil (symbols:lookup-in-workspace-index "soon-to-vanish")
                              "Indexed to begin with")
              (delete-file path)
              (setf temp-path nil)
-             (clef-symbols:refresh-stale-index)
+             (symbols:refresh-stale-index)
              ;; Left in place it answers go-to-definition with a location in a
              ;; file that is not there any more.
-             (assert-nil (clef-symbols:lookup-in-workspace-index "soon-to-vanish")
+             (assert-nil (symbols:lookup-in-workspace-index "soon-to-vanish")
                          "A deleted file's symbols must be forgotten")))
       (when temp-path (delete-temp-file temp-path)))))
 
@@ -1417,7 +1435,7 @@ undo it. A macro because CALL-HANDLER is an FLET."
   ;; Measured on this repository: the unpruned walk took 2175 ms and found 229
   ;; files, 90 of them inside .direnv. The pruned walk takes 4 ms and finds the
   ;; 100 that are project source. That cost was paid on every server start.
-  (let ((files (clef-symbols:project-lisp-files
+  (let ((files (symbols:project-lisp-files
                 (namestring (asdf:system-relative-pathname :clef-lsp "../")))))
     (assert-true (plusp (length files)) "Should find the project's own sources")
     (dolist (excluded '(".direnv" "/build/" "/tmp/" "/.git/"))
@@ -1880,32 +1898,32 @@ undo it. A macro because CALL-HANDLER is an FLET."
       (assert-nil (response-is-error-p response) "and must not be an error")
       ;; Returning (dict "result" nil) produced {"result":{"result":null}},
       ;; because HANDLE-LSP-REQUEST already wraps the return value.
-      (assert-nil (clef-jsonrpc/types:response-result response)
+      (assert-nil (rpc:response-result response)
                   "The result must be null itself, not a dict containing null"))))
 
 (deftest test-shutdown-is-recorded
   "shutdown must set the flag that decides the exit code"
   (with-direct-handler-test
     (init-server)
-    (assert-nil clef-context:shutdown-received
+    (assert-nil ctx:shutdown-received
                 "Nothing has shut down yet")
     (call-handler "shutdown" (dict) :id 7)
-    (assert-true clef-context:shutdown-received
+    (assert-true ctx:shutdown-received
                  "shutdown must record that it happened")))
 
 (deftest test-exit-code-depends-on-whether-shutdown-came-first
   "exit reports 0 after an orderly shutdown, 1 without one"
   ;; Bound so the handler returns the code instead of taking the test runner
   ;; down with it.
-  (let ((clef-lsp/server:*exit-terminates-process* nil))
+  (let ((server:*exit-terminates-process* nil))
     (with-direct-handler-test
       (init-server)
       (call-handler "shutdown" (dict) :id 7)
-      (assert-equal 0 (clef-lsp/server:exit-server)
+      (assert-equal 0 (server:exit-server)
                     "Exit after shutdown is success"))
     (with-direct-handler-test
       (init-server)
-      (assert-equal 1 (clef-lsp/server:exit-server)
+      (assert-equal 1 (server:exit-server)
                     "Exit without shutdown means the client never asked"))))
 
 (deftest test-exit-and-shutdown-work-before-initialization
@@ -1915,7 +1933,7 @@ undo it. A macro because CALL-HANDLER is an FLET."
   ;; quit between `initialize' and `initialized' could not clean up: over real
   ;; stdio the process was reaped by EOF instead and exited 0 where the spec
   ;; calls for 1.
-  (let ((clef-lsp/server:*exit-terminates-process* nil))
+  (let ((server:*exit-terminates-process* nil))
     (with-direct-handler-test
       ;; Deliberately NO init-server.
       (let ((response (call-handler "shutdown" (dict) :id 1)))
@@ -1952,7 +1970,7 @@ undo it. A macro because CALL-HANDLER is an FLET."
 
 (deftest test-exit-is-a-notification
   "exit carries no id and must not be answered"
-  (let ((clef-lsp/server:*exit-terminates-process* nil))
+  (let ((server:*exit-terminates-process* nil))
     (with-direct-handler-test
       (init-server)
       (assert-nil (call-handler "exit" (dict) :id nil)
@@ -2065,16 +2083,16 @@ fallback must not add a second entry beside the dedicated DEFUN path")))))
   ;; `. args' being shorthand for `&rest args'. Every caller walked it with
   ;; DOLIST/MAPCAR/LOOP FOR..IN, all of which assume a proper list.
   (assert-equal '(name &rest args)
-                (clef-lsp/document::normalize-lambda-list '(name . args))
+                (lambda-lists::normalize-lambda-list '(name . args))
                 "A dotted tail becomes an explicit &rest")
-  (assert-equal '(a b) (clef-lsp/document::normalize-lambda-list '(a b))
+  (assert-equal '(a b) (lambda-lists::normalize-lambda-list '(a b))
                 "A proper list is unchanged")
-  (assert-equal '() (clef-lsp/document::normalize-lambda-list nil)
+  (assert-equal '() (lambda-lists::normalize-lambda-list nil)
                 "NIL stays NIL")
-  (assert-equal '() (clef-lsp/document::normalize-lambda-list 'not-a-list)
+  (assert-equal '() (lambda-lists::normalize-lambda-list 'not-a-list)
                 "A bare symbol is not a lambda list")
   (assert-equal '(name)
-                (clef-lsp/document::trim-lambda-list '(name . args))
+                (lambda-lists::trim-lambda-list '(name . args))
                 "Required parameters stop at the implied &rest"))
 
 (deftest test-hover-over-a-dotted-lambda-list-does-not-error
@@ -2107,11 +2125,11 @@ fallback must not add a second entry beside the dedicated DEFUN path")))))
                                   :id 99)))
       (assert-true (answered-p response) "An unknown request must still be answered")
       (assert-true (response-is-error-p response) "And the answer must be an error")
-      (assert-equal clef-jsonrpc/types:+method-not-found+
-                    (clef-jsonrpc/types:error-code
-                     (clef-jsonrpc/types:response-error response))
+      (assert-equal rpc:+method-not-found+
+                    (rpc:error-code
+                     (rpc:response-error response))
                     "Error code should be MethodNotFound")
-      (assert-equal 99 (clef-jsonrpc/types:response-id response)
+      (assert-equal 99 (rpc:response-id response)
                     "The error reply must carry the request's id"))))
 
 ;;; ---------------------------------------------------------------------------

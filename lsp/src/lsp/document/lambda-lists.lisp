@@ -1,4 +1,7 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/lambda-lists
+  (:use :cl))
+
+(in-package :clef-lsp/src/lsp/document/lambda-lists)
 
 ;;;; Lambda-list handling, shared by hover, signature-help and inlay-hint.
 ;;;;

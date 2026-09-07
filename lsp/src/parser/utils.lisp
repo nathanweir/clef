@@ -1,10 +1,18 @@
-(in-package :clef-parser/utils)
+(defpackage :clef-lsp/src/parser/utils
+  (:use :cl)
+  (:local-nicknames
+    (:parser :clef-lsp/src/parser/parser)
+    (:ts :cl-tree-sitter))
+  (:export
+   #:find-package-declaration))
+
+(in-package :clef-lsp/src/parser/utils)
 
 (defun find-package-declaration (tree source)
        "Find (in-package ...) form in the tree-sitter AST."
        (labels ((visit-node (node)
                             (when node
-                                  (let ((text (clef-parser/parser:node-text node source)))
+                                  (let ((text (parser:node-text node source)))
                                        ;; Look for (in-package ...) forms
                                        (when (and (eq (ts:node-type node) :LIST-LIT)
                                                   (search "in-package" text))

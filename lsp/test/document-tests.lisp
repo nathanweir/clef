@@ -1,4 +1,15 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/document-tests
+  (:use :cl)
+  (:import-from :clef-lsp/test/framework #:assert-equal #:assert-nil #:assert-not-nil
+                #:assert-true #:call-handler #:deftest
+                #:delete-temp-file #:init-server #:response-is-error-p
+                #:response-result-safe #:with-direct-handler-test
+                #:write-temp-file)
+  (:import-from :serapeum #:dict)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)))
+
+(in-package :clef-lsp/test/document-tests)
 
 ;;; Document tests: didOpen, didChange, hover, completion, definition, formatting
 
@@ -41,7 +52,7 @@
                                              "text" *simple-lisp-code*))
                   :id nil)
     (assert-equal *simple-lisp-code*
-                  (gethash "file:///tmp/test.lisp" clef-context:documents)
+                  (gethash "file:///tmp/test.lisp" ctx:documents)
                   "Document text should be stored")))
 
 (deftest test-did-open-multiple-documents
@@ -61,9 +72,9 @@
                                              "text" "(defun b () 2)"))
                   :id nil)
     (assert-equal "(defun a () 1)"
-                  (gethash "file:///tmp/a.lisp" clef-context:documents))
+                  (gethash "file:///tmp/a.lisp" ctx:documents))
     (assert-equal "(defun b () 2)"
-                  (gethash "file:///tmp/b.lisp" clef-context:documents))))
+                  (gethash "file:///tmp/b.lisp" ctx:documents))))
 
 ;;; textDocument/didChange tests
 
@@ -85,7 +96,7 @@
                         "contentChanges" (vector (dict "text" "(defun new () t)")))
                   :id nil)
     (assert-equal "(defun new () t)"
-                  (gethash "file:///tmp/test.lisp" clef-context:documents)
+                  (gethash "file:///tmp/test.lisp" ctx:documents)
                   "Document should be updated")))
 
 ;;; textDocument/hover tests
@@ -1312,7 +1323,7 @@ every line number in the range must be 0 and every column must fall within it."
     ;; Use clef-symbols: prefix like the actual did-save.lisp
     (let ((code "(let ((text \"hello\"))
      (when text
-           (clef-symbols:build-file-symbol-map uri text)))"))
+           (clef-lsp/src/symbols/init:build-file-symbol-map uri text)))"))
       (call-handler "textDocument/didOpen"
                     (dict "textDocument" (dict "uri" "file:///tmp/pkg-qual-test.lisp"
                                                "languageId" "lisp"
@@ -1322,7 +1333,7 @@ every line number in the range must be 0 and every column must fall within it."
 
       ;; Line 0: "(let ((text \"hello\"))"
       ;; Line 1: "     (when text"
-      ;; Line 2: "           (clef-symbols:build-file-symbol-map uri text)))"
+      ;; Line 2: "           (clef-lsp/src/symbols/init:build-file-symbol-map uri text)))"
       ;;          0         1         2         3         4         5         6
       ;;          012345678901234567890123456789012345678901234567890123456789012
 
@@ -1337,8 +1348,8 @@ every line number in the range must be 0 and every column must fall within it."
                             (gethash "label" (aref signatures 0))))))))
 
         ;; Line 2 positions:
-        ;; 11 = opening paren of clef-symbols:build-file-symbol-map
-        ;; 12-43 = "clef-symbols:build-file-symbol-map"
+        ;; 11 = opening paren of clef-lsp/src/symbols/init:build-file-symbol-map
+        ;; 12-43 = "clef-lsp/src/symbols/init:build-file-symbol-map"
         ;; 44 = space
         ;; 45-47 = "uri"
         ;; 48 = space

@@ -1,4 +1,19 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/document-symbol
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/references #:get-all-intervals-from-tree)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/lsp/types/basic/symbol-kind #:lisp-kind-to-lsp-kind)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-document-symbol))
+
+(in-package :clef-lsp/src/lsp/document/document-symbol)
 
 ;;;; textDocument/documentSymbol -- the file outline.
 ;;;;
@@ -21,8 +36,8 @@ containing a single top-level form has a defun scope of nearly the same extent."
   (let ((tree (gethash file-path ctx:lexical-scopes)))
     (when tree
       (dolist (interval (get-all-intervals-from-tree tree))
-        (let ((scope (clef-symbols::clef-interval-data interval)))
-          (when (and scope (eq (clef-symbols:lexical-scope-kind scope) :document))
+        (let ((scope (sym::clef-interval-data interval)))
+          (when (and scope (eq (sym:lexical-scope-kind scope) :document))
             (return scope)))))))
 
 (defun trim-range-start (range shift)
@@ -48,19 +63,19 @@ name's offset, which failed for any file whose single top-level DEFUN spans the
 whole file: that scope's extent is identical to the document scope's, and the
 tree keeps only one of two identical intervals. See
 docs/surveys/lsp-review.md §1.8."
-  (let ((name (clef-symbols:symbol-definition-symbol-name def))
-        (name-node (clef-symbols:symbol-definition-node def))
-        (form-node (clef-symbols:symbol-definition-form-node def)))
+  (let ((name (sym:symbol-definition-symbol-name def))
+        (name-node (sym:symbol-definition-node def))
+        (form-node (sym:symbol-definition-form-node def)))
     (when (and name name-node)
       (let* ((selection-range (trim-range-start
                                (node-to-range name-node)
-                               (clef-symbols:symbol-definition-name-start-shift def)))
+                               (sym:symbol-definition-name-start-shift def)))
              ;; The spec requires selectionRange to be contained in range.
              ;; Falling back to the name for both satisfies that trivially and
              ;; still navigates correctly -- it only gives up the breadcrumb.
              (range (if form-node (node-to-range form-node) selection-range)))
         (dict "name" name
-              "kind" (lisp-kind-to-lsp-kind (clef-symbols:symbol-definition-kind def))
+              "kind" (lisp-kind-to-lsp-kind (sym:symbol-definition-kind def))
               "range" range
               "selectionRange" selection-range)))))
 
@@ -70,16 +85,16 @@ docs/surveys/lsp-review.md §1.8."
 Reports this file's top-level definitions. Nested bindings -- parameters, LET
 variables -- are deliberately excluded: an outline listing every local would be
 unreadable, and no editor presents them that way."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
-         (file-path (clef-util:cleanup-path document-uri)))
+         (file-path (util:cleanup-path document-uri)))
     (slog :debug "[textDocument/documentSymbol] Document: ~A" document-uri)
     (let ((scope (document-scope-for file-path)))
       (if (null scope)
           ;; An empty array, not NIL. "This file has no symbols" is a real
           ;; answer; the client asked a question and is owed one.
           #()
-          (let ((symbols (loop for def in (reverse (clef-symbols:lexical-scope-symbol-definitions scope))
+          (let ((symbols (loop for def in (reverse (sym:lexical-scope-symbol-definitions scope))
                                for entry = (definition-to-document-symbol def)
                                when entry collect entry)))
             (slog :debug "[textDocument/documentSymbol] ~A symbol(s)" (length symbols))

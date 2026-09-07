@@ -32,11 +32,11 @@
   (format t "~v@T~S~@[  ~S~]~%"
           (* 2 depth) (kind node)
           (when (member (kind node) '(:sym-lit :kwd-lit :kwd-symbol))
-            (ignore-errors (clef-parser/parser:node-text node source))))
+            (ignore-errors (clef-lsp/src/parser/parser:node-text node source))))
   (dolist (c (cl-tree-sitter:node-children node))
     (dump c (1+ depth) source)))
 
-(let ((tree (clef-parser/parser:parse-string *source*)))
+(let ((tree (clef-lsp/src/parser/parser:parse-string *source*)))
   (loop for form in (remove-if (lambda (n) (eq (kind n) :comment))
                                (cl-tree-sitter:node-children tree))
         for i from 0

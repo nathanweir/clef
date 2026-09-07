@@ -1,4 +1,9 @@
-(in-package :clef-lsp/types/basic)
+(defpackage :clef-lsp/src/lsp/types/basic/symbol-kind
+  (:use :cl)
+  (:export
+   #:lisp-kind-to-lsp-kind))
+
+(in-package :clef-lsp/src/lsp/types/basic/symbol-kind)
 
 ;;; LSP SymbolKind, and the mapping from clef's own symbol kinds onto it.
 ;;;

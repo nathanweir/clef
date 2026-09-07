@@ -1,4 +1,19 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/implementation
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/references #:find-definition-at-position)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/symbols/init #:get-ref-for-doc-pos)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-implementation))
+
+(in-package :clef-lsp/src/lsp/document/implementation)
 
 ;;;; textDocument/implementation.
 ;;;;
@@ -19,10 +34,10 @@
 
 (defun definition-to-location (def)
   "An LSP Location for DEF, or NIL when it has no usable file."
-  (let* ((location (clef-symbols:symbol-definition-location def))
-         (file-path (when location (clef-symbols:location-file-path location)))
-         (uri (when file-path (clef-util:path-to-file-uri file-path)))
-         (node (clef-symbols:symbol-definition-node def)))
+  (let* ((location (sym:symbol-definition-location def))
+         (file-path (when location (sym:location-file-path location)))
+         (uri (when file-path (util:path-to-file-uri file-path)))
+         (node (sym:symbol-definition-node def)))
     (when (and uri node)
       (dict "uri" uri "range" (node-to-range node)))))
 
@@ -33,8 +48,8 @@ Methods, when there are any. A name with no methods has no implementations
 distinct from itself, and the spec's answer for that is an empty result rather
 than pointing back at the declaration -- go-to-definition already does that."
   (remove-if-not (lambda (def)
-                   (eq (clef-symbols:symbol-definition-kind def) :method))
-                 (clef-symbols:lookup-in-workspace-index name)))
+                   (eq (sym:symbol-definition-kind def) :method))
+                 (symbols:lookup-in-workspace-index name)))
 
 (defun handle-text-document-implementation (message)
   "Handle a textDocument/implementation request.
@@ -42,7 +57,7 @@ than pointing back at the declaration -- go-to-definition already does that."
 Returns the methods of the generic function under the cursor. Works from a call
 site, from the DEFGENERIC's own name, or from any DEFMETHOD of it -- all three
 resolve to the same name, and the name is what the methods are indexed under."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
@@ -53,7 +68,7 @@ resolve to the same name, and the name is what the methods are indexed under."
       (declare (ignore ref-scope ref-package))
       (let* ((name (or ref-name
                        (let ((def (find-definition-at-position document-uri line character)))
-                         (when def (clef-symbols:symbol-definition-symbol-name def)))))
+                         (when def (sym:symbol-definition-symbol-name def)))))
              (locations (when name
                           (remove nil (mapcar #'definition-to-location
                                               (implementations-of name))))))

@@ -28,5 +28,5 @@ sbcl --noinform --non-interactive \
     --eval '(sb-posix:dup2 2 1)' \
     --eval "(asdf:load-asd #P\"$here/clef-lsp.asd\")" \
     --eval '(asdf:load-system :clef-lsp)' \
-    --eval "(clef-root:start-server :output *lsp-stdout* :log-mode :file :log-file-path #P\"$repo/tmp/clef.log\")" \
+    --eval "(clef-lsp/src/main:start-server :output *lsp-stdout* :log-mode :file :log-file-path #P\"$repo/tmp/clef.log\")" \
     --quit

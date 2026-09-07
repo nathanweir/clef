@@ -1,4 +1,10 @@
-(in-package :clef-lsp/workspace)
+(defpackage :clef-lsp/src/lsp/workspace/diagnostic
+  (:use :cl)
+  (:import-from :serapeum #:dict)
+  (:export
+   #:handle-workspace-diagnostic))
+
+(in-package :clef-lsp/src/lsp/workspace/diagnostic)
 
 ; (defun get-syntax-errors (input-text)
 ;        "Parse Lisp source code and emit a Diagnostic for each syntax error."

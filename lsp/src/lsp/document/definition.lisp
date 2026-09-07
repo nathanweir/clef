@@ -1,8 +1,27 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/definition
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/symbols/init #:get-ref-for-doc-pos)
+  (:import-from :clef-lsp/src/symbols/types #:lexical-scope-kind #:lexical-scope-parent-scope
+                #:lexical-scope-symbol-definitions #:location-file-path
+                #:symbol-definition-defining-scope
+                #:symbol-definition-location #:symbol-definition-node
+                #:symbol-definition-symbol-name)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-text-document-definition))
+
+(in-package :clef-lsp/src/lsp/document/definition)
 
 (defun handle-text-document-definition (message)
        "Handle a textDocument/definition request."
-       (let* ((params (clef-jsonrpc/types:request-params message))
+       (let* ((params (rpc:request-params message))
               (document-uri (href params "text-document" "uri"))
               (position (href params "position"))
               (line (href position "line"))
@@ -21,8 +40,8 @@
                                     (search-up-for-symbol-def
                                       ref-scope ref-name ref-package
                                       (ignore-errors
-                                       (clef-symbols:line-char-to-byte-offset
-                                         (clef-util:cleanup-path document-uri)
+                                       (symbols:line-char-to-byte-offset
+                                         (util:cleanup-path document-uri)
                                          line character)))))))
 
 
@@ -38,7 +57,7 @@ definitions from different packages.
 REF-OFFSET is where the reference sits, which decides whether a binding of a
 scope is actually visible from it. A LET's own bindings are not in scope in its
 init forms, and a scope is one interval, so position is the only thing that can
-tell those apart. See CLEF-SYMBOLS:DEFINITION-VISIBLE-FROM-P."
+tell those apart. See CLEF-LSP/SRC/SYMBOLS/INIT:DEFINITION-VISIBLE-FROM-P."
        ;; Base case: reached end of scope tree, try workspace index
        (unless ref-scope
                (slog :debug "Scope tree exhausted, searching workspace index for ~A" ref-name)
@@ -51,7 +70,7 @@ tell those apart. See CLEF-SYMBOLS:DEFINITION-VISIBLE-FROM-P."
        (let ((defs (lexical-scope-symbol-definitions ref-scope)))
             (dolist (def defs)
                     (when (and (string= (symbol-definition-symbol-name def) ref-name)
-                               (clef-symbols:definition-visible-from-p def ref-scope ref-offset))
+                               (symbols:definition-visible-from-p def ref-scope ref-offset))
                           (slog :debug "Found symbol definition for ~A in scope" ref-name)
                           (return-from search-up-for-symbol-def def))))
        (let ((parent-scope (lexical-scope-parent-scope ref-scope)))
@@ -73,13 +92,13 @@ agrees, which is no worse than before.
 The proper fix is to key the index by package and name rather than to rank
 after the fact; that is a change to the index and is recorded rather than done
 here."
-       (let ((defs (clef-symbols:lookup-in-workspace-index symbol-name)))
+       (let ((defs (symbols:lookup-in-workspace-index symbol-name)))
             (when defs
                   (slog :debug "Found ~A definition(s) for ~A in workspace index"
                         (length defs) symbol-name)
                   (or (when ref-package
                             (find-if (lambda (def)
-                                             (eq (clef-symbols:symbol-definition-package-name def)
+                                             (eq (sym:symbol-definition-package-name def)
                                                  ref-package))
                                      defs))
                       (first defs)))))
@@ -102,7 +121,7 @@ here."
        (let* ((scope (symbol-definition-defining-scope symbol-def))
               (location (symbol-definition-location symbol-def))
               (file-path (when location (location-file-path location)))
-              (uri (when file-path (clef-util:path-to-file-uri file-path))))
+              (uri (when file-path (util:path-to-file-uri file-path))))
              (declare (ignorable scope))
 
              ;; Definitions inside SBCL itself resolve to a logical pathname we

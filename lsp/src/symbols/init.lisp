@@ -1,10 +1,56 @@
-(in-package :clef-symbols)
+(defpackage :clef-lsp/src/symbols/init
+  (:use :cl)
+  (:import-from :interval)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/parser/parser #:node-end-point-column #:node-end-point-row
+                #:node-start-point-column #:node-start-point-row)
+  (:import-from :clef-lsp/src/symbols/types #:clef-interval-data #:clef-interval-end
+                #:clef-interval-start #:lexical-scope-binding-visibility
+                #:lexical-scope-bindings-end #:lexical-scope-child-scopes
+                #:lexical-scope-kind #:lexical-scope-location
+                #:lexical-scope-parent-scope
+                #:lexical-scope-symbol-definitions
+                #:lexical-scope-symbol-references #:location
+                #:location-end #:location-file-path #:location-start
+                #:make-clef-interval #:make-lexical-scope
+                #:make-location #:make-symbol-definition
+                #:make-symbol-reference #:symbol-definition-form-node
+                #:symbol-definition-location
+                #:symbol-definition-symbol-name #:symbol-kind
+                #:symbol-reference #:symbol-reference-location
+                #:symbol-reference-package-name
+                #:symbol-reference-symbol-name)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:ppcre :cl-ppcre)
+    (:repair :clef-lsp/src/parser/repair)
+    (:sym :clef-lsp/src/symbols/types)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:add-to-workspace-index
+   #:build-file-symbol-map
+   #:build-project-symbol-map
+   #:clear-workspace-symbol-index
+   #:definition-visible-from-p
+   #:get-ref-for-doc-pos
+   #:line-char-to-byte-offset
+   #:lookup-in-workspace-index
+   #:node-kind-of
+   #:normalize-dependency-name
+   #:parse-lib-names-from-asd
+   #:project-lisp-files
+   #:refresh-stale-index
+   #:remove-file-from-workspace-index))
+
+(in-package :clef-lsp/src/symbols/init)
 
 ;;; Symbol analysis.
 ;;;
 ;;; Persistent state (scope trees, symbol-ref trees, the workspace-wide symbol
 ;;; index, per-file line offset caches, the global scope) all live on
-;;; CLEF-CONTEXT:*SERVER*. Transient state used while walking a parse tree --
+;;; CLEF-LSP/SRC/CONTEXT:*SERVER*. Transient state used while walking a parse tree --
 ;;; the current scope and current package -- remain as dynamic specials in
 ;;; this package; they are only meaningful inside a single
 ;;; BUILD-FILE-SYMBOL-MAP call and don't belong in the shared context.
@@ -56,7 +102,7 @@
        "Gets the symbol reference name & lexical-scope for the given document position.
 Note that symbol-ref can be nil if none is at the location"
        ;; (slog :debug ">>>>>>>>: ~A ~A ~A" file-path line char)
-       (let* ((path (clef-util:cleanup-path file-path))
+       (let* ((path (util:cleanup-path file-path))
               (offset (line-char-to-byte-offset path line char))
               (symbol-refs (interval:find-all (gethash path ctx:symbol-refs) offset))
               ;; Also get the lexical scope by position, as symbol-refs may be nil
@@ -118,16 +164,16 @@ Note that symbol-ref can be nil if none is at the location"
               (len (length source)))
              ;; (slog :debug "fast-node-text ~A: start-abs ~A, end-abs ~A, len ~A" file-path start-abs end-abs len)
              ;; (slog :debug "result: ~A" (subseq source start-abs (min end-abs len)))
-             ;; (slog :debug "slow-node-text: ~A" (clef-parser/parser:node-text node source))
+             ;; (slog :debug "slow-node-text: ~A" (clef-lsp/src/parser/parser:node-text node source))
              ;; (slog :debug "---")
              (subseq source start-abs (min end-abs len))))
 
 (defun byte-offsets-for-node (file-path node)
        "Gets the start and end byte offsets for a node in a file."
-       (let* ((start-line (clef-parser/parser:node-start-point-row node))
-              (start-char (clef-parser/parser:node-start-point-column node))
-              (end-line (clef-parser/parser:node-end-point-row node))
-              (end-char (clef-parser/parser:node-end-point-column node))
+       (let* ((start-line (parser:node-start-point-row node))
+              (start-char (parser:node-start-point-column node))
+              (end-line (parser:node-end-point-row node))
+              (end-char (parser:node-end-point-column node))
               (start-byte (line-char-to-byte-offset file-path start-line start-char))
               (end-byte (line-char-to-byte-offset file-path end-line end-char)))
              (values start-byte end-byte)))
@@ -151,7 +197,7 @@ Note that symbol-ref can be nil if none is at the location"
 (defun calculate-line-offsets (file-source)
        "Calculates the byte offsets relative file start of each line in the given file source."
        (let ((byte-offset 0))
-            (let ((lines (cl-ppcre:split #\Newline file-source))
+            (let ((lines (ppcre:split #\Newline file-source))
                   (lengths '()))
                  (dolist (line lines)
                          (push byte-offset lengths)
@@ -223,7 +269,7 @@ catches anything that slipped through."
 
        (slog :debug "Building symbol map at ~A" project-root)
        ;; Discover every .lisp file recursively under the root
-       (let* ((filtered-files (project-lisp-files (clef-util:cleanup-path project-root))))
+       (let* ((filtered-files (project-lisp-files (util:cleanup-path project-root))))
              (slog :debug "Found ~A valid Lisp files in workspace." (length filtered-files))
              ;; Process each file to extract symbols
              (dolist (file-path filtered-files)
@@ -236,7 +282,7 @@ The recorded time is taken BEFORE reading, deliberately. Taking it after would
 lose an edit that landed between the read and the stat -- the next check would
 see a matching timestamp and never re-read."
        (let ((written (ignore-errors (file-write-date file-path))))
-            (let ((source (ignore-errors (clef-util:read-file-text file-path))))
+            (let ((source (ignore-errors (util:read-file-text file-path))))
                  (when source
                        (build-file-symbol-map file-path source)
                        (setf (gethash file-path ctx:file-index-times) written)))))
@@ -270,9 +316,9 @@ new files costs about 4 ms now that it prunes."
             (when root
                   (let ((present (make-hash-table :test 'equal))
                         (refreshed 0))
-                       (dolist (path (project-lisp-files (clef-util:cleanup-path root)))
+                       (dolist (path (project-lisp-files (util:cleanup-path root)))
                                (let* ((file-path (namestring path))
-                                      (uri (clef-util:path-to-file-uri file-path))
+                                      (uri (util:path-to-file-uri file-path))
                                       (open-in-editor (and uri (gethash uri ctx:documents)))
                                       (written (ignore-errors (file-write-date file-path)))
                                       (indexed (gethash file-path ctx:file-index-times)))
@@ -324,7 +370,7 @@ new files costs about 4 ms now that it prunes."
        ;; Diagnostics are unaffected -- they come from the compiler by way of
        ;; clef-conditions, not from this map, so an unbalanced file is still
        ;; reported as unbalanced.
-       (setf file-source (clef-parser/repair:repair-source file-source))
+       (setf file-source (repair:repair-source file-source))
 
        ;; Remove any existing symbols from this file in the workspace index
        ;; (needed when re-processing files on save)
@@ -346,7 +392,7 @@ new files costs about 4 ms now that it prunes."
        ;; Parse the file with tree-sitter and then walk the output tree to find
        ;; the current package, record symbol definitions, symbol references, and
        ;; lexical scopes
-       (let ((parse-tree (clef-parser/parser:parse-string file-source)))
+       (let ((parse-tree (parser:parse-string file-source)))
             ;; Create the initial lexical-scope
             (setf *current-scope*
                   (make-lexical-scope
@@ -383,7 +429,7 @@ new files costs about 4 ms now that it prunes."
                                 (when (or (eql node-type :error) (eql node-type :missing))
                                       ;; TODO: What to do on syntax errors? Just abort?
                                       '())
-                                ;; (push (cons type (ts:node-range n)) results))
+                                ;; (push (cons type (cl-tree-sitter:node-range n)) results))
                                 (progn
                                   ;; (slog :debug "build-symbol-map> node-type is: ~A" type)
                                   ;; Update current tracked package by looking for (in-package package-name)
@@ -539,7 +585,7 @@ Aggregates :depends-on from all discovered .asd files and filters out local syst
     ;; Collect all local system names and their dependencies
     (maphash (lambda (name sys-info)
                (push name local-system-names)
-               (let ((deps (clef-symbols:system-info-dependencies sys-info)))
+               (let ((deps (sym:system-info-dependencies sys-info)))
                  (dolist (dep deps)
                    (let ((dep-name (normalize-dependency-name dep)))
                      (when dep-name
@@ -574,7 +620,7 @@ Aggregates :depends-on from all discovered .asd files and filters out local syst
                          (when (and (consp form)
                                     (eq (car form) 'in-package))
                                (progn
-                                 ;; (slog :debug "checked node for in-package: type ~A, node ~A" (ts:node-type node) node)
+                                 ;; (slog :debug "checked node for in-package: type ~A, node ~A" (cl-tree-sitter:node-type node) node)
                                  (setf *current-package* (second form)))))
                     (error () nil)))))
 
@@ -902,9 +948,9 @@ binding. See docs/surveys/lsp-review.md §1.2."
             ;; TODO: I think there's a bug here as let can supposedly support a syntax like
             ;; 'let (alist)'
             (dolist (let-var-node let-var-nodes)
-                    ;; (slog :debug "var-children are: ~ A" (ts:node-children let-var-node))
-                    ;; (if (and (listp (ts:node-children let-var-node)) nil)
-                    ;;     (slog :debug "var-children are ~A" (ts:node-children let-var-node))
+                    ;; (slog :debug "var-children are: ~ A" (cl-tree-sitter:node-children let-var-node))
+                    ;; (if (and (listp (cl-tree-sitter:node-children let-var-node)) nil)
+                    ;;     (slog :debug "var-children are ~A" (cl-tree-sitter:node-children let-var-node))
                     ;;     (slog :debug "let-var-node is ~A" let-var-node))
                     (let* ((var-children (ts:node-children let-var-node))
                            ;; Note that (listp nil) is T in common lisp
@@ -1188,7 +1234,7 @@ interval tree if so."
        ;; (:VALUE :SYM-LIT) is an ordinary symbol. (:SYMBOL :SYM-LIT) is the name
        ;; half of a package-qualified one, which the grammar gives its own shape:
        ;;
-       ;;   (:VALUE :PACKAGE-LIT)   "clef-jsonrpc/types:request-params"
+       ;;   (:VALUE :PACKAGE-LIT)   "clef-lsp/src/jsonrpc/types:request-params"
        ;;     (:PACKAGE :SYM-LIT)   "clef-jsonrpc/types"
        ;;     (:SYMBOL :SYM-LIT)    "request-params"
        ;;

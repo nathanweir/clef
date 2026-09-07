@@ -1,4 +1,28 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/call-hierarchy
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/document/definition #:search-up-for-symbol-def)
+  (:import-from :clef-lsp/src/lsp/document/document-symbol #:document-scope-for)
+  (:import-from :clef-lsp/src/lsp/document/references #:find-definition-at-position
+                #:get-all-intervals-from-tree #:position-in-range-p)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:node-to-range)
+  (:import-from :clef-lsp/src/lsp/types/basic/symbol-kind #:lisp-kind-to-lsp-kind)
+  (:import-from :clef-lsp/src/symbols/init #:get-ref-for-doc-pos)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter)
+    (:util :clef-lsp/src/util))
+  (:export
+   #:handle-call-hierarchy-incoming-calls
+   #:handle-call-hierarchy-outgoing-calls
+   #:handle-text-document-prepare-call-hierarchy))
+
+(in-package :clef-lsp/src/lsp/document/call-hierarchy)
 
 ;;;; Call hierarchy: who calls this, and what does this call.
 ;;;;
@@ -25,21 +49,21 @@
 (defun node-contains-position-p (node line character)
   "Is (LINE, CHARACTER) inside NODE's extent?"
   (and node
-       (let ((start-row (clef-parser/parser:node-start-point-row node))
-             (start-col (clef-parser/parser:node-start-point-column node))
-             (end-row (clef-parser/parser:node-end-point-row node))
-             (end-col (clef-parser/parser:node-end-point-column node)))
+       (let ((start-row (parser:node-start-point-row node))
+             (start-col (parser:node-start-point-column node))
+             (end-row (parser:node-end-point-row node))
+             (end-col (parser:node-end-point-column node)))
          (position-in-range-p line character start-row start-col end-row end-col))))
 
 (defun node-start-position (node)
-  (list (clef-parser/parser:node-start-point-row node)
-        (clef-parser/parser:node-start-point-column node)))
+  (list (parser:node-start-point-row node)
+        (parser:node-start-point-column node)))
 
 (defun top-level-definitions (file-path)
   "Every top-level definition recorded for FILE-PATH."
   (let ((scope (document-scope-for file-path)))
     (when scope
-      (clef-symbols:lexical-scope-symbol-definitions scope))))
+      (sym:lexical-scope-symbol-definitions scope))))
 
 (defun definition-containing-position (file-path line character)
   "The top-level definition whose form contains the position, or NIL.
@@ -47,21 +71,21 @@
 This is what makes \"who calls this\" answerable: a reference is attributed to
 the definition it sits inside."
   (dolist (def (top-level-definitions file-path))
-    (let ((form (clef-symbols:symbol-definition-form-node def)))
+    (let ((form (sym:symbol-definition-form-node def)))
       (when (node-contains-position-p form line character)
         (return def)))))
 
 (defun definition-to-hierarchy-item (def)
   "A CallHierarchyItem for DEF, or NIL if it cannot be located."
-  (let* ((name (clef-symbols:symbol-definition-symbol-name def))
-         (name-node (clef-symbols:symbol-definition-node def))
-         (form-node (clef-symbols:symbol-definition-form-node def))
-         (location (clef-symbols:symbol-definition-location def))
-         (file-path (when location (clef-symbols:location-file-path location))))
+  (let* ((name (sym:symbol-definition-symbol-name def))
+         (name-node (sym:symbol-definition-node def))
+         (form-node (sym:symbol-definition-form-node def))
+         (location (sym:symbol-definition-location def))
+         (file-path (when location (sym:location-file-path location))))
     (when (and name name-node file-path)
       (let ((selection-range (node-to-range name-node)))
         (dict "name" name
-              "kind" (lisp-kind-to-lsp-kind (clef-symbols:symbol-definition-kind def))
+              "kind" (lisp-kind-to-lsp-kind (sym:symbol-definition-kind def))
               "uri" (format nil "file://~A" file-path)
               "range" (if form-node (node-to-range form-node) selection-range)
               "selectionRange" selection-range)))))
@@ -74,12 +98,12 @@ the name is exact; the file disambiguates same-named definitions across the
 workspace, as far as the name-keyed index allows."
   (let* ((name (href item "name"))
          (uri (href item "uri"))
-         (file-path (clef-util:cleanup-path uri)))
+         (file-path (util:cleanup-path uri)))
     (find-if (lambda (def)
-               (let ((location (clef-symbols:symbol-definition-location def)))
+               (let ((location (sym:symbol-definition-location def)))
                  (and location
-                      (string= (clef-symbols:location-file-path location) file-path))))
-             (clef-symbols:lookup-in-workspace-index name))))
+                      (string= (sym:location-file-path location) file-path))))
+             (symbols:lookup-in-workspace-index name))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; textDocument/prepareCallHierarchy
@@ -92,12 +116,12 @@ Works whether the cursor is on a call or on the definition itself: a reference
 resolves through the scope chain, and failing that the enclosing definition is
 used, which is what makes invoking this from inside a function body do the
 obvious thing."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (position (href params "position"))
          (line (href position "line"))
          (character (href position "character"))
-         (file-path (clef-util:cleanup-path document-uri)))
+         (file-path (util:cleanup-path document-uri)))
     (slog :debug "[prepareCallHierarchy] ~A ~A:~A" document-uri line character)
     (multiple-value-bind (ref-name ref-scope ref-package)
         (get-ref-for-doc-pos document-uri line character)
@@ -120,7 +144,7 @@ obvious thing."
 
 Every reference to the name, attributed to the definition it sits inside, then
 grouped so each caller appears once with all of its call sites."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (item (href params "item"))
          (name (and item (href item "name")))
          (target (and item (definition-from-item item))))
@@ -132,10 +156,10 @@ grouped so each caller appears once with all of its call sites."
            (lambda (file-path refs-tree)
              (when refs-tree
                (dolist (interval (get-all-intervals-from-tree refs-tree))
-                 (let ((ref (clef-symbols::clef-interval-data interval)))
+                 (let ((ref (sym::clef-interval-data interval)))
                    (when (and ref
-                              (string= (clef-symbols:symbol-reference-symbol-name ref) name))
-                     (let* ((node (clef-symbols:symbol-reference-node ref))
+                              (string= (sym:symbol-reference-symbol-name ref) name))
+                     (let* ((node (sym:symbol-reference-node ref))
                             (start (and node (node-start-position node)))
                             (caller (and start
                                          (definition-containing-position
@@ -168,7 +192,7 @@ grouped so each caller appears once with all of its call sites."
   (let ((found '()))
     (labels ((walk (n)
                (when n
-                 (when (eq (clef-symbols:node-kind-of n) :sym-lit)
+                 (when (eq (symbols:node-kind-of n) :sym-lit)
                    (push n found))
                  (dolist (child (ts:node-children n))
                    (walk child)))))
@@ -181,12 +205,12 @@ grouped so each caller appears once with all of its call sites."
 Every symbol inside the definition's form that names something the workspace
 index knows about. Bounded by the form, so a definition's callees never leak in
 from its neighbours."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (item (href params "item"))
          (def (and item (definition-from-item item)))
-         (form-node (and def (clef-symbols:symbol-definition-form-node def)))
-         (location (and def (clef-symbols:symbol-definition-location def)))
-         (file-path (and location (clef-symbols:location-file-path location)))
+         (form-node (and def (sym:symbol-definition-form-node def)))
+         (location (and def (sym:symbol-definition-location def)))
+         (file-path (and location (sym:location-file-path location)))
          (source (when file-path
                    (or (gethash (format nil "file://~A" file-path) ctx:documents)
                        (ignore-errors (uiop:read-file-string file-path))))))
@@ -194,12 +218,12 @@ from its neighbours."
     (if (or (null form-node) (null source))
         #()
         (let ((callees (make-hash-table :test 'equal))
-              (self (clef-symbols:symbol-definition-symbol-name def)))
+              (self (sym:symbol-definition-symbol-name def)))
           (dolist (node (symbol-nodes-under form-node))
             (let ((text (ignore-errors
-                         (clef-parser/parser:node-text node source))))
+                         (parser:node-text node source))))
               (when (and text (not (string= text self)))
-                (let ((target (first (clef-symbols:lookup-in-workspace-index text))))
+                (let ((target (first (symbols:lookup-in-workspace-index text))))
                   (when target
                     (push (node-to-range node) (gethash target callees)))))))
           (let ((results '()))

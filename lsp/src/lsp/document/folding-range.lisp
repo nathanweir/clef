@@ -1,4 +1,17 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/folding-range
+  (:use :cl)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:symbols :clef-lsp/src/symbols/init)
+    (:ts :cl-tree-sitter))
+  (:export
+   #:handle-text-document-folding-range))
+
+(in-package :clef-lsp/src/lsp/document/folding-range)
 
 ;;;; textDocument/foldingRange.
 ;;;;
@@ -25,8 +38,8 @@ docstring collapsing to nothing is a worse reading experience than leaving it.")
 
 (defun node-line-span (node)
   "(start-row . end-row) for NODE."
-  (cons (clef-parser/parser:node-start-point-row node)
-        (clef-parser/parser:node-end-point-row node)))
+  (cons (parser:node-start-point-row node)
+        (parser:node-end-point-row node)))
 
 (defun collect-foldable-spans (node)
   "Every multi-line span under NODE that is worth folding.
@@ -38,7 +51,7 @@ fold twice is noise."
         (spans '()))
     (labels ((walk (n)
                (when n
-                 (when (member (clef-symbols:node-kind-of n) +foldable-node-kinds+)
+                 (when (member (symbols:node-kind-of n) +foldable-node-kinds+)
                    (let ((span (node-line-span n)))
                      (when (and (> (cdr span) (car span))
                                 (not (gethash span seen)))
@@ -57,8 +70,8 @@ nothing, and clients render the affordance anyway."
   (let ((rows '()))
     (labels ((walk (n)
                (when n
-                 (when (eq (clef-symbols:node-kind-of n) :comment)
-                   (push (clef-parser/parser:node-start-point-row n) rows))
+                 (when (eq (symbols:node-kind-of n) :comment)
+                   (push (parser:node-start-point-row n) rows))
                  (dolist (child (ts:node-children n))
                    (walk child)))))
       (walk node))
@@ -82,13 +95,13 @@ nothing, and clients render the affordance anyway."
 
 (defun handle-text-document-folding-range (message)
   "Handle a textDocument/foldingRange request."
-  (let* ((params (clef-jsonrpc/types:request-params message))
+  (let* ((params (rpc:request-params message))
          (document-uri (href params "text-document" "uri"))
          (text (gethash document-uri ctx:documents)))
     (slog :debug "[textDocument/foldingRange] Document: ~A" document-uri)
     (if (null text)
         #()
-        (let* ((tree (clef-parser/parser:parse-string text))
+        (let* ((tree (parser:parse-string text))
                (ranges (append (mapcar #'folding-range (collect-foldable-spans tree))
                                (mapcar (lambda (span) (folding-range span "comment"))
                                        (collect-comment-spans tree)))))

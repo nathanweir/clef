@@ -1,4 +1,45 @@
-(in-package :clef-context)
+(defpackage :clef-lsp/src/context
+  (:use :cl)
+  (:export
+   #:*server*
+   #:asd-files
+   #:client-capabilities
+   #:document-line-offsets
+   #:documents
+   #:file-index-times
+   #:file-to-system
+   #:global-scope
+   #:handlers
+   #:initialized
+   #:lexical-scopes
+   #:loaded-systems
+   #:make-server-context
+   #:output-stream
+   #:reset-context
+   #:server-context
+   #:server-context-asd-files
+   #:server-context-client-capabilities
+   #:server-context-document-line-offsets
+   #:server-context-documents
+   #:server-context-file-index-times
+   #:server-context-file-to-system
+   #:server-context-global-scope
+   #:server-context-handlers
+   #:server-context-initialized
+   #:server-context-lexical-scopes
+   #:server-context-loaded-systems
+   #:server-context-output-stream
+   #:server-context-p
+   #:server-context-shutdown-received
+   #:server-context-symbol-refs
+   #:server-context-workspace-root
+   #:server-context-workspace-symbol-index
+   #:shutdown-received
+   #:symbol-refs
+   #:workspace-root
+   #:workspace-symbol-index))
+
+(in-package :clef-lsp/src/context)
 
 ;;; Central server context.
 ;;;

@@ -1,4 +1,35 @@
-(in-package :clef-lsp/types/base)
+(defpackage :clef-lsp/src/lsp/types/base/types
+  (:use :cl)
+  (:export
+   #:+completion-item-kind-class+
+   #:+completion-item-kind-color+
+   #:+completion-item-kind-constant+
+   #:+completion-item-kind-constructor+
+   #:+completion-item-kind-enum+
+   #:+completion-item-kind-enum-member+
+   #:+completion-item-kind-event+
+   #:+completion-item-kind-field+
+   #:+completion-item-kind-file+
+   #:+completion-item-kind-folder+
+   #:+completion-item-kind-function+
+   #:+completion-item-kind-interface+
+   #:+completion-item-kind-keyword+
+   #:+completion-item-kind-method+
+   #:+completion-item-kind-module+
+   #:+completion-item-kind-operator+
+   #:+completion-item-kind-property+
+   #:+completion-item-kind-reference+
+   #:+completion-item-kind-snippet+
+   #:+completion-item-kind-struct+
+   #:+completion-item-kind-text+
+   #:+completion-item-kind-type-parameter+
+   #:+completion-item-kind-unit+
+   #:+completion-item-kind-value+
+   #:+completion-item-kind-variable+
+   #:document-uri
+   #:uinteger))
+
+(in-package :clef-lsp/src/lsp/types/base/types)
 
 ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#baseTypes
 

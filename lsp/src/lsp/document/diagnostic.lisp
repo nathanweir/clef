@@ -1,4 +1,19 @@
-(in-package :clef-lsp/document)
+(defpackage :clef-lsp/src/lsp/document/diagnostic
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:import-from :clef-lsp/src/log #:slog)
+  (:import-from :clef-lsp/src/lsp/types/basic/range #:make-range #:node-to-range)
+  (:import-from :serapeum #:dict #:href)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:parser :clef-lsp/src/parser/parser)
+    (:parser-utils :clef-lsp/src/parser/utils)
+    (:rpc :clef-lsp/src/jsonrpc/types)
+    (:ts :cl-tree-sitter))
+  (:export
+   #:handle-text-document-diagnostic))
+
+(in-package :clef-lsp/src/lsp/document/diagnostic)
 
 ;; TODO: I was originally putting all of these types into :clef-lsp/types, but I dislike that now
 ;; that I've (for now) given up on fully replicating the LSP spec types in CLOS. Consider where this
@@ -32,7 +47,7 @@
 
 (defun get-syntax-errors (input-text)
        "Parse Lisp source code and emit a Diagnostic for each syntax error."
-       (let ((tree (clef-parser/parser:parse-string input-text))
+       (let ((tree (parser:parse-string input-text))
              (diagnostics '()))
             (dolist (node (collect-error-nodes tree))
                     (push (dict "range" (node-to-range node)
@@ -72,13 +87,13 @@ the range's \"line\" and the line in its \"character\"."
 (defun handle-text-document-diagnostic (message)
        ;; Ignore computing diag on .asd files
        (when (serapeum:string-suffix-p ".asd"
-                                       (href (clef-jsonrpc/types:request-params message)
+                                       (href (rpc:request-params message)
                                              "text-document"
                                              "uri"))
              (return-from handle-text-document-diagnostic
                           (dict "kind" "full" "items" #())))
 
-       (let* ((document-uri (href (clef-jsonrpc/types:request-params message)
+       (let* ((document-uri (href (rpc:request-params message)
                                   "text-document"
                                   "uri"))
               (document-text (gethash document-uri ctx:documents))
@@ -234,7 +249,7 @@ those are different node kinds."
                            (when n
                                  (when (eq (node-kind n) :sym-lit)
                                        (let ((text (ignore-errors
-                                                    (clef-parser/parser:node-text n source))))
+                                                    (parser:node-text n source))))
                                             (when (and text
                                                        (string= (string-upcase
                                                                  (strip-package-prefix text))
@@ -286,10 +301,10 @@ those are different node kinds."
                       (if (< row (length starts))
                           (+ (aref starts row) col)
                           most-positive-fixnum)))
-             (values (offset (clef-parser/parser:node-start-point-row node)
-                             (clef-parser/parser:node-start-point-column node))
-                     (offset (clef-parser/parser:node-end-point-row node)
-                             (clef-parser/parser:node-end-point-column node)))))
+             (values (offset (parser:node-start-point-row node)
+                             (parser:node-start-point-column node))
+                     (offset (parser:node-end-point-row node)
+                             (parser:node-end-point-column node)))))
 
 (defun toplevel-form-at-offset (tree source offset)
        "The top-level node containing byte OFFSET, or the first one after it.
@@ -401,8 +416,8 @@ on (or warning error) drops it and the file reports nothing at all."
 
 (defun collect-compile-diagnostics (source-string)
        "Compile SOURCE-STRING and report what the compiler complains about."
-       (let* ((tree (clef-parser/parser:parse-string source-string))
-              (source-package (or (clef-parser/utils:find-package-declaration tree source-string)
+       (let* ((tree (parser:parse-string source-string))
+              (source-package (or (parser-utils:find-package-declaration tree source-string)
                                   *package*))
               (*package* source-package)
               (output (make-string-output-stream))

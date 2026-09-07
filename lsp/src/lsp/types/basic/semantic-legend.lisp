@@ -1,4 +1,12 @@
-(in-package :clef-lsp/types/basic)
+(defpackage :clef-lsp/src/lsp/types/basic/semantic-legend
+  (:use :cl)
+  (:export
+   #:*semantic-token-modifiers*
+   #:*semantic-token-types*
+   #:semantic-token-modifier-bit
+   #:semantic-token-type-index))
+
+(in-package :clef-lsp/src/lsp/types/basic/semantic-legend)
 
 ;;;; The semantic tokens legend.
 ;;;;

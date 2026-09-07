@@ -1,4 +1,14 @@
-(in-package :clef-test)
+(defpackage :clef-lsp/test/dependency-tests
+  (:use :cl)
+  (:import-from :clef-lsp/test/framework #:assert-equal #:assert-nil #:assert-true #:deftest
+                #:with-direct-handler-test)
+  (:local-nicknames
+    (:ctx :clef-lsp/src/context)
+    (:initialize :clef-lsp/src/lsp/lifecycle/initialize)
+    (:sym :clef-lsp/src/symbols/types)
+    (:symbols :clef-lsp/src/symbols/init)))
+
+(in-package :clef-lsp/test/dependency-tests)
 
 ;;; Dependency tests: ASDF :depends-on forms.
 ;;;
@@ -10,7 +20,7 @@
 ;;; definition for the entire project.
 
 (defun dep-name (dep)
-  (clef-symbols:normalize-dependency-name dep))
+  (symbols:normalize-dependency-name dep))
 
 (deftest test-dependency-plain-string
   "A plain string dependency yields its name"
@@ -69,8 +79,8 @@
    This is the end-to-end shape of the bug: one such entry aborted the whole
    project symbol map, so completion and workspace symbols returned nothing."
   (with-direct-handler-test
-    (setf (gethash "depbug" clef-context:loaded-systems)
-          (clef-symbols:make-system-info
+    (setf (gethash "depbug" ctx:loaded-systems)
+          (sym:make-system-info
             :name "depbug"
             :asd-path nil
             :dependencies (list "uiop"
@@ -81,7 +91,7 @@
             :loaded-p nil))
     (let ((names (mapcar #'string-downcase
                          (mapcar #'symbol-name
-                                 (clef-symbols:parse-lib-names-from-asd)))))
+                                 (symbols:parse-lib-names-from-asd)))))
       (assert-true (member "uiop" names :test #'string=)
                    (format nil "expected uiop in ~S" names))
       (assert-true (member "sb-posix" names :test #'string=)
@@ -98,6 +108,6 @@
    sb-ext:exit, so a bad .asd in a user's project killed the server from inside
    a request handler. If that regresses, this test run dies outright rather
    than failing -- which is itself the signal."
-  (assert-nil (clef-lsp/lifecycle::safe-load-system
+  (assert-nil (initialize::safe-load-system
                 :clef-no-such-system-should-ever-exist)
               "Loading a nonexistent system should return NIL"))

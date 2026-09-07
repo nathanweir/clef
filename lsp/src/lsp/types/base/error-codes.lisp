@@ -1,4 +1,17 @@
-(in-package :clef-lsp/types/base)
+(defpackage :clef-lsp/src/lsp/types/base/error-codes
+  (:use :cl)
+  (:local-nicknames
+    (:rpc :clef-lsp/src/jsonrpc/types))
+  (:export
+   #:+server-not-initialized+
+   #:lsp-error
+   #:lsp-error-code
+   #:lsp-error-data
+   #:lsp-error-message
+   #:method-not-found-error
+   #:server-not-initialized-error))
+
+(in-package :clef-lsp/src/lsp/types/base/error-codes)
 
 ;; https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#errorCodes
 
@@ -70,7 +83,7 @@
         ;; means nothing to any client, in a range reserved for nothing at all.
         ;; Referenced from the constant now rather than re-typed, since the
         ;; correct value already existed one package over.
-        ((code :initform clef-jsonrpc/types:+method-not-found+)
+        ((code :initform rpc:+method-not-found+)
          (endpoint :initarg :endpoint :reader method-not-found-endpoint)
          (message :initform "Method not found."))
     ;; TODO: How to handle :message and give it the param / custom message instead?

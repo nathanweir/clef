@@ -1,4 +1,16 @@
-(in-package :clef-jsonrpc/messages)
+(defpackage :clef-lsp/src/jsonrpc/messages
+  (:use :cl)
+  (:import-from :babel)
+  (:import-from :clef-lsp/src/jsonrpc/types #:jsonrpc-request)
+  (:local-nicknames
+    (:change-case :cl-change-case)
+    (:jzon :com.inuoe.jzon)
+    (:log :clef-lsp/src/log))
+  (:export
+   #:read-lsp-message
+   #:write-lsp-message))
+
+(in-package :clef-lsp/src/jsonrpc/messages)
 
 (defun read-header-lines (stream)
        "Read header lines from a binary stream until an empty line is found."
@@ -55,17 +67,17 @@ Returns NIL on EOF or stream error to allow graceful shutdown."
                                     (when (string= key "content-length")
                                           (setf content-length (parse-integer value :junk-allowed t))))))
                 (unless content-length
-                        (clef-log:slog :error "Missing Content-Length header in LSP message")
+                        (log:slog :error "Missing Content-Length header in LSP message")
                         (return-from read-lsp-message nil))
                 ;; Read content
                 (let* ((buffer (make-array content-length :element-type '(unsigned-byte 8)))
                        (nread (read-sequence buffer stream)))
                       (unless (= nread content-length)
-                              (clef-log:slog :error "Failed to read full LSP message body (got ~D of ~D bytes)"
+                              (log:slog :error "Failed to read full LSP message body (got ~D of ~D bytes)"
                                              nread content-length)
                               (return-from read-lsp-message nil))
                       (let* ((message-hash (make-hash-table-hyphen-case
-                                             (com.inuoe.jzon:parse
+                                             (jzon:parse
                                                (babel:octets-to-string buffer :encoding :utf-8))))
                              (message (make-instance 'jsonrpc-request
                                                      :id (gethash "id" message-hash)
@@ -78,7 +90,7 @@ Returns NIL on EOF or stream error to allow graceful shutdown."
 (defun write-lsp-message (response stream)
        "Write an LSP message to a binary stream according to LSP spec."
        ;; Response is either a jsonrpc-response or a jsonrpc-error
-       (let* ((json (com.inuoe.jzon:stringify response :stream nil))
+       (let* ((json (jzon:stringify response :stream nil))
               (bytes (babel:string-to-octets json :encoding :utf-8))
               (length (length bytes))
               (header (format nil "Content-Length: ~D~C~C~C~C"

@@ -27,12 +27,12 @@
   (asdf:load-asd (merge-pathnames "clef-lsp.asd" *lsp-root*))
   (asdf:load-system :clef-lsp))
 (ql:quickload '(:serapeum :bordeaux-threads :com.inuoe.jzon :babel :cl-ppcre) :silent t)
-(setf clef-log:*log-mode* :none)
+(setf clef-lsp/src/log:*log-mode* :none)
 (handler-bind ((warning #'muffle-warning))
-  (dolist (f '("test/package.lisp" "test/framework.lisp"))
+  (dolist (f '("test/framework.lisp"))
     (load (merge-pathnames f *lsp-root*))))
 
-(in-package :clef-test)
+(in-package :clef-lsp/test/framework)
 
 ;;; Deliberately mixes categories a grammar cannot tell apart: a standard
 ;;; function, a standard macro, a special operator, a project function, a
@@ -60,8 +60,8 @@
   (let* ((path (write-temp-file *code*))
          (uri (format nil "file://~A" path))
          (lines (coerce (uiop:split-string *code* :separator '(#\Newline)) 'vector))
-         (types clef-lsp/types/basic:*semantic-token-types*)
-         (mods clef-lsp/types/basic:*semantic-token-modifiers*))
+         (types clef-lsp/src/lsp/types/basic/semantic-legend:*semantic-token-types*)
+         (mods clef-lsp/src/lsp/types/basic/semantic-legend:*semantic-token-modifiers*))
     (call-handler "textDocument/didOpen"
                   (dict "textDocument" (dict "uri" uri "languageId" "lisp"
                                              "version" 1 "text" *code*))

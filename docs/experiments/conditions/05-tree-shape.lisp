@@ -34,7 +34,7 @@
   (dolist (c (cl-tree-sitter:node-children node))
     (dump c (1+ depth))))
 
-(let ((tree (clef-parser/parser:parse-string *source*)))
+(let ((tree (clef-lsp/src/parser/parser:parse-string *source*)))
   (format t "~&===== full tree =====~%")
   (dump tree 0)
 
@@ -49,4 +49,4 @@
                    do (format t "   child ~A: ~S  text=~S~%"
                               j (kind c)
                               (ignore-errors
-                               (clef-parser/parser:node-text c *source*)))))))
+                               (clef-lsp/src/parser/parser:node-text c *source*)))))))
