@@ -109,7 +109,15 @@ and 0-based for column, measured in bytes."
 ;;; every occurrence of the name anywhere in the file, correct uses included.
 ;;; ---------------------------------------------------------------------------
 
-(defparameter *exactly-located-kinds* '(:unclosed-form :unmatched-paren)
+;; DEFVAR, not DEFPARAMETER: this is a registry that consumers push onto (clef
+;; lint registers its kinds at load time), so it has to survive this file being
+;; reloaded. That reload actually happens -- ASDF 3.3.7's package-inferred-system
+;; re-registers every inferred subsystem on each fresh LOAD-SYSTEM call, because
+;; its "already defined" check compares the child component's name against
+;; "lisp" while the component it builds is named "file-type". Measured in
+;; docs/surveys/w3-migration-trial.md; the cost is milliseconds, but a
+;; DEFPARAMETER here silently lost the linter's registrations in the built image.
+(defvar *exactly-located-kinds* '(:unclosed-form :unmatched-paren)
   "Kinds whose FILE-POSITION is already the exact answer.
 
 For everything else the position names the enclosing top-level form and the
