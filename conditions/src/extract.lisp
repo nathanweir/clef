@@ -1,4 +1,27 @@
-(in-package :clef-conditions)
+(defpackage :clef-conditions/src/extract
+  (:use :cl)
+  (:export
+   ;; the structure
+   #:diagnostic
+   #:diagnostic-p
+   ;; Constructing one by hand is how clef-lint feeds its findings through
+   ;; the renderer, so lint output and runtime diagnostics read as one tool.
+   #:make-diagnostic
+   #:diagnostic-severity
+   #:diagnostic-kind
+   #:diagnostic-symbol
+   #:diagnostic-message
+   #:diagnostic-file
+   #:diagnostic-file-position
+   #:diagnostic-source-path
+   #:diagnostic-context
+   #:diagnostic-source-form
+   #:diagnostic-references
+   ;; extraction
+   #:extract
+   #:condition-severity))
+
+(in-package :clef-conditions/src/extract)
 
 ;;;; Turn a Common Lisp condition into structured data.
 ;;;;

@@ -1,4 +1,27 @@
-(in-package :clef-conditions)
+(defpackage :clef-conditions/src/render
+  (:use :cl)
+  (:import-from :clef-conditions/src/extract
+                #:diagnostic-severity
+                #:diagnostic-kind
+                #:diagnostic-symbol
+                #:diagnostic-message
+                #:diagnostic-file
+                #:diagnostic-file-position
+                #:diagnostic-context
+                #:diagnostic-source-form
+                #:diagnostic-references)
+  (:export
+   #:render
+   #:render-to-string
+   #:*color*
+   #:*context-lines*
+   ;; Extension point: kinds whose FILE-POSITION is the exact answer, so the
+   ;; renderer draws a caret without the "location is approximate" note.
+   ;; Exported for clef-lint, whose positions come from a parse tree and are
+   ;; always exact.
+   #:*exactly-located-kinds*))
+
+(in-package :clef-conditions/src/render)
 
 ;;;; Render a DIAGNOSTIC the way a modern toolchain would: the message first,
 ;;;; then where it happened, then the offending line with the problem marked.

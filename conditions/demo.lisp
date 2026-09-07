@@ -4,6 +4,14 @@
 ;;;;
 ;;;; Compiles one small file with four ordinary mistakes and prints what each
 ;;;; approach shows you.
+;;;;
+;;;; A script, not a module -- but it lives inside the tree the .asd governs,
+;;;; so it carries a package named by its path like everything else here.
+
+(defpackage :clef-conditions/demo
+  (:use :cl))
+
+(in-package :clef-conditions/demo)
 
 (setf *compile-verbose* nil *compile-print* nil
       *load-verbose* nil *load-print* nil)

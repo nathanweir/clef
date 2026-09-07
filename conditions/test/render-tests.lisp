@@ -1,4 +1,10 @@
-(in-package :clef-conditions/test)
+(defpackage :clef-conditions/test/render-tests
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:import-from :clef-conditions/test/harness #:check #:check-true)
+  (:export #:run-render-tests))
+
+(in-package :clef-conditions/test/render-tests)
 
 ;;;; Tests for rendering. These assert on the located position, which is the
 ;;;; part that is easy to get wrong and was wrong at first: file-position names
@@ -26,9 +32,13 @@
                             (push (clef-conditions:extract c) out)))))
          (let ((*error-output* (make-broadcast-stream))
                (*standard-output* (make-broadcast-stream)))
+           ;; :OVERRIDE for the same reason as COLLECT-DIAGNOSTICS in
+           ;; extract-tests: under test-op an enclosing compilation unit would
+           ;; otherwise swallow the deferred warnings.
            (ignore-errors
-            (let ((fasl (compile-file path :verbose nil :print nil)))
-              (when (and fasl (probe-file fasl)) (delete-file fasl)))))))
+            (with-compilation-unit (:override t)
+              (let ((fasl (compile-file path :verbose nil :print nil)))
+                (when (and fasl (probe-file fasl)) (delete-file fasl))))))))
      :want-stream-p t :want-pathname-p t :type "lisp" :keep nil)
     (values (mapcar (lambda (d)
                       (let ((clef-conditions:*color* nil))

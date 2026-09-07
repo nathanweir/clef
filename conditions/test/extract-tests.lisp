@@ -1,4 +1,12 @@
-(in-package :clef-conditions/test)
+(defpackage :clef-conditions/test/extract-tests
+  (:use :cl)
+  ;; Declares the dependency on the library without importing anything: the
+  ;; tests exercise the public API and read best fully qualified.
+  (:import-from :clef-conditions)
+  (:import-from :clef-conditions/test/harness #:check #:check-true)
+  (:export #:run-extract-tests))
+
+(in-package :clef-conditions/test/extract-tests)
 
 ;;;; Tests for structured condition extraction.
 ;;;;
@@ -6,21 +14,6 @@
 ;;;; they double as the canary for the SB-C internals this depends on: if an
 ;;;; SBCL upgrade moves the compiler error context, these fail loudly rather
 ;;;; than silently degrading to "no location".
-
-(defvar *failures* '())
-(defvar *checks* 0)
-
-(defun check (label got expected &key (test #'equal))
-  (incf *checks*)
-  (if (funcall test got expected)
-      (format t "  ~C[32m✓~C[0m ~A~%" #\Escape #\Escape label)
-      (progn
-        (push (format nil "~A: expected ~S, got ~S" label expected got) *failures*)
-        (format t "  ~C[31m✗~C[0m ~A: expected ~S, got ~S~%"
-                #\Escape #\Escape label expected got))))
-
-(defun check-true (label got)
-  (check label (and got t) t))
 
 (defparameter *source* "
 (defpackage :clef-cond-test-pkg (:use :cl))
@@ -41,7 +34,13 @@
 ")
 
 (defun collect-diagnostics (source)
-  "Compile SOURCE and return every DIAGNOSTIC extracted along the way."
+  "Compile SOURCE and return every DIAGNOSTIC extracted along the way.
+
+The :OVERRIDE unit matters when these tests run under ASDF's test-op:
+PERFORM-PLAN wraps the whole operation in a compilation unit, and SBCL defers
+undefined-function and undefined-variable warnings to the END of the outermost
+unit -- past this handler. Found when the package migration wired the suite to
+test-op; the script entry point never hit it."
   (let ((out '()))
     (uiop:call-with-temporary-file
      (lambda (stream path)
@@ -55,17 +54,16 @@
          (let ((*error-output* (make-broadcast-stream))
                (*standard-output* (make-broadcast-stream)))
            (ignore-errors
-            (let ((fasl (compile-file path :verbose nil :print nil)))
-              (when (and fasl (probe-file fasl)) (delete-file fasl)))))))
+            (with-compilation-unit (:override t)
+              (let ((fasl (compile-file path :verbose nil :print nil)))
+                (when (and fasl (probe-file fasl)) (delete-file fasl))))))))
      :want-stream-p t :want-pathname-p t :type "lisp" :keep nil)
     (nreverse out)))
 
 (defun find-by-kind (diags kind)
   (find kind diags :key #'clef-conditions:diagnostic-kind))
 
-(defun run-all-tests ()
-  (setf *failures* '() *checks* 0)
-  (format t "~&Running clef-conditions tests~%~%")
+(defun run-extract-tests ()
   (let ((diags (collect-diagnostics *source*)))
 
     (format t "extraction~%")
@@ -197,9 +195,4 @@
     (when d
       (check "  kind" (clef-conditions:diagnostic-kind d) :unmatched-paren)
       ;; 34 is the stray paren itself, not the form -- exact.
-      (check "  position is the paren" (clef-conditions:diagnostic-file-position d) 34)))
-
-  (run-render-tests)
-
-  (format t "~&~%~A checks, ~A failure(s)~%" *checks* (length *failures*))
-  (null *failures*))
+      (check "  position is the paren" (clef-conditions:diagnostic-file-position d) 34))))
