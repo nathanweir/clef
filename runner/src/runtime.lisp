@@ -1,4 +1,21 @@
-(in-package :clef-runner)
+(defpackage :clef-runner/src/runtime
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:export
+   ;; exit-code contract
+   #:+exit-success+
+   #:+exit-failure+
+   #:+exit-usage+
+   #:+exit-diagnostics+
+   ;; the profile
+   #:call-with-runtime
+   #:with-runtime
+   #:*optimize-policy*
+   #:*warnings-as-errors*
+   #:*min-severity*
+   #:*diagnostic-stream*))
+
+(in-package :clef-runner/src/runtime)
 
 ;;;; The runner: process-level guarantees a library cannot give itself.
 ;;;;

@@ -62,15 +62,16 @@
 
 ;;; The runner's own function, at its default :DEV policy.
 (format t "~&=== clef-runner::compile-and-load, *optimize-policy* = :dev ===~%")
+;; Internals live in the file that owns them since the package migration.
 (format t "~&  optimize-declaration says: ~S~%"
-        (clef-runner::optimize-declaration :dev))
-(let ((clef-runner::*optimize-policy* :dev))
-  (clef-runner::compile-and-load (write-source 1)))
+        (clef-runner/src/compile::optimize-declaration :dev))
+(let ((clef-runner:*optimize-policy* :dev))
+  (clef-runner/src/compile::compile-and-load (write-source 1)))
 (user-frames "runner :dev")
 
 ;;; And the release policy, which should NOT keep the frames.
 (delete-package :rp)
 (format t "~&~%=== clef-runner::compile-and-load, *optimize-policy* = :release ===~%")
-(let ((clef-runner::*optimize-policy* :release))
-  (clef-runner::compile-and-load (write-source 2)))
+(let ((clef-runner:*optimize-policy* :release))
+  (clef-runner/src/compile::compile-and-load (write-source 2)))
 (user-frames "runner :release")

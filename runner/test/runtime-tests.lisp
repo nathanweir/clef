@@ -1,37 +1,20 @@
-(in-package :clef-runner/test)
+(defpackage :clef-runner/test/runtime-tests
+  (:use :cl)
+  ;; The public API is exercised fully qualified; the two files whose
+  ;; internals are tested are imported by name, which also declares the edge.
+  (:import-from :clef-runner)
+  (:import-from :clef-runner/src/runtime #:frame-head #:noise-frame-p)
+  (:import-from :clef-runner/src/compile #:compile-and-load #:optimize-declaration)
+  (:import-from :clef-runner/test/harness #:check #:check-true #:temp-source)
+  (:export #:run-runtime-tests))
+
+(in-package :clef-runner/test/runtime-tests)
 
 ;;;; Tests for the runner's process-level guarantees.
 ;;;;
 ;;;; The debugger guarantee cannot be tested in-process -- verifying it means
 ;;;; watching a process die with a particular exit code -- so those cases run in
 ;;;; subprocesses. Everything else is a plain in-process call.
-
-(defvar *failures* '())
-(defvar *checks* 0)
-
-(defun check (label got expected &key (test #'equal))
-  (incf *checks*)
-  (if (funcall test got expected)
-      (format t "  ~C[32m✓~C[0m ~A~%" #\Escape #\Escape label)
-      (progn
-        (push (format nil "~A: expected ~S, got ~S" label expected got) *failures*)
-        (format t "  ~C[31m✗~C[0m ~A: expected ~S, got ~S~%"
-                #\Escape #\Escape label expected got))))
-
-(defun check-true (label got)
-  (check label (and got t) t))
-
-(defun temp-source (name text)
-  "Write TEXT to a project-local scratch file and return its path.
-
-Project-local, not /tmp: the sandboxed environments this runs in do not have a
-writable global temp directory."
-  (let ((path (merge-pathnames (format nil "tmp/test/runner-~A.lisp" name)
-                               (asdf:system-source-directory :clef-runner))))
-    (ensure-directories-exist path)
-    (with-open-file (s path :direction :output :if-exists :supersede)
-      (write-string text s))
-    path))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Exit-code contract
@@ -162,9 +145,9 @@ writable global temp directory."
 (defun user-frame-count (policy name)
   "Compile the chain under POLICY, provoke it, and count its own frames."
   (when (find-package :runner-chain) (delete-package :runner-chain))
-  (let ((clef-runner::*optimize-policy* policy)
+  (let ((clef-runner:*optimize-policy* policy)
         (*error-output* (make-broadcast-stream)))
-    (clef-runner::compile-and-load (temp-source name *chain-source*)))
+    (compile-and-load (temp-source name *chain-source*)))
   (let ((frames '()))
     ;; HANDLER-CASE OUTSIDE, HANDLER-BIND INSIDE. Nesting these the other way
     ;; makes the handler never run and every policy look identical.
@@ -188,7 +171,7 @@ writable global temp directory."
   (format t "~&optimize policy~%")
   ;; The shape matters: a DECLARE-style wrapping is what was silently ignored.
   (check "dev policy is a bare (optimize ...) form"
-         (first (clef-runner::optimize-declaration :dev)) 'optimize)
+         (first (optimize-declaration :dev)) 'optimize)
   (check ":dev keeps the calling functions on the stack"
          (user-frame-count :dev "chain-dev") 3)
   ;; The contrast proves the setting is what is responsible, rather than the
@@ -205,32 +188,32 @@ writable global temp directory."
   ;; A closure's frame has to be judged by the function it is :IN, not by the
   ;; word LAMBDA -- otherwise every closure in SBCL's loader survives the filter.
   (check "a closure is judged by its :IN"
-         (clef-runner::frame-head "((LAMBDA NIL :IN SB-FASL::LOAD-AS-FASL))")
+         (frame-head"((LAMBDA NIL :IN SB-FASL::LOAD-AS-FASL))")
          "SB-FASL::LOAD-AS-FASL")
   (check "so is a local function"
-         (clef-runner::frame-head "((FLET SB-UNIX::BODY :IN SB-IMPL::START-LISP))")
+         (frame-head"((FLET SB-UNIX::BODY :IN SB-IMPL::START-LISP))")
          "SB-IMPL::START-LISP")
   (check "a method is judged by its name"
-         (clef-runner::frame-head "((:METHOD ASDF/OPERATE:OPERATE (T T)) X)")
+         (frame-head"((:METHOD ASDF/OPERATE:OPERATE (T T)) X)")
          "ASDF/OPERATE:OPERATE")
   (check "a plain call is judged by itself"
-         (clef-runner::frame-head "(RUNNER-CHAIN::INNER 0)")
+         (frame-head"(RUNNER-CHAIN::INNER 0)")
          "RUNNER-CHAIN::INNER")
 
   (check-true "SBCL internals are noise"
-              (clef-runner::noise-frame-p "3: (SB-KERNEL::INTEGER-/-INTEGER 10 0)"))
+              (noise-frame-p"3: (SB-KERNEL::INTEGER-/-INTEGER 10 0)"))
   (check-true "the runner's own frames are noise"
-              (clef-runner::noise-frame-p "5: ((LAMBDA NIL :IN CLEF-RUNNER:RUN-FILE))"))
+              (noise-frame-p"5: ((LAMBDA NIL :IN CLEF-RUNNER:RUN-FILE))"))
   (check-true "getting-here functions are noise"
-              (clef-runner::noise-frame-p "2: (INVOKE-DEBUGGER #<DIVISION-BY-ZERO>)"))
+              (noise-frame-p"2: (INVOKE-DEBUGGER #<DIVISION-BY-ZERO>)"))
   (check-true "a load-time toplevel marker is noise"
-              (clef-runner::noise-frame-p "7: (\"top level form\") [toplevel]"))
+              (noise-frame-p"7: (\"top level form\") [toplevel]"))
   ;; And the guard against over-filtering: matched exactly, so a user function
   ;; whose name merely starts with a noise name survives.
   (check "a user function named ERROR-REPORTER survives"
-         (clef-runner::noise-frame-p "4: (MY-APP::ERROR-REPORTER 1)") nil)
+         (noise-frame-p"4: (MY-APP::ERROR-REPORTER 1)") nil)
   (check "and one merely containing SB- survives"
-         (clef-runner::noise-frame-p "4: (MY-APP::MAKE-SB-THING 1)") nil))
+         (noise-frame-p"4: (MY-APP::MAKE-SB-THING 1)") nil))
 
 ;;; ---------------------------------------------------------------------------
 ;;; The debugger guarantee, in subprocesses

@@ -1,4 +1,24 @@
-(in-package :clef-runner)
+(defpackage :clef-runner/src/cli
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:import-from :clef-runner/src/runtime
+                #:+exit-success+
+                #:+exit-usage+
+                #:*optimize-policy*
+                #:*warnings-as-errors*
+                #:*min-severity*
+                #:with-runtime
+                ;; Internal to the component; see compile.lisp.
+                #:color-default)
+  (:import-from :clef-runner/src/compile
+                #:run-file
+                #:run-system)
+  (:export
+   #:main
+   #:parse-args
+   #:*usage*))
+
+(in-package :clef-runner/src/cli)
 
 ;;;; The command line.
 ;;;;

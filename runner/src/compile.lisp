@@ -1,4 +1,25 @@
-(in-package :clef-runner)
+(defpackage :clef-runner/src/compile
+  (:use :cl)
+  (:import-from :clef-conditions)
+  (:import-from :clef-runner/src/runtime
+                #:+exit-success+
+                #:+exit-usage+
+                #:+exit-diagnostics+
+                #:*optimize-policy*
+                #:*warnings-as-errors*
+                #:*min-severity*
+                ;; Internal to the component, shared between its files: taken
+                ;; by name rather than exported, so the facade does not make
+                ;; them public.
+                #:severity>=
+                #:diagnostic-stream)
+  (:export
+   #:collect-diagnostics
+   #:report-diagnostics
+   #:run-file
+   #:run-system))
+
+(in-package :clef-runner/src/compile)
 
 ;;;; Compiling and loading with legible diagnostics.
 ;;;;

@@ -6,6 +6,14 @@
 ;;;; Much simpler than lsp/build.lisp, which has to pin shared objects because
 ;;;; cl-tree-sitter dlopens a C library. This component depends on nothing
 ;;;; outside SBCL and clef-conditions, so dumping is the whole job.
+;;;;
+;;;; A script, not a module -- but it lives inside the tree the .asd governs,
+;;;; so it carries a package named by its path like everything else here.
+
+(defpackage :clef-runner/build
+  (:use :cl))
+
+(in-package :clef-runner/build)
 
 (require :asdf)
 
