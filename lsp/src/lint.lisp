@@ -123,10 +123,14 @@ separately -- :USE has its own rule, and nicknames name deps per entry.")
     (values name name-node (nreverse uses) (nreverse deps))))
 
 (defun defpackage-head-p (node source)
+  ;; A bare symbol parses as :sym-lit; a package-qualified one such as
+  ;; uiop:define-package parses as :package-lit wrapping two :sym-lits. Found
+  ;; by the migration trial: the first define-package facade in the repo was
+  ;; reported as having no defpackage at all.
   (and (eq (node-kind node) :list-lit)
        (let* ((head (first (elements node)))
               (text (and head
-                         (eq (node-kind head) :sym-lit)
+                         (member (node-kind head) '(:sym-lit :package-lit))
                          (node-source-text head source))))
          (and text
               (member (string-downcase text)

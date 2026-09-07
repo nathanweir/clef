@@ -50,6 +50,20 @@ package-inferred-system, which is the linter's gate."
 (in-package :fixture/src/util)")))))
     (assert-nil (lint-kinds root) "Conforming code must lint clean")))
 
+(deftest test-lint-accepts-a-define-package-facade
+  "A uiop:define-package head is a defpackage too, and its reexports are deps"
+  (let ((root (make-lint-project
+               '(("src/main.lisp" . "(uiop:define-package :fixture/src/main
+  (:nicknames :fixture)
+  (:use-reexport :fixture/src/util))
+(in-package :fixture/src/main)")
+                 ("src/util.lisp" . "(defpackage :fixture/src/util
+  (:use :cl))
+(in-package :fixture/src/util)")))))
+    ;; The qualified head parses as a :package-lit node, not a :sym-lit; the
+    ;; linter once reported this file as having no defpackage at all.
+    (assert-nil (lint-kinds root) "A define-package facade lints clean")))
+
 (deftest test-lint-catches-the-silent-name-mismatch
   "The E2a/E2b killer: package name disagrees with the file's path"
   (let ((root (make-lint-project
