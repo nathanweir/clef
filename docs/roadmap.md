@@ -316,16 +316,20 @@ this repo?
 renders with real highlighting in-harness. Explicitly **not urgent** — noted so
 it isn't lost.
 
-#### W3. Package/import conventions + linter + `.asd` generation **[U]** — ***built, 2026-09-06, except the migration trial***
+#### W3. Package/import conventions + linter + `.asd` generation **[U]** — ***built 2026-09-06, dogfooded 2026-09-07***
 
 Delivered the same day the survey ran: the golden-path template
 (`templates/clef/`, both delivery channels), the convention linter
 (`clef lint`, four measured rules, findings through the clef-conditions
 renderer), the hermetic init, and the convention document —
 [`golden-path/packages.md`](golden-path/packages.md), the first chapter of
-W8's guide. **Remaining: the migration trial** — converting this repo's own
-components file-by-file, which is when the lint gate flips on for our own
-code and the incremental-adoption claim gets tested for real.
+W8's guide. The migration trial then converted all three of this repo's
+components — report in
+[`surveys/w3-migration-trial.md`](surveys/w3-migration-trial.md). The
+convention held; what it found was one real dependency cycle the old `.asd`
+had hidden, an ASDF bug that reloads every inferred file on each
+`load-system`, and that SBCL's bundled ASDF 3.3.1 cannot load convention
+code at all, which the flake now fixes by providing 3.3.7 to every `sbcl`.
 
 The crux workstream (motivation §5.4). Convention, not language change:
 

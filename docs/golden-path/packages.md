@@ -181,12 +181,71 @@ re-running `asdf:initialize-source-registry` yourself — the point is that the
   fine. The convention binds golden-path projects, not the ecosystem.
 - **Package name ≠ system name** in a library you need? 
   `(asdf:register-system-packages "system-name" '(:package-name))` teaches
-  inference the mapping. Prefer rule 4 when you can.
+  inference the mapping. Prefer rule 4 when you can. When you cannot, the
+  call goes in the `.asd` stub, above the `defsystem`: it is metadata about
+  a dependency, and it must run before any file naming that package is
+  read. clef's own `lsp/clef-lsp.asd` does this for `interval`
+  (system `cl-interval`), `indentify` (`cl-indentify`) and
+  `cl-tree-sitter/high-level` (a classic system whose package names only
+  look inferred).
 - **`init.lisp` at the project root is reserved tooling** — loaded by
   `--userinit`, never as a module. The linter knows.
-- **A file you genuinely need outside module space** (a script, a build
-  helper) should live outside the source tree the `.asd` governs, or accept
-  its lint finding as a standing TODO.
+- **A script inside the tree** (a test runner, a build helper, a demo) gets
+  the same header as everything else: a package named by its path, with
+  `(:use :cl)` and nothing more. Nothing imports it, so it never loads as a
+  module — and it stops leaving its variables in `CL-USER`. This is what
+  clef's `build.lisp`, `load.lisp` and `run-tests.lisp` files do.
+
+## What the migration trial added
+
+Converting clef itself ([`../surveys/w3-migration-trial.md`](../surveys/w3-migration-trial.md))
+settled six questions the rules above left open.
+
+**A library's public name.** Rule 2 gives every file a path-shaped name, so
+no file can simply be called `mylib`. The entry module carries the public
+name as a nickname and re-exports the implementation:
+
+```lisp
+;; src/main.lisp
+(uiop:define-package :mylib/src/main
+  (:nicknames :mylib)
+  (:use-reexport :mylib/src/extract :mylib/src/render))
+```
+
+Consumers write `mylib:extract`, and `(:import-from :mylib)` in a consumer
+maps to the system `mylib` because the nickname *is* the system name. Each
+implementation file exports exactly its public part; helpers shared between
+files but not meant for callers are imported by name and never reach the
+facade.
+
+**What needs no clause.** `cl`, the implementation's own packages (`sb-ext`,
+`sb-c`, ...), `uiop` and `asdf` are part of the host image. Refer to them by
+prefix; declaring them would name systems that inference cannot fetch.
+
+**Declaring without importing.** `(:import-from :mylib)` with no symbols
+declares the dependency and binds nothing. Use it when the file reads best
+fully qualified — tests of a public API, typically.
+
+**The ASDF floor.** Deriving a dependency from `:local-nicknames` needs an
+ASDF that knows the clause. SBCL's bundled contrib is 3.3.1 (2017) and does
+not: it errors on the first such file. 3.3.6 and 3.3.7 do (measured). A
+golden-path project is covered because `init.lisp` loads the ocicl runtime,
+which brings a current ASDF; anything else that runs your code — a CI image,
+a nix build, a `--no-userinit` shell — must load one too. clef's flake makes
+3.3.7 the system init of every `sbcl` for exactly this reason.
+
+**Reloading is total.** ASDF 3.3.x re-registers every inferred subsystem on
+each fresh `load-system` and reloads all of it — a bug in its
+"already defined" check, measured at milliseconds for real projects. The
+consequence to design for: a `defparameter` in a module resets on every
+reload. Anything that accumulates — a registry other code pushes onto — is a
+`defvar`.
+
+**Tests that compile.** Under `asdf:test-op` the whole run is one
+compilation unit, and SBCL defers undefined-function and undefined-variable
+warnings to its end, past any handler in your test. A test that compiles a
+file and inspects the warnings wraps the compile in
+`(with-compilation-unit (:override t) ...)`.
 
 ## Honest limits
 

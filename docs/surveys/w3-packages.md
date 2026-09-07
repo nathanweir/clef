@@ -1,7 +1,9 @@
 # Survey: package/import conventions and the `.asd` question (W3)
 
 **Status:** survey step complete, 2026-09-06. Per [`roadmap.md`](../roadmap.md)
-§3, this precedes any build work and is allowed to cancel it.
+§3, this precedes any build work and is allowed to cancel it. The migration
+trial it calls for in §5 ran on 2026-09-07 —
+[`w3-migration-trial.md`](w3-migration-trial.md).
 
 **Verdict: the `.asd` generator mostly should not be built. ASDF already ships
 the mechanism the convention needs — `package-inferred-system` — and it works

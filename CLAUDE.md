@@ -22,12 +22,24 @@ The golden-path package convention is normative for scaffolded projects and
 documented in `docs/golden-path/packages.md`; `clef lint` checks it. Surveys
 in `docs/surveys/` are the decision record (ocicl: wrap; package-inferred
 over generated .asd; ocicl's linter for style, ours for the convention).
-**Next major task: the W3 migration trial — see `docs/handoff/w3-migration.md`.**
+**All three components follow the convention themselves** (the W3 migration
+trial, 2026-09-07 — report in `docs/surveys/w3-migration-trial.md`, open
+items in `docs/handoff/w3-migration.md`). Every `.asd` is a stub; adding a
+file means writing its `defpackage` and importing it where it is used, never
+editing the `.asd`. `clef lint <component>` must stay clean.
 
 - Built binaries: `lsp/clef` and `runner/clef-run`. The language server keeps the
   bare name `clef` because editors point at it.
-- Lisp package names (`clef-root`, `clef-lsp/document`, ...) are a separate
-  namespace from ASDF system names and were not renamed.
+- Package names are path-shaped: `clef-lsp/src/lsp/server`,
+  `clef-conditions/src/render`, `clef-lsp/test/framework`. The two libraries
+  keep their public names as nicknames on their entry modules
+  (`clef-conditions`, `clef-runner` → `src/main.lisp`), so consumers write
+  `clef-conditions:extract`. Inside `lsp/`, files reach each other through
+  short `:local-nicknames` (`ctx:`, `sym:`, `symbols:`, `parser:`, `rpc:`,
+  `server:`, one per handler file).
+- The toolchain's ASDF is 3.3.7, provided by the flake as `sbcl`'s system
+  init. SBCL's own bundled contrib is 3.3.1 and cannot load convention code;
+  `sbcl --script` skips the system init and gets 3.3.1.
 - **Resolved (2026-09-06): the `clef` binary is the umbrella.** Subcommands
   grow on the existing language-server binary; invoked bare over pipes it
   serves LSP exactly as before (editors unaffected), bare on a terminal it
@@ -81,18 +93,20 @@ Tests are in `lsp/test/` and use a custom test framework.
 
 ```
 lsp/test/
-├── package.lisp          # Test package definition
-├── framework.lisp        # Test framework (assertions, mock server)
+├── framework.lisp        # Test framework (assertions, mock server); package clef-lsp/test/framework
+├── protocol-tests.lisp   # Handler-level protocol tests
 ├── lifecycle-tests.lisp  # Tests for initialize/initialized/shutdown
 ├── document-tests.lisp   # Tests for document operations
 ├── diagnostic-tests.lisp # Tests for diagnostics
 ├── dependency-tests.lisp # Tests for ASDF dependency parsing
+├── lint-tests.lisp       # Tests for the convention linter
 └── run-tests.lisp        # Test runner entry point
 ```
 
-Note `run-tests.lisp` `load`s the test files directly rather than going through
-ASDF, so a new test file must be added there. `clef-lsp-test.asd` exists but is
-not what the runner uses.
+Each test file has its own path-named package and imports what it uses from
+`clef-lsp/test/framework` (`deftest`, the assertions, `call-handler`,
+`send-request`, ...). Note `run-tests.lisp` `load`s the test files directly
+rather than going through ASDF, so a new test file must be added there.
 
 Fixture files go in `lsp/tmp/test/` via `write-temp-file` — never global `/tmp`,
 which is not writable in sandboxed environments.
@@ -120,7 +134,7 @@ To add a new test:
 1. Editor sends JSON-RPC requests via stdio
 2. `read-lsp-message` (jsonrpc/messages.lisp) parses HTTP-like headers + JSON body
 3. Requests dispatch to handlers registered on the server context (`ctx:handlers`)
-4. Handlers access shared state through `clef-context` accessors (`ctx:documents`, `ctx:workspace-root`, symbol tables, ...)
+4. Handlers access shared state through the context accessors (`ctx:documents`, `ctx:workspace-root`, symbol tables, ...); `ctx` is each file's local nickname for `clef-lsp/src/context`
 5. Responses convert to JSON-RPC and write to stdout
 
 ### Key Source Modules (lsp/src/)
@@ -130,20 +144,23 @@ To add a new test:
 | `context.lisp` | Central `server-context` struct + `*server*` — all persistent state lives here |
 | `jsonrpc/` | JSON-RPC protocol implementation |
 | `lsp/server.lisp` | Main server loop, handler dispatch |
+| `lsp/handlers.lisp` | The method-to-handler table; sits above the server and every handler so neither depends on the other |
 | `lsp/lifecycle/` | Initialize/initialized/shutdown handlers |
 | `lsp/document/` | Document handlers (completion, definition, hover, formatting, diagnostics) |
 | `lsp/workspace/` | Workspace-level handlers |
 | `lsp/types/` | LSP type definitions (positions, error codes) |
 | `parser/` | Tree-sitter integration for Common Lisp parsing |
 | `symbols/` | Symbol analysis, lexical scope tracking, definition resolution |
-| `util/` | Utility functions (file I/O, logging, type conversions) |
-| `packages.lisp` | Package definitions and namespace exports |
-| `main.lisp` | Entry point (`clef-root:start-server`) |
+| `util.lisp`, `log.lisp` | Utilities and the `slog` logger |
+| `main.lisp` | Entry point (`clef-lsp/src/main:start-server`, `main`) and the umbrella CLI dispatch |
 
-### Server Context (`clef-context`)
+There is no `packages.lisp`: each file's leading `defpackage` is its manifest,
+and `clef-lsp.asd` names only the entry module.
+
+### Server Context (`clef-lsp/src/context`, nicknamed `ctx`)
 
 All persistent server state lives on a single `server-context` struct held in
-`clef-context:*server*`. Short symbol-macro aliases (`ctx:documents`,
+`ctx:*server*`. Short symbol-macro aliases (`ctx:documents`,
 `ctx:workspace-root`, `ctx:handlers`, ...) expand to struct-accessor reads on
 `*server*`, so call sites read and write them as if they were ordinary
 variables, including with `setf`.
@@ -190,7 +207,7 @@ Uses byte offsets internally (not line-char pairs) for efficiency. The `get-ref-
 
 ## Development Notes
 
-- Uses `slog` macro for logging (debug, info, warn, error levels)
-- Handler registration via `sethandler` calls in each handler file
-- Each module uses its own `:defpackage` with explicit exports
-- Nix flake and direnv provide reproducible environment
+- Uses `slog` for logging (debug, info, warn, error levels); each file imports it from `clef-lsp/src/log`
+- Handlers are registered in one place, `lsp/handlers.lisp`, not in the handler files
+- One package per file, named by path, exports listed explicitly; a symbol used across files is imported by name from the file that defines it
+- Nix flake and direnv provide the reproducible environment, including ASDF
