@@ -162,7 +162,7 @@ RESPONSE-RESULT-SAFE when what you mean is \"and the answer was empty\"."
                ;; Reset server state
                (clef-lsp/server:reset)
                ;; Register handlers
-               (clef-lsp/server::register-handlers)
+               (clef-lsp/handlers:register-handlers)
                ;; Start server thread
                (setf server-thread
                      (bordeaux-threads:make-thread
@@ -278,7 +278,7 @@ argument. This has bitten three times."
      ;; Reset server state
      (clef-lsp/server:reset)
      ;; Register handlers
-     (clef-lsp/server::register-handlers)
+     (clef-lsp/handlers:register-handlers)
      ;; Provide call-handler function
      (flet ((call-handler (method params &key (id 1))
               "Call an LSP handler directly and get the result"

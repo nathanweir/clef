@@ -22,7 +22,8 @@
                           (log-mode :none) log-file-path)
        ;; Nothing may be logged before clef-lsp/server:start calls clef-log:init.
        (clef-lsp/server:start :input input :output output
-                              :log-mode log-mode :log-file-path log-file-path))
+                              :log-mode log-mode :log-file-path log-file-path
+                              :register #'clef-lsp/handlers:register-handlers))
 
 (defun claim-protocol-stream ()
        "Move the real stdout to a private fd and point fd 1 at stderr.

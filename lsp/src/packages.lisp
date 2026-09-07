@@ -214,7 +214,6 @@ template search path serves -- read into the image at build time.")
             ;; to exist already. server-capabilities.lisp uses qualified names.
             (:export :start
                      :sethandler
-                     :register-handlers
                      :before-handle-request
                      :handle-lsp-request
                      :send-notification
@@ -359,3 +358,9 @@ template search path serves -- read into the image at build time.")
             (:import-from :serapeum :dict)
             (:export handle-shutdown
                      handle-exit))
+
+(defpackage :clef-lsp/handlers
+            (:use :cl)
+            (:documentation "The method-to-handler table. Sits above the server
+and every handler module so that neither has to know about the other.")
+            (:export :register-handlers))

@@ -175,48 +175,20 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
                      (before-handle-request request)
                      (funcall handler-lambda request))))
 
-(defun register-handlers ()
-       "Registers all LSP handlers on the current context."
-       (sethandler "initialize" 'clef-lsp/lifecycle:handle-initialize)
-       (sethandler "initialized" 'clef-lsp/lifecycle:handle-initialized)
-       (sethandler "textDocument/completion" 'clef-lsp/document:handle-text-document-completion)
-       (sethandler "textDocument/definition" 'clef-lsp/document:handle-text-document-definition)
-       (sethandler "textDocument/references" 'clef-lsp/document:handle-text-document-references)
-       (sethandler "textDocument/didOpen" 'clef-lsp/document:handle-text-document-did-open)
-       (sethandler "textDocument/didChange" 'clef-lsp/document:handle-text-document-did-change)
-       (sethandler "textDocument/didClose" 'clef-lsp/document:handle-text-document-did-close)
-       (sethandler "textDocument/didSave" 'clef-lsp/document:handle-text-document-did-save)
-       (sethandler "textDocument/formatting" 'clef-lsp/document:handle-text-document-formatting)
-       (sethandler "textDocument/diagnostic" 'clef-lsp/document:handle-text-document-diagnostic)
-       (sethandler "textDocument/hover" 'clef-lsp/document:handle-text-document-hover)
-       (sethandler "textDocument/documentHighlight" 'clef-lsp/document:handle-text-document-highlight)
-       (sethandler "textDocument/documentSymbol" 'clef-lsp/document:handle-text-document-document-symbol)
-       (sethandler "textDocument/prepareCallHierarchy" 'clef-lsp/document:handle-text-document-prepare-call-hierarchy)
-       (sethandler "callHierarchy/incomingCalls" 'clef-lsp/document:handle-call-hierarchy-incoming-calls)
-       (sethandler "callHierarchy/outgoingCalls" 'clef-lsp/document:handle-call-hierarchy-outgoing-calls)
-       (sethandler "textDocument/implementation" 'clef-lsp/document:handle-text-document-implementation)
-       (sethandler "textDocument/foldingRange" 'clef-lsp/document:handle-text-document-folding-range)
-       (sethandler "textDocument/selectionRange" 'clef-lsp/document:handle-text-document-selection-range)
-       (sethandler "textDocument/semanticTokens/full" 'clef-lsp/document:handle-text-document-semantic-tokens-full)
-       (sethandler "textDocument/inlayHint" 'clef-lsp/document:handle-text-document-inlay-hint)
-       (sethandler "textDocument/codeLens" 'clef-lsp/document:handle-text-document-code-lens)
-       (sethandler "textDocument/rename" 'clef-lsp/document:handle-text-document-rename)
-       (sethandler "textDocument/prepareRename" 'clef-lsp/document:handle-text-document-prepare-rename)
-       (sethandler "textDocument/signatureHelp" 'clef-lsp/document:handle-text-document-signature-help)
-       (sethandler "workspace/diagnostic" 'clef-lsp/workspace:handle-workspace-diagnostic)
-       (sethandler "workspace/didChangeConfiguration" 'clef-lsp/workspace:handle-workspace-did-change-configuration)
-       (sethandler "workspace/symbol" 'clef-lsp/workspace:handle-workspace-symbol)
-       (sethandler "shutdown" 'clef-lsp/misc:handle-shutdown)
-       (sethandler "exit" 'clef-lsp/misc:handle-exit))
-
 (defun reset ()
        "Discard all server state by installing a fresh context."
        (ctx:reset-context)
        (slog :info "CLEF LSP server state has been reset."))
 
 (defun start (&key (input *standard-input*) (output *standard-output*)
-                   (log-mode :none) log-file-path)
+                   (log-mode :none) log-file-path
+                   (register (error "START needs a :REGISTER function")))
        "Starts the CLEF LSP server.
+
+        REGISTER is called once, before the loop, to fill the handler table;
+        the entry point passes CLEF-LSP/HANDLERS:REGISTER-HANDLERS. The server
+        does not name its handlers itself -- they depend on it, so it must not
+        depend on them (see handlers.lisp).
 
         LOG-MODE defaults to :none -- normal use writes no log file at all. The
         from-source launchers opt into :file with a project-local path; the
@@ -231,6 +203,6 @@ Returns the code instead of exiting when *EXIT-TERMINATES-PROCESS* is NIL."
        ;; Rebind *standard-output* so a stray format t anywhere in a handler or a
        ;; dependency lands on stderr instead of corrupting the client's stream.
        (let ((*standard-output* *error-output*))
-            (register-handlers)
+            (funcall register)
             (run-lsp-server-stdio :input input :output output))
        (slog :info "Shutting down CLEF LSP server."))

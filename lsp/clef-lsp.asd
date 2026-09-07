@@ -64,6 +64,7 @@
                                               (:file "lsp/workspace/symbol")
                                               (:file "lsp/misc/shutdown")
                                               (:file "lsp/misc/exit")
+                                              (:file "lsp/handlers")
                                               (:file "scaffold")
                                               (:file "lint")
                                               (:file "main")))))
