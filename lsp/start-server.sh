@@ -26,6 +26,7 @@ sbcl --noinform --non-interactive \
     --eval '(require :sb-posix)' \
     --eval '(defvar *lsp-stdout* (sb-sys:make-fd-stream (sb-posix:dup 1) :output t :element-type :default :buffering :full))' \
     --eval '(sb-posix:dup2 2 1)' \
+    --eval "(asdf:load-asd #P\"$repo/conditions/clef-conditions.asd\")" \
     --eval "(asdf:load-asd #P\"$here/clef-lsp.asd\")" \
     --eval '(asdf:load-system :clef-lsp)' \
     --eval "(clef-lsp/src/main:start-server :output *lsp-stdout* :log-mode :file :log-file-path #P\"$repo/tmp/clef.log\")" \

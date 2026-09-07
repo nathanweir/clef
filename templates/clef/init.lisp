@@ -21,6 +21,14 @@
 ;; before anything else has asked.
 (require :asdf)
 
+;; Quiet the compiler's running commentary -- "; compiling file", "; wrote
+;; .fasl" for every file, every run. Warnings and errors still come through;
+;; these govern only the progress chatter nobody asked for.
+(setf *compile-verbose* nil
+      *compile-print* nil
+      *load-verbose* nil
+      *load-print* nil)
+
 (let ((runtime (merge-pathnames "ocicl/ocicl-runtime.lisp" (uiop:xdg-data-home))))
   (if (probe-file runtime)
       (load runtime)
