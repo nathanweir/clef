@@ -1,7 +1,7 @@
 ;;; Project init: hermetic by default.
 ;;;
-;;; Use it either way:
-;;;   sbcl --userinit init.lisp        everyday REPL and scripts
+;;; `clef run' and `clef test' load this first. It also works on its own:
+;;;   sbcl --userinit init.lisp        a REPL, or a script
 ;;;   (load "init.lisp")               from an already-running image
 ;;;
 ;;; Two things happen here, and the second is the one that matters:

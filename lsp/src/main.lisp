@@ -66,8 +66,12 @@
 Usage:
   clef                    serve LSP over stdio (when stdin is a pipe)
   clef lsp                serve LSP over stdio, explicitly
-  clef run FILE [...]     run a program with humane errors and real exit codes
+  clef run [-- args...]   run the golden-path project here (or above): its
+                          init.lisp, its system, then the entry point its
+                          .asd names; args go to UIOP:*COMMAND-LINE-ARGUMENTS*
+  clef run FILE [-- args] run one file the same way
                           (all clef-run options apply; try `clef run --help')
+  clef test               load the project and its test module, call run-tests
   clef new DIR [k=v...]   scaffold a golden-path project named after DIR
                           (a new or existing directory, or `.'; parameters:
                           author=..., description=..., license=...)
@@ -115,25 +119,31 @@ is the server.
                                            (format nil "~S is not a key=value parameter" arg)))
                       finally (return (values name (nreverse params) nil))))))
 
+(defun call-runner (command args)
+       "Hand `clef run' or `clef test' to the runner. Returns an exit code.
+
+        Resolved at run time, not compile time: the runner is a separate ASDF
+        system that build.lisp loads into the shipped image alongside this
+        one. Keeping it out of :clef-lsp's :depends-on means every
+        from-source entry point (start-server.sh, the test runner, the
+        experiment scripts) keeps working unchanged -- they load only the
+        LSP, and only these subcommands need the runner."
+       (if (find-package :clef-runner)
+           (uiop:symbol-call :clef-runner :main args command)
+           (progn
+             (format *error-output*
+                     "clef ~(~A~): the runner is not loaded in this image.~%~
+                      (Running from source? Use runner/clef-run, or build ~
+                      the full binary with `mise run build'.)~%"
+                     command)
+             1)))
+
 (defun dispatch (command args)
        "Run COMMAND and return an exit code."
        (cond
          ((string= command "lsp") (serve-lsp))
-         ((string= command "run")
-          ;; Resolved at run time, not compile time: the runner is a separate
-          ;; ASDF system that build.lisp loads into the shipped image alongside
-          ;; this one. Keeping it out of :clef-lsp's :depends-on means every
-          ;; from-source entry point (start-server.sh, the test runner, the
-          ;; experiment scripts) keeps working unchanged -- they load only the
-          ;; LSP, and only this subcommand needs the runner.
-          (if (find-package :clef-runner)
-              (uiop:symbol-call :clef-runner :main args)
-              (progn
-                (format *error-output*
-                        "clef run: the runner is not loaded in this image.~%~
-                         (Running from source? Use runner/clef-run, or build ~
-                         the full binary with `mise run build'.)~%")
-                1)))
+         ((string= command "run") (call-runner :run args))
+         ((string= command "test") (call-runner :test args))
          ((string= command "new")
           (multiple-value-bind (name params err) (parse-new-args args)
             (cond
@@ -151,7 +161,7 @@ is the server.
                                         (format t "The template's .gitignore ignores ~
                                                    ocicl/ (vendored deps) and *.fasl -- ~
                                                    make sure yours does.~%")))
-                            (format t "Next: ~:[cd ~A && ~;~*~]make test~%"
+                            (format t "Next: ~:[cd ~A && ~;~*~]clef test~%"
                                     here
                                     (uiop:native-namestring
                                      (uiop:enough-pathname dir (uiop:getcwd))))

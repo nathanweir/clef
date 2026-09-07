@@ -2,22 +2,29 @@
 
 A Common Lisp project on the clef golden path.
 
-Prerequisites: `sbcl` and `ocicl` on PATH, and `ocicl setup` run once per
+Prerequisites: `clef` and `ocicl` on PATH, and `ocicl setup` run once per
 machine. The `ocicl` binary must stay on PATH at runtime too — it is what
 fetches a newly imported dependency on first load, and without it that load
-fails (currently with a raw backtrace rather than a clear message).
+fails (currently with a raw backtrace rather than a clear message). `sbcl` is
+needed only for `make repl`.
 
 ## Daily commands
 
 ```sh
-make run      # run the program
-make test     # run the tests (a failing check exits non-zero)
-make repl     # a REPL with this project loaded hermetically
-make deps     # restore vendored deps exactly, from the pins in ocicl.csv
+clef test           # run the tests (a failing check exits non-zero)
+clef run            # run the program
+clef run -- a b c   # ...with arguments, in uiop:*command-line-arguments*
+clef lint           # check the package convention below
+make repl           # a REPL with this project loaded hermetically
+ocicl install       # restore vendored deps exactly, from the pins in ocicl.csv
 ```
 
-Everything goes through `init.lisp`, which loads only *this project and its
-pinned dependencies* — no user dotfiles, no ambient `~/common-lisp/` checkouts.
+`clef run` and `clef test` work from any directory in the project. Both load
+`init.lisp` first, which loads only *this project and its pinned
+dependencies* — no user dotfiles, no ambient `~/common-lisp/` checkouts —
+then the system, reporting every compiler warning with its location before
+anything runs. A program that dies prints the error and the frames of your
+own code, and exits 1. `make run`, `make test` and `make deps` are aliases.
 
 ## Adding a dependency
 
@@ -32,7 +39,7 @@ Write the import in the file that uses it. That is the whole step:
 
 On the next load, ocicl fetches the dependency, pins it by digest in
 `ocicl.csv` (commit that file), and vendors the source into `ocicl/`
-(gitignored; restorable with `make deps`).
+(gitignored; restorable with `ocicl install`).
 
 ## Adding a file
 

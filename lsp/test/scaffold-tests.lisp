@@ -41,6 +41,9 @@
          (dir (scaffold:new-project "myapp" :output-root root)))
     (assert-true (uiop:directory-exists-p dir) "The project directory exists")
     (assert-true (probe-file (file-under dir "myapp.asd")) "The .asd carries the name")
+    (assert-not-nil (search ":entry-point \"myapp/src/main:main\""
+                            (uiop:read-file-string (file-under dir "myapp.asd")))
+                    "And names the entry point clef run calls")
     (assert-true (probe-file (file-under dir "init.lisp")) "The hermetic init is there")
     (assert-not-nil (search "myapp/src/main"
                             (uiop:read-file-string (file-under dir "src/main.lisp")))

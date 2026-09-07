@@ -1,16 +1,10 @@
 # Handoff: the golden path runs through clef
 
-**For:** the next session. A focused piece of work: make a scaffolded
-project's whole loop go through clef — `clef new`, then `clef test`, then
-`clef run` — instead of handing the user a Makefile that calls raw `sbcl`.
+**Status: done, 2026-09-07** (branch `review/lsp`). What was built and what
+it costs is in [`../golden-path/entry-points.md`](../golden-path/entry-points.md);
+this file keeps the decisions as taken and the items still open.
 
-**Read first:** [`../golden-path/entry-points.md`](../golden-path/entry-points.md)
-(why the Makefile exists and what is wrong with it) and the runner's
-`runner/src/compile.lisp` (`run-file`, `run-system`). Skim
-[`../golden-path/packages.md`](../golden-path/packages.md) if the convention
-is not fresh.
-
-## Why this matters, in Nathan's words (2026-09-07)
+## Why this mattered, in Nathan's words (2026-09-07)
 
 > The purpose of clef is for people to run clef-created programs... with
 > clef. If we're building an ecosystem of high-quality developer experience
@@ -18,128 +12,56 @@ is not fresh.
 > output not use the tools we explicitly built to provide the good
 > experience, then this entire project was kind of pointless.
 
-The symptom that prompted it: `make run` on a scaffolded project with a typo
-printed SBCL's raw compile chatter, an uncoloured warning in SBCL's layout
-and a nine-frame backtrace. Run through `clef run`, the same program prints
-a located, coloured warning and a two-frame backtrace. Nothing in the
-template routes through the runner.
+## The six decisions, as taken
 
-## State as of 2026-09-07 (branch `review/lsp`, commit a99eca6, pushed)
+1. **Project detection:** walk up from the cwd to the first directory
+   holding `init.lisp` and exactly one `.asd`; stop after a `.git`.
+   `runner/src/project.lisp`, `find-project`.
+2. **Entry point:** the stub's `:entry-point` (ASDF's own field), read via
+   `asdf/system:component-entry-point`; the template sets
+   `"myapp/src/main:main"`. Fallback `<name>/src/main:main`, announced.
+3. **`clef test`:** load init, the system, then the modules the stub's
+   test-op `:in-order-to` names; call `run-tests` in each with
+   `uiop:symbol-call`. Not `asdf:test-system` (deferred warnings). The
+   `:perform` stays so `asdf:test-op` from a REPL still works.
+4. **In-image**, as `clef run --system` already was. Nathan's note when
+   confirming: this is extra motivation to keep clef itself small and scrub
+   dependencies it does not need; not worth hyper-optimising now.
+5. **Makefile → aliases** to clef, with a comment; explicitly a short-term
+   stopgap until the Makefile's future is decided. The ocicl template
+   channel stopped being a design constraint; `check-template-syntax` is
+   gone from `scaffold.lisp`, and the registration in
+   `~/.local/share/ocicl/ocicl-templates.cfg` on Nathan's machine was
+   removed (the file is now empty).
+6. **argv:** `clef run -- a b c` binds `uiop:*command-line-arguments*` to
+   `("a" "b" "c")` and `sb-ext:*posix-argv*` to the name followed by them;
+   `main` takes no arguments, as under `program-op`. `clef run FILE -- args`
+   does the same for a file.
 
-- **`clef` is the umbrella**: `run`, `new`, `lint`, `version`, `help`; bare
-  on a pipe it is the LSP. `clef run FILE` and `clef run --system NAME` call
-  `clef-runner:main` inside the image. `--system` calls `asdf:load-system`
-  with no idea where the system lives; it works only if an ambient source
-  registry finds it.
-- **The runner** (`runner/`): `with-runtime` (debugger guarantee, printer
-  limits, quiet compiler), `run-file` (compile, report diagnostics — now
-  *before* loading — then load), `run-system`, diagnostics through
-  `clef-conditions`, trimmed backtraces, colour on unless `NO_COLOR` or
-  `--no-color`, exit codes 0/1/2/3 (see `runtime.lisp`).
-- **The template** (`templates/clef/`): stub `.asd` with `:in-order-to`
-  test-op wiring; `init.lisp` (requires ASDF, quiets compile chatter, loads
-  the ocicl runtime, source registry = this project only); Makefile with
-  `run`, `test`, `deps`, `repl`, each a raw `sbcl --userinit init.lisp`;
-  `src/main.lisp` exporting `main`; `test/main.lisp` whose `run-tests`
-  signals on failure. `clef new` scaffolds into new or existing dirs, paths,
-  or `.` (since a215354), keeps an existing README/.gitignore.
-- **Two delivery channels for the template**, a W5-era decision
-  (`surveys/w5-deps.md` §1.6): bundled into the `clef` image at build time
-  for `clef new`, and registered in ocicl's template search path for
-  `ocicl new app clef`. The second predates the umbrella. Nathan questions
-  its purpose; see decision 5.
-- Suites: 185 LSP / 60 runner / 50 conditions, green. `nix build .#clef`
-  green. All three components package-inferred; `clef lint` clean.
-- The toolchain's ASDF is 3.3.7 via the flake's `sbcl` wrapper; SBCL's own
-  contrib is 3.3.1 and cannot load convention code. A scaffolded project
-  gets a current ASDF from the ocicl runtime its `init.lisp` loads.
+Plumbing: `clef-runner:main` takes a second optional argument, `:run` or
+`:test`; the umbrella's `dispatch` passes it. `parse-args` treats `--` as
+the start of the program's arguments (it used to name the target), and a
+missing target as "the project here", which `main` resolves and turns into
+a usage error (exit 2) when there is none. Kinds are `:file`, `:system`,
+`:project`.
 
-## The target
+Two calls made during verification, not among the six, recorded in
+`entry-points.md` and easy to reverse: the project's own systems are
+force-recompiled every run (else `--werror` gave exit 3 then exit 1 on the
+same source), and a command's loads share one ASDF session (else the reload
+bug printed a "redefining" warning per function on every `clef test`).
 
-```
-clef new myapp        # unchanged
-cd myapp
-clef test             # loads init.lisp, the system, the test module; calls run-tests
-clef run              # loads init.lisp, the system; calls the entry point
-clef run -- args...   # same, with argv for the program (decide the syntax)
-```
+## Open, after this
 
-Diagnostics from all of these render the way `clef run FILE` renders today.
-The README's "Next:" line becomes `clef test`. The Makefile either becomes
-four one-line aliases to clef or goes away (decision 5).
-
-## Decisions to make, with a default for each
-
-1. **Project detection.** Default: the current directory (or an ancestor,
-   stopping at a `.git`?) that holds `init.lisp` and exactly one `.asd`.
-   `clef run` with no file argument in such a directory means "run this
-   project"; outside one it is a usage error, as now.
-2. **The entry point.** Default: ASDF's own `:entry-point` field on the stub
-   (`:entry-point "myapp/src/main:main"`), which `program-op` already
-   understands, read via `asdf:component-entry-point`. The template sets it.
-   Fallback when absent: the package `<name>/src/main`, function `main`,
-   and say so.
-3. **`clef test`.** Default: load init, load the system and the test module
-   named by the stub's `:in-order-to`, then call the test function directly
-   with `uiop:symbol-call` — *not* `asdf:test-system`, whose compilation
-   unit defers undefined-function warnings past any handler in the tests
-   (found in the migration trial; `w3-migration-trial.md` §2.1.4). Keep the
-   `:perform` wiring in the stub so `asdf:test-system` still works for
-   people who use it.
-4. **In-image or subprocess.** `clef run --system` today loads the user's
-   project into the clef image itself. Default: keep that. It is fast,
-   needs no `sbcl` on PATH and no ASDF floor. Known costs to weigh and
-   record: the image already has clef's own systems and their dependency
-   versions loaded, so a project pinning a different `serapeum` collides;
-   `init.lisp`'s `(require :asdf)` is a no-op there and its
-   `initialize-source-registry` replaces clef's, which is fine for a run.
-   If in-image proves wrong, the alternative is spawning the flake's `sbcl`
-   with `--userinit init.lisp` plus a preamble that loads the runner — which
-   means the runner must be loadable into a project image, i.e. vendored or
-   registered, a bigger design.
-5. **The Makefile and the ocicl channel.** Default: the Makefile becomes
-   aliases (`test: ; clef test`) with a comment saying why, and the ocicl
-   channel stops being a design constraint — the template may assume clef.
-   `scaffold.lisp`'s `check-template-syntax` (which keeps the template to
-   the subset both renderers handle) can then go. Nathan leans this way;
-   confirm before deleting the registration in
-   `~/.local/share/ocicl/ocicl-templates.cfg` (his machine, not the repo).
-6. **argv for the program.** Default: `clef run -- a b c` passes `("a" "b"
-   "c")` through `sb-ext:*posix-argv*` or a `main` argument; pick one and
-   document it in the template's `main`.
-
-## Hazards
-
-- `dispatch` in `lsp/src/main.lisp` hands `run`'s args straight to
-  `clef-runner:main`, whose `parse-args` treats a bare argument as a file.
-  Project mode is a third kind next to `:file` and `:system`.
-- The runner's `*noise-packages*` filters frames by prefix; a project's
-  packages must never match (`CLEF-` prefixes are clef's).
-- `run-system` has no output capture; `run-file` captures SBCL's chatter
-  around `compile-file` only. Decide what a project load captures.
-- The exit-code contract in `runtime.lisp` is tested by number; do not
-  change it.
-- `init.lisp` anchors on `*load-truename*`, so `(load "init.lisp")` from
-  the image behaves like `--userinit`.
-- Keep `nix build .#clef` green: the template is bundled at dump time by
-  `lsp/build.lisp`, and the scaffold tests in `lsp/test/scaffold-tests.lisp`
-  read `templates/clef/` from source.
-
-## Verification bar
-
-- Scaffold a project into an existing directory with a README; `clef test`
-  green; break `src/main.lisp` with an undefined variable; `clef run` shows
-  the located warning, then the error, with a backtrace of the user's frames
-  only; exit code 1 (or 3 under `--werror`).
-- `clef lint` clean on the scaffolded project. `make test` still works if
-  the Makefile survives.
-- Suites green; `nix build .#clef` green; stdio probe
-  (`docs/experiments/lsp/07-stdio-probe.py`) all scenarios clean.
-- `docs/golden-path/entry-points.md` updated to describe what was built,
-  not what was intended.
-
-## Also open, not part of this
-
+- **`make repl` loads clef's fasls.** The fasls `clef run` leaves in the
+  shared ASDF cache are compiled at `(debug 3)`; a REPL started with
+  `--userinit init.lisp` reuses them. Harmless. The reverse no longer
+  happens, since clef recompiles the project's files each run.
+- **The Makefile's future**: aliases, `mise.toml`, or nothing.
+- **`clef repl`**: the one target still raw `sbcl --userinit init.lisp`.
+- **A project's diagnostics in the LSP**: the same in-image load could feed
+  `textDocument/publishDiagnostics`; not started.
+- Keeping the image's dependency set small (decision 4's note).
 - Binary size grew 145 → 168 MB locally, 250 MB from nix, at a constant
   70 MB live heap (`w3-migration-trial.md` §4).
 - The ASDF reload bug, not yet reported upstream.

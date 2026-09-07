@@ -86,7 +86,7 @@ What `clef new myapp` emits, minus comments:
 myapp/
 ├── myapp.asd        the stub -- never grows
 ├── init.lisp        hermetic loader (reserved name, not a module)
-├── Makefile         run / test / repl / deps
+├── Makefile         aliases for clef run / clef test, plus repl / deps
 ├── ocicl.csv        the lockfile -- commit it
 ├── ocicl/           vendored dep sources -- gitignored, restorable
 ├── src/
@@ -169,7 +169,8 @@ pinned copy. A build that works because of a stray checkout in your home
 directory is a build that fails on every other machine.
 
 The template's `init.lisp` therefore registers **this project only**
-(`:ignore-inherited-configuration`). Every Makefile target goes through it.
+(`:ignore-inherited-configuration`). `clef run`, `clef test` and the REPL
+all go through it.
 If you want ambient systems in an exploratory REPL, opt back in knowingly by
 re-running `asdf:initialize-source-registry` yourself — the point is that the
 *default* is reproducible, not that exploration is forbidden.

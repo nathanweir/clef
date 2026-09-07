@@ -15,6 +15,11 @@
   :version     "0.1.0"
   :class       :package-inferred-system
   :depends-on  ("<%= @ app-name %>/src/main")
+  ;; What `clef run' calls once the system is loaded. ASDF's own field: an
+  ;; executable built with program-op starts at the same function.
+  :entry-point "<%= @ app-name %>/src/main:main"
+  ;; What `clef test' loads before calling RUN-TESTS there. The :perform keeps
+  ;; (asdf:test-op :<%= @ app-name %>) working from a REPL as well.
   :in-order-to ((asdf:test-op (asdf:load-op "<%= @ app-name %>/test/main")))
   :perform     (asdf:test-op (o c)
                  (uiop:symbol-call :<%= @ app-name %>/test/main :run-tests)))

@@ -16,7 +16,7 @@ Components, one ASDF system each:
 | `conditions/` | `:clef-conditions` | structured condition extraction + a humane renderer; a library, used by both the others |
 | `runner/` | `:clef-runner` | runs a program with legible errors and a meaningful exit code; also embedded in the umbrella as `clef run` |
 | `editors/zed/` | (Rust/wasm, not ASDF) | the Zed extension |
-| `templates/clef/` | (not a system) | the golden-path project template — served both by `clef new` (bundled at build) and ocicl's template search path |
+| `templates/clef/` | (not a system) | the golden-path project template, bundled into the `clef` image at build and served by `clef new` |
 
 The golden-path package convention is normative for scaffolded projects and
 documented in `docs/golden-path/packages.md`; `clef lint` checks it. Surveys
@@ -24,9 +24,11 @@ in `docs/surveys/` are the decision record (ocicl: wrap; package-inferred
 over generated .asd; ocicl's linter for style, ours for the convention).
 **All three components follow the convention themselves** (the W3 migration
 trial, 2026-09-07 — report in `docs/surveys/w3-migration-trial.md`, open
-items in `docs/handoff/w3-migration.md`). **Next major task: the golden
-path runs through clef (`clef test`, `clef run` in a scaffolded project) —
-see `docs/handoff/golden-path-run.md`.** Every `.asd` is a stub; adding a
+items in `docs/handoff/w3-migration.md`). **The golden path runs through
+clef** (2026-09-07): `clef new`, then `clef test` and `clef run` in the
+scaffolded project, in-image; `docs/golden-path/entry-points.md` describes
+what was built and its costs, `docs/handoff/golden-path-run.md` the open
+items. Every `.asd` is a stub; adding a
 file means writing its `defpackage` and importing it where it is used, never
 editing the `.asd`. `clef lint <component>` must stay clean.
 

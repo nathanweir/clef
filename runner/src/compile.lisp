@@ -234,8 +234,12 @@ waiting for a FINISH that never came."
               (when (and fasl (probe-file fasl))
                 (ignore-errors (delete-file fasl)))))))))
 
-(defun run-system (name)
+(defun run-system (name &key force)
   "Load ASDF system NAME with the same treatment. Returns the exit code.
+
+FORCE is passed through to ASDF:LOAD-SYSTEM; project mode uses it to recompile
+the project's own files every run, so their diagnostics are reported every run
+rather than only on the one that happened to find the fasls stale.
 
 No output capture here: ASDF's own progress reporting is already silenced by the
 runtime's *COMPILE-VERBOSE* bindings, and a system load runs arbitrary code whose
@@ -245,6 +249,6 @@ writes to *ERROR-OUTPUT* are its own business."
         (collect-diagnostics
          (lambda ()
            (apply-optimize-policy)
-           (asdf:load-system name :verbose nil)))
+           (asdf:load-system name :verbose nil :force force)))
       (declare (ignore result))
       (finish diagnostics nil stream))))

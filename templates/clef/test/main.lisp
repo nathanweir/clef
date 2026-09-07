@@ -1,10 +1,14 @@
-;;; Tests. Wired to the standard entry point, so all of these are the same:
+;;; Tests. All of these reach RUN-TESTS below:
 ;;;
+;;;   clef test                              from a shell
 ;;;   (asdf:test-op :<%= @ app-name %>)      from a REPL
-;;;   make test                              from a shell
+;;;
+;;; `clef test' loads this module (the one the .asd's test-op names) and calls
+;;; RUN-TESTS directly, so compiler warnings in a test are reported as they
+;;; happen rather than deferred to the end of ASDF's compilation unit.
 ;;;
 ;;; RUN-TESTS signals on failure, which is what makes a failing check fail the
-;;; test-op -- and give a non-interactive image a non-zero exit -- rather than
+;;; run -- exit 1 under clef, a failed test-op in a REPL -- rather than
 ;;; printing sadly and reporting success.
 ;;;
 ;;; Deliberately framework-free: CHECK is fifteen lines and owes nothing to

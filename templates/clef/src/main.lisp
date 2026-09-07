@@ -22,5 +22,10 @@
 (defun greet (&optional (whom "world"))
   (format nil "Hello, ~A~A" whom (util:punctuation)))
 
+;;; The entry point the .asd names. `clef run' calls it with no arguments once
+;;; the system is loaded; whatever followed `--' on the command line is in
+;;; UIOP:*COMMAND-LINE-ARGUMENTS*, exactly as it would be in an executable
+;;; built from this system. Its return value is ignored.
 (defun main ()
-  (write-line (greet)))
+  (let ((whom (first uiop:*command-line-arguments*)))
+    (write-line (if whom (greet whom) (greet)))))

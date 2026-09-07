@@ -11,46 +11,32 @@
 
 ;;;; clef new: scaffold a golden-path project from the bundled template.
 ;;;;
-;;;; The template source of truth is templates/clef/ at the repo root, which is
-;;;; ALSO served through ocicl's template search path (`ocicl new app clef`).
-;;;; Two delivery channels, one set of files: build.lisp reads them into the
-;;;; image at dump time, so the shipped binary can scaffold with no repo, no
-;;;; registration and no ocicl template config -- distribution is the whole
-;;;; reason `clef new` exists.
+;;;; The template source of truth is templates/clef/ at the repo root.
+;;;; build.lisp reads it into the image at dump time, so the shipped binary
+;;;; can scaffold with no repo checkout and no template registration --
+;;;; distribution is the whole reason `clef new' exists.
 ;;;;
-;;;; Because both channels render the same files, the template may only use
-;;;; the subset of cl-template syntax this renderer also understands:
+;;;; The renderer understands three constructs, borrowed from cl-template's
+;;;; syntax when the same files were also served through ocicl's template
+;;;; channel (a W5-era arrangement, retired 2026-09-07 once the template came
+;;;; to assume clef; see docs/golden-path/entry-points.md):
 ;;;;
 ;;;;   <%= @ key %>                    a required parameter
 ;;;;   <%= (or (@ key) "default") %>   an optional parameter with a default
 ;;;;   {{app-name}}                    in file NAMES
 ;;;;
-;;;; Anything else is an error at template-load time, not a silent divergence
-;;;; between the two channels.
+;;;; A construct outside those is left in the output verbatim, where the
+;;;; scaffold tests would see it.
 
 (defparameter *template-files* nil
   "Alist of (relative-path . content), set at build time by LOAD-TEMPLATE-FILES.
 NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
-
-(defparameter *supported-syntax*
-  '("<%= @ [a-z-]+ %>" "<%= \\(or \\(@ [a-z-]+\\) \"[^\"]*\"\\) %>")
-  "The only template constructs the embedded renderer handles.")
 
 (defun template-root-from-source ()
   "templates/clef/ located relative to this file, for from-source runs."
   (let ((here #.(or *compile-file-truename* *load-truename*)))
     (merge-pathnames "../../templates/clef/"
                      (uiop:pathname-directory-pathname here))))
-
-(defun check-template-syntax (relative-path content)
-  "Fail loudly on template syntax the embedded renderer does not support."
-  (let ((stripped content))
-    (dolist (pattern *supported-syntax*)
-      (setf stripped (ppcre:regex-replace-all pattern stripped "")))
-    (when (search "<%" stripped)
-      (error "Template ~A uses syntax the bundled renderer does not support.~%~
-              Keep templates/clef/ to: <%= @ key %> and (or (@ key) \"default\")."
-             relative-path))))
 
 (defun load-template-files (&optional (root (template-root-from-source)))
   "Read every template file under ROOT into *TEMPLATE-FILES*."
@@ -69,7 +55,6 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
           (loop for path in (sort files #'string< :key #'namestring)
                 for rel = (uiop:native-namestring (uiop:enough-pathname path root))
                 for content = (uiop:read-file-string path)
-                do (check-template-syntax rel content)
                 collect (cons rel content)))
     (length *template-files*)))
 

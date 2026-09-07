@@ -461,9 +461,10 @@ this); `clef new` scaffolds from the template *bundled into the image*, which
 solves template distribution — otherwise a newcomer needs four artifacts and
 a registration step before their first project. The binary's job is
 distribution and coherence, not capability: every capability lives in ocicl,
-ASDF, the runner, or the LSP already. Deferred until real: `clef test`,
-`clef repl`, `clef lint` (waits for the convention linter — no stub
-commands).
+ASDF, the runner, or the LSP already. `clef lint` arrived with the
+convention linter; `clef test` and project-mode `clef run` on 2026-09-07,
+when the scaffolded project's whole loop moved through clef
+(`docs/golden-path/entry-points.md`). Still deferred until real: `clef repl`.
 
 #### W9. The live channel **[U]** — *not yet surveyed*
 

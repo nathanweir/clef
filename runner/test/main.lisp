@@ -2,7 +2,8 @@
   (:use :cl)
   (:import-from :clef-runner/test/harness #:*checks* #:*failures*)
   (:local-nicknames (:runtime-tests :clef-runner/test/runtime-tests)
-                    (:cli-tests :clef-runner/test/cli-tests))
+                    (:cli-tests :clef-runner/test/cli-tests)
+                    (:project-tests :clef-runner/test/project-tests))
   (:export #:run-all-tests))
 
 (in-package :clef-runner/test/main)
@@ -15,5 +16,8 @@
   (format t "~&Running clef-runner tests~%~%")
   (runtime-tests:run-runtime-tests)
   (cli-tests:run-cli-tests)
+  ;; Last: a project's init.lisp replaces the image's source registry with its
+  ;; own, and the fixtures' proclaimed policy lingers. Nothing after them.
+  (project-tests:run-project-tests)
   (format t "~&~%~A checks, ~A failure(s)~%" *checks* (length *failures*))
   (null *failures*))
