@@ -68,8 +68,9 @@ Usage:
   clef lsp                serve LSP over stdio, explicitly
   clef run FILE [...]     run a program with humane errors and real exit codes
                           (all clef-run options apply; try `clef run --help')
-  clef new NAME [k=v...]  scaffold a golden-path project
-                          (parameters: author=..., description=..., license=...)
+  clef new DIR [k=v...]   scaffold a golden-path project named after DIR
+                          (a new or existing directory, or `.'; parameters:
+                          author=..., description=..., license=...)
   clef lint [DIR]         check the golden-path package convention
   clef version            print version
   clef help               this text
@@ -138,11 +139,23 @@ is the server.
             (cond
               (err (format *error-output* "clef new: ~A~%" err) 2)
               (t (handler-case
-                     (let ((dir (scaffold:new-project name :params params)))
-                          (format t "Created ~A from the clef golden-path template.~%~
-                                     Next: cd ~A && make test~%"
-                                  (uiop:native-namestring dir) name)
-                          0)
+                     (multiple-value-bind (dir kept) (scaffold:new-project name :params params)
+                       (let ((here (uiop:pathname-equal dir (uiop:getcwd))))
+                            (format t "Created ~A from the clef golden-path template.~%"
+                                    (uiop:native-namestring dir))
+                            (when kept
+                                  (format t "Kept your ~{~A~^ and ~}; the template's ~
+                                             ~:[copy was~;copies were~] not written.~%"
+                                          kept (rest kept))
+                                  (when (member ".gitignore" kept :test #'string=)
+                                        (format t "The template's .gitignore ignores ~
+                                                   ocicl/ (vendored deps) and *.fasl -- ~
+                                                   make sure yours does.~%")))
+                            (format t "Next: ~:[cd ~A && ~;~*~]make test~%"
+                                    here
+                                    (uiop:native-namestring
+                                     (uiop:enough-pathname dir (uiop:getcwd))))
+                            0))
                    (error (e)
                           (format *error-output* "clef new: ~A~%" e)
                           1))))))

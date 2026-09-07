@@ -54,7 +54,11 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
 
 (defun load-template-files (&optional (root (template-root-from-source)))
   "Read every template file under ROOT into *TEMPLATE-FILES*."
-  (let ((root (uiop:ensure-directory-pathname root))
+  ;; TRUENAME, because the from-source root is spelled with ../.. and
+  ;; ENOUGH-PATHNAME cannot subtract that from the truenames DIRECTORY-FILES
+  ;; returns -- every "relative" path came out absolute, and `clef new' from
+  ;; source then tried to write the template over its own sources.
+  (let ((root (truename (uiop:ensure-directory-pathname root)))
         (files '()))
     (uiop:collect-sub*directories
      root (constantly t) (constantly t)
@@ -99,26 +103,62 @@ NIL when running from source; NEW-PROJECT then loads lazily from the repo.")
        (every (lambda (c) (or (alphanumericp c) (char= c #\-))) name)
        (alpha-char-p (char name 0))))
 
-(defun new-project (name &key params (output-root (uiop:getcwd)))
-  "Scaffold NAME under OUTPUT-ROOT from the bundled template.
-PARAMS is an alist of extra template parameters (\"author\" etc).
-Returns the project directory. Signals on any problem; refuses to overwrite."
-  (unless (valid-app-name-p name)
-    (error "~S is not usable as a project name: letters, digits and hyphens ~
-            only, starting with a letter." name))
+(defparameter *yours-if-present* '("README.md" ".gitignore")
+  "Template files that are not overwritten AND not a collision when the target
+directory already has them. Everything else the template writes is code or
+configuration the golden path depends on; these two are the user's.")
+
+(defun project-directory (target output-root)
+  "TARGET as an absolute directory under OUTPUT-ROOT: a bare name, a relative
+or absolute path, or \".\" for OUTPUT-ROOT itself. \".\" components are
+dropped so the last component is always the project's name."
+  (let* ((root (uiop:ensure-directory-pathname output-root))
+         (dir (uiop:ensure-absolute-pathname (uiop:ensure-directory-pathname target) root))
+         (components (remove "." (rest (pathname-directory dir)) :test #'equal)))
+    (make-pathname :directory (cons :absolute components) :name nil :type nil
+                   :defaults dir)))
+
+(defun new-project (target &key params (output-root (uiop:getcwd)))
+  "Scaffold a project at TARGET from the bundled template and return its
+directory.
+
+TARGET is a directory: a new name, an existing directory, a path, or \".\".
+The project's name -- its system, its packages -- is the last path component.
+An existing directory is fine; people make the folder first, and a README or
+a docs/ tree already in it is left alone. What is refused is a collision: if
+any file the template would write already exists, nothing is written and the
+error names every such file. PARAMS is an alist of extra template parameters
+(\"author\" etc)."
   (unless *template-files*
     (load-template-files))
-  (let* ((params (cons (cons "app-name" name) params))
-         (dest (merge-pathnames (make-pathname :directory (list :relative name))
-                                (uiop:ensure-directory-pathname output-root))))
-    (when (probe-file dest)
-      (error "~A already exists -- refusing to scaffold over it."
-             (uiop:native-namestring dest)))
-    (dolist (entry *template-files*)
-      (destructuring-bind (rel . content) entry
-        (let* ((rel-rendered (ppcre:regex-replace-all "{{app-name}}" rel name))
-               (target (merge-pathnames rel-rendered dest)))
-          (ensure-directories-exist target)
-          (with-open-file (out target :direction :output :if-exists :error)
-            (write-string (render content params) out)))))
-    dest))
+  (let* ((dest (project-directory target output-root))
+         (name (car (last (pathname-directory dest)))))
+    (unless (and (stringp name) (valid-app-name-p name))
+      (error "~S is not usable as a project name: letters, digits and hyphens ~
+              only, starting with a letter. (The name is the directory's own: ~
+              ~S.)" name (uiop:native-namestring dest)))
+    (when (uiop:file-exists-p (uiop:pathname-parent-directory-pathname dest))
+      ;; A file where the parent should be a directory; ensure-directories-exist
+      ;; would say something less clear.
+      (error "~A is a file, not a directory." (uiop:native-namestring dest)))
+    (let* ((params (cons (cons "app-name" name) params))
+           (plan (loop for (rel . content) in *template-files*
+                       for rel-rendered = (ppcre:regex-replace-all "{{app-name}}" rel name)
+                       collect (list (merge-pathnames rel-rendered dest) rel-rendered content)))
+           (existing (loop for (path rel) in plan
+                           when (probe-file path) collect rel))
+           ;; The user's prose and their ignore list are theirs: a README or a
+           ;; .gitignore already in the folder (GitHub writes both) is kept,
+           ;; and the template's copy is simply not written.
+           (kept (intersection existing *yours-if-present* :test #'string=))
+           (collisions (set-difference existing kept :test #'string=)))
+      (when collisions
+        (error "~A already has ~{~A~^, ~} -- refusing to scaffold over ~
+                ~[them~;it~:;them~]. Nothing was written."
+               (uiop:native-namestring dest) collisions (length collisions)))
+      (loop for (path rel content) in plan
+            unless (member rel kept :test #'string=)
+              do (ensure-directories-exist path)
+                 (with-open-file (out path :direction :output :if-exists :error)
+                   (write-string (render content params) out)))
+      (values dest kept))))
