@@ -102,8 +102,12 @@ was current when it was compiled.")
       nil))
 
 (defun color-default ()
-  (and (null (uiop:getenv "NO_COLOR"))
-       (tty-p (diagnostic-stream))))
+  "Colour is on unless NO_COLOR is set or --no-color was given.
+
+Deliberately not gated on the stream being a terminal, by preference: a pipe
+into a pager or a CI log gets the escape codes, and modern renderers show
+them. --no-color is the knob for the cases that do not."
+  (null (uiop:getenv "NO_COLOR")))
 
 ;;; ---------------------------------------------------------------------------
 ;;; The debugger guarantee
@@ -144,7 +148,9 @@ structured treatment via `dissect' is the eventual upgrade (roadmap W0), which
 would let us drop the runner's own frames by name rather than by counting.")
 
 (defparameter *noise-packages*
-  '("SB-" "CLEF-RUNNER" "CLEF-CONDITIONS" "ASDF" "UIOP")
+  ;; CLEF-LSP covers the umbrella binary's own dispatch frames
+  ;; (CLEF-LSP/SRC/MAIN:MAIN), which leaked into every `clef run' backtrace.
+  '("SB-" "CLEF-RUNNER" "CLEF-CONDITIONS" "CLEF-LSP" "ASDF" "UIOP")
   "Package prefixes that mark a frame as machinery rather than the user's code.
 
 SBCL's raw backtrace for a division by zero inside one user function runs to

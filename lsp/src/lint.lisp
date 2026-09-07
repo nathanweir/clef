@@ -358,8 +358,10 @@ not a convention project at all."
          (format t "clef lint: ~A is clean.~%" system-name)
          0)
         (t
-         (dolist (f findings)
-           (clef-conditions:render f)
-           (terpri))
+         ;; Same colour policy as `clef run': on unless NO_COLOR.
+         (let ((clef-conditions:*color* (null (uiop:getenv "NO_COLOR"))))
+           (dolist (f findings)
+             (clef-conditions:render f)
+             (terpri)))
          (format t "~D finding~:P.~%" (length findings))
          1)))))

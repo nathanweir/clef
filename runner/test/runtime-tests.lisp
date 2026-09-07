@@ -290,10 +290,29 @@
              (sb-ext:exit :code 0))")
          0))
 
+(defun test-compile-diagnostics-survive-a-load-time-death ()
+  (format t "~&diagnostics before load~%")
+  ;; The program's top-level forms run during LOAD. If one of them dies, the
+  ;; compile diagnostics must already be on the stream -- under the runtime
+  ;; the debugger hook would end the process before any later report.
+  (let* ((path (temp-source "dies-at-load" "(defun runner-uses-undefined () undefined-var-xyz)
+(error \"boom at load time\")
+"))
+         (out (make-string-output-stream))
+         (outcome (handler-case
+                      (let ((clef-runner:*diagnostic-stream* out))
+                        (clef-runner:run-file path))
+                    (error (e) (list :died (princ-to-string e)))))
+         (text (get-output-stream-string out)))
+    (check-true "the load-time error propagates" (and (consp outcome) (eq (first outcome) :died)))
+    (check-true "the compile warning was reported before it"
+                (search "UNDEFINED-VAR-XYZ" (string-upcase text)))))
+
 (defun run-runtime-tests ()
   (test-exit-codes)
   (test-clean-file)
   (test-warnings-are-reported)
+  (test-compile-diagnostics-survive-a-load-time-death)
   (test-errors-fail-the-run)
   (test-werror)
   (test-min-severity-does-not-change-exit-status)

@@ -158,28 +158,32 @@ captured and the caller replays it only if we came away with nothing.
 The capture covers COMPILE-FILE alone, deliberately. Extending it over LOAD would
 swallow the program's own writes to *ERROR-OUTPUT*, which are none of our
 business."
-  (let ((fasl nil)
-        (failed nil)
-        (chatter ""))
-    (apply-optimize-policy)
+  (multiple-value-bind (fasl failed chatter) (compile-only path)
     (unwind-protect
-         (progn
-           (setf chatter
-                 (with-output-to-string (sink)
-                   (let ((*error-output* sink))
-                     (multiple-value-bind (output warnings-p failure-p)
-                         (compile-file path :verbose nil :print nil)
-                       (declare (ignore warnings-p))
-                       (setf fasl output
-                             failed failure-p)))))
-           ;; FAILURE-P means errors, not warnings. Loading the fasl anyway
-           ;; produces a second, less informative failure stacked on the first.
-           (values (when (and fasl (not failed))
-                     (load fasl :verbose nil :print nil)
-                     t)
-                   chatter))
+         ;; FAILURE-P means errors, not warnings. Loading the fasl anyway
+         ;; produces a second, less informative failure stacked on the first.
+         (values (when (and fasl (not failed))
+                   (load fasl :verbose nil :print nil)
+                   t)
+                 chatter)
       (when (and fasl (probe-file fasl))
         (ignore-errors (delete-file fasl))))))
+
+(defun compile-only (path)
+  "Compile PATH under the configured optimize policy, capturing SBCL's own
+output. Returns (values fasl failure-p chatter); the caller owns the fasl."
+  (let ((fasl nil)
+        (failed nil))
+    (apply-optimize-policy)
+    (let ((chatter
+            (with-output-to-string (sink)
+              (let ((*error-output* sink))
+                (multiple-value-bind (output warnings-p failure-p)
+                    (compile-file path :verbose nil :print nil)
+                  (declare (ignore warnings-p))
+                  (setf fasl output
+                        failed failure-p))))))
+      (values fasl failed chatter))))
 
 (defun finish (diagnostics chatter stream)
   "Report DIAGNOSTICS to STREAM and return the exit code."
@@ -195,21 +199,40 @@ business."
         +exit-success+)))
 
 (defun run-file (path)
-  "Compile, load and run PATH. Returns the exit code to use."
+  "Compile, load and run PATH. Returns the exit code to use.
+
+Compile diagnostics are reported BEFORE the fasl is loaded. The program's
+top-level forms run during LOAD, and if one of them dies the debugger hook
+ends the process -- with everything the compiler found still unreported. That
+is how a plain \"undefined variable\" warning went missing from a run whose
+crash was that very variable: the one line that explained the death was
+waiting for a FINISH that never came."
   (let ((stream (diagnostic-stream))
         (truename (probe-file path)))
     (if (null truename)
         (progn (format stream "~&error: no such file: ~A~%" path)
                +exit-usage+)
-        (let ((chatter ""))
+        (let ((fasl nil) (failed nil) (chatter ""))
           (multiple-value-bind (result diagnostics)
               (collect-diagnostics
                (lambda ()
-                 (multiple-value-bind (loaded text) (compile-and-load truename)
-                   (setf chatter text)
-                   loaded)))
+                 (multiple-value-setq (fasl failed chatter) (compile-only truename))))
             (declare (ignore result))
-            (finish diagnostics chatter stream))))))
+            (unwind-protect
+                 (let ((code (finish diagnostics chatter stream)))
+                   (cond
+                     ((/= code +exit-success+) code)
+                     ;; FAILURE-P means errors, not warnings. Loading the fasl
+                     ;; anyway produces a second, less informative failure
+                     ;; stacked on the first.
+                     ((or (null fasl) failed) +exit-diagnostics+)
+                     (t (multiple-value-bind (loaded load-diagnostics)
+                            (collect-diagnostics
+                             (lambda () (load fasl :verbose nil :print nil) t))
+                          (declare (ignore loaded))
+                          (finish load-diagnostics nil stream)))))
+              (when (and fasl (probe-file fasl))
+                (ignore-errors (delete-file fasl)))))))))
 
 (defun run-system (name)
   "Load ASDF system NAME with the same treatment. Returns the exit code.
